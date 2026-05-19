@@ -263,13 +263,19 @@ function listChromuxChromeProcesses() {
   return listProcesses().map(parseChromuxChromeProcess).filter(Boolean);
 }
 
+function commandUsesProfileDir(command, profileName) {
+  const userDataDir = getArgValue(splitCommand(command), '--user-data-dir');
+  if (!userDataDir) return false;
+  return path.resolve(userDataDir) === path.resolve(profileDir(profileName));
+}
+
 function profileResourceSnapshot(profileName) {
   const processes = listProcesses();
   let chromeProcesses = 0;
   let renderers = 0;
   let rssKb = 0;
   for (const proc of processes) {
-    if (!proc.command.includes(`user-data-dir=${profileDir(profileName)}`)) continue;
+    if (!commandUsesProfileDir(proc.command, profileName)) continue;
     chromeProcesses++;
     if (proc.command.includes('--type=renderer')) renderers++;
   }
@@ -282,7 +288,7 @@ function profileResourceSnapshot(profileName) {
     for (const line of res.stdout.split('\n')) {
       const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
       if (!m) continue;
-      if (m[3].includes(`user-data-dir=${profileDir(profileName)}`)) rssKb += Number(m[2]) || 0;
+      if (commandUsesProfileDir(m[3], profileName)) rssKb += Number(m[2]) || 0;
     }
   }
 

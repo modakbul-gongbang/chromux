@@ -30,6 +30,9 @@ skill and `chromux help`.
   one tab per URL. Default recommendation: 3 to 5 worker sessions per profile.
 - For plain URL batches, prefer `chromux batch --file urls.txt --workers N`
   instead of asking subagents to hand-roll `open`/`run` loops.
+- Treat `batch` as a browser execution primitive, not a domain-specific
+  extractor. Use it for URL load verification and simple page metadata; use
+  checked-in per-site extractors when a task needs structured records.
 - For parent-controlled shutdown, use `chromux pause <profile>` to reject new
   browser work, then `chromux resume <profile>` before the next wave.
 - Keep work read-only unless the user explicitly asked to mutate state.
@@ -93,6 +96,10 @@ For URL-only queues, use the built-in batch worker pool:
 CHROMUX_MODE=crawl CHROMUX_PROFILE=<profile> /path/to/chromux batch --file urls.txt --workers 10 --out results.jsonl
 ```
 
+`batch` accepts plain URL lines or JSONL rows with `url`, `source_url`, or
+`href`. Its output is per-URL load metadata (`ok`, final URL, title, text/html
+lengths, duration, and errors). It does not replace a site-specific parser.
+
 ## 2. Recon Pass
 
 Open one recon session before planning the work split:
@@ -114,6 +121,18 @@ user-owned.
 
 ## 3. Decide Single Agent Or Parallel
 
+Classify the work before choosing an execution pattern:
+
+- Single-page QA or logged-in UI inspection: use one normal session in default
+  mode, then `snapshot`, `click`, `run`, and `screenshot`.
+- URL load verification or broad URL inventory: use `CHROMUX_MODE=crawl` with
+  `chromux batch`.
+- Structured raw record extraction: generate or reuse URL seeds, run bounded
+  browser execution through `batch` or a checked-in crawler, then apply
+  deterministic per-site extractor code and schema validation.
+- Strategy research, selector discovery, and output QA: use subagents when the
+  work can be split without each subagent inventing its own browser loop.
+
 Parallelize only when all are true:
 - work is read-only
 - subagents can use distinct session names
@@ -124,6 +143,7 @@ Parallelize only when all are true:
 Hard limits for browser fan-out:
 - default/QA work: keep browser sessions low and prefer single-agent operation
 - crawl mode: use 3 to 5 worker sessions per profile
+- plain URL queues: prefer `chromux batch --workers N` over subagent fan-out
 - never create one browser tab per URL for large crawls
 - avoid more than 12 active sessions in one profile unless the user explicitly
   asked to stress test resource limits
@@ -135,6 +155,9 @@ modal/login flow, or a fragile site that throttles quickly.
 
 ## 4. Subagent Dispatch Pattern
 
+Prefer not to dispatch subagents for a plain URL queue. Run `chromux batch`
+centrally and give subagents the results for analysis, extractor design, or QA.
+
 When using subagents, give each one:
 - the selected profile name
 - a unique session prefix
@@ -142,34 +165,45 @@ When using subagents, give each one:
 - a bounded URL/query slice
 - a fixed output schema
 - cleanup instruction: close its sessions and report any close hint
+- instruction to use `page(...)` or checked-in extractor files instead of
+  shell-quoted one-line JavaScript for complex DOM reads
 
 Example assignment:
 
 ```text
 Use CHROMUX_MODE=crawl and CHROMUX_PROFILE=default for every command.
 Use session names worker-a-1 through worker-a-3 only; reuse them for all URLs.
-Collect public posts for query "vibe coding"; do not mutate the account.
-Close opened sessions and include any knowledgeHint in your report.
+Use chromux run with a heredoc/file and page(...) for DOM reads; do not pass
+complex JavaScript as a shell one-liner. Collect public posts for query
+"vibe coding"; do not mutate the account. Close opened sessions and include any
+knowledgeHint in your report.
 ```
 
 Main agent responsibilities:
 - keep the recon session or close it once no longer needed
 - avoid doing the same slice as a subagent
+- pause the profile before stopping a wave or interrupting runaway workers
 - dedupe and synthesize final results
 - verify claims that affect the final answer
 
 ## 5. Evidence And Extraction
 
 Prefer this order:
-1. `snapshot` for accessible structure and `@ref` handles
-2. `run` for DOM extraction, scrolling, and repeated collection
-3. `cdp` for precise protocol operations
-4. `screenshot` for visual evidence
+1. `batch` for large URL load verification or metadata collection
+2. `snapshot` for accessible structure and `@ref` handles
+3. `run` with `page(...)` or `js(...)` for DOM extraction, scrolling, and
+   repeated collection
+4. `cdp` for precise protocol operations
+5. `screenshot` for visual evidence
 
 Record enough evidence to distinguish:
 - actually verified page content
 - inferred summaries
 - blockers or missing data
+
+Do not rely on `batch` results alone for domain-specific fields such as address,
+price, date, or recommendation reason. Those should come from explicit extractor
+logic and validation.
 
 For result lists, dedupe by the strongest stable key available: canonical URL,
 profile plus post id, or profile plus first stable text when no URL is exposed.

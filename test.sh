@@ -265,6 +265,22 @@ node "$CT" kill "$GUARD_PROFILE" 2>/dev/null > /dev/null || true
 chmod -R u+rwX "$HOME/.chromux/profiles/$GUARD_PROFILE" 2>/dev/null || true
 rm -rf "$HOME/.chromux/profiles/$GUARD_PROFILE" /tmp/chromux-guard-out-$$.txt
 
+PREFIX_OTHER="$PROFILE-prefix-other"
+PREFIX_TARGET="$PROFILE-prefix"
+CHROMUX_PROFILE=$PREFIX_OTHER CHROMUX_MODE=crawl node "$CT" open prefix-other https://example.org 2>/dev/null > /dev/null
+if CHROMUX_PROFILE=$PREFIX_TARGET CHROMUX_MODE=crawl CHROMUX_MAX_CHROME_PROCESSES_PER_PROFILE=8 node "$CT" open prefix-target https://example.com >/tmp/chromux-prefix-out-$$.txt 2>&1; then
+  PREFIX_OUT=$(cat /tmp/chromux-prefix-out-$$.txt)
+  check "resource guard uses exact profile names" "example.com" "$PREFIX_OUT"
+else
+  PREFIX_OUT=$(cat /tmp/chromux-prefix-out-$$.txt)
+  echo "  ✗ resource guard matched prefix profile incorrectly: $PREFIX_OUT"
+  FAIL=$((FAIL+1))
+fi
+node "$CT" kill "$PREFIX_TARGET" 2>/dev/null > /dev/null || true
+node "$CT" kill "$PREFIX_OTHER" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$HOME/.chromux/profiles/$PREFIX_TARGET" "$HOME/.chromux/profiles/$PREFIX_OTHER" 2>/dev/null || true
+rm -rf "$HOME/.chromux/profiles/$PREFIX_TARGET" "$HOME/.chromux/profiles/$PREFIX_OTHER" /tmp/chromux-prefix-out-$$.txt
+
 # --- Test 10: Kill profile ---
 echo ""
 echo "--- Test 10: Kill profile ---"
