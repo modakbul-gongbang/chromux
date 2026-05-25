@@ -110,6 +110,16 @@ function sockPath(name) {
   return path.join(RUN_DIR, `${name}.sock`);
 }
 
+function chromeSingletonPaths(name) {
+  const dir = profileDir(name);
+  return [
+    path.join(dir, 'SingletonCookie'),
+    path.join(dir, 'SingletonLock'),
+    path.join(dir, 'SingletonSocket'),
+    path.join(dir, 'RunningChromeVersion'),
+  ];
+}
+
 function siteKnowledgeHintForUrl(rawUrl) {
   try {
     const u = new URL(rawUrl);
@@ -238,6 +248,18 @@ function listProcesses() {
   }).filter(Boolean);
 }
 
+function processCommand(pid) {
+  return listProcesses().find(proc => proc.pid === Number(pid))?.command || '';
+}
+
+function currentProcessCommand() {
+  return processCommand(process.pid) || [process.execPath, ...process.argv.slice(1)].join(' ');
+}
+
+function isChromuxCommand(command) {
+  return /(^|\s|\/)chromux(?:\.mjs)?(\s|$)/.test(command || '');
+}
+
 function parseChromuxChromeProcess(proc) {
   if (!proc.command.includes('--user-data-dir')) return null;
   const args = splitCommand(proc.command);
@@ -302,6 +324,21 @@ function profileResourceSnapshot(profileName) {
 function findProfileProcesses(profileName) {
   validateName(profileName);
   return listChromuxChromeProcesses().filter(proc => proc.profile === profileName);
+}
+
+function clearStaleChromeSingletons(profileName) {
+  validateName(profileName);
+  if (findProfileProcesses(profileName).length > 0) return [];
+
+  const removed = [];
+  for (const file of chromeSingletonPaths(profileName)) {
+    try {
+      fs.lstatSync(file);
+      fs.rmSync(file, { force: true });
+      removed.push(path.basename(file));
+    } catch {}
+  }
+  return removed;
 }
 
 async function resolveProfileRuntime(profileName, { adopt = true } = {}) {
@@ -1574,6 +1611,7 @@ async function cmdLaunch(profileName, explicitPort, launchMode = 'headless') {
     console.error('Close that Chrome instance or run: chromux kill ' + profileName);
     process.exit(1);
   }
+  clearStaleChromeSingletons(profileName);
 
   const port = explicitPort || await findFreePort(cfg);
   if (!port) {
@@ -1734,7 +1772,8 @@ async function cmdKill(profileName) {
   }
   clearState(profileName);
   try { fs.unlinkSync(sock); } catch {}
-  console.log(JSON.stringify({ profile: profileName, killed: true, pids: [...pids] }, null, 2));
+  const removedProfileFiles = clearStaleChromeSingletons(profileName);
+  console.log(JSON.stringify({ profile: profileName, killed: true, pids: [...pids], removedProfileFiles }, null, 2));
 }
 
 function cmdPause(profileName) {
@@ -2045,9 +2084,6 @@ async function ensureDaemon(profileName) {
     await waitForSocketGone(sock, 3000);
   } catch {}
 
-  // Daemon not reachable — clean up stale socket before acquiring lock
-  try { fs.unlinkSync(sock); } catch {}
-
   // Acquire lockfile to prevent concurrent daemon starts (CR-008)
   const lockFile = path.join(RUN_DIR, `${profileName}.lock`);
   const lockFd = await acquireLock(lockFile);
@@ -2060,7 +2096,9 @@ async function ensureDaemon(profileName) {
       await waitForSocketGone(sock, 3000);
     } catch {}
 
-    // Clean up stale socket again (in case it appeared during lock wait)
+    // Clean up stale socket only while holding the startup lock. During
+    // concurrent cold-start, another CLI may be starting the daemon; deleting
+    // its socket before taking the lock can produce ECONNRESET/socket hang up.
     try { fs.unlinkSync(sock); } catch {}
 
     // Auto-launch profile if not running
@@ -2187,33 +2225,52 @@ async function runCli(cmd, args) {
 
 /**
  * Acquire an exclusive lock using O_EXCL (atomic on local FS).
- * Retries with backoff for up to ~15 seconds.
- * Stale locks older than 30 seconds are force-removed.
+ * Retries with backoff for up to ~60 seconds.
+ * Stale locks older than 30 seconds are force-removed unless they still belong
+ * to a live chromux startup process.
  */
 async function acquireLock(lockFile) {
   const STALE_MS = 30_000;
-  const MAX_ATTEMPTS = 30;
+  const MAX_ATTEMPTS = 120;
   fs.mkdirSync(path.dirname(lockFile), { recursive: true, mode: 0o700 });
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       const fd = fs.openSync(lockFile, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
-      fs.writeSync(fd, JSON.stringify({ pid: process.pid, ts: Date.now() }));
+      fs.writeSync(fd, JSON.stringify({ pid: process.pid, ts: Date.now(), command: currentProcessCommand() }));
       return fd;
     } catch (err) {
       if (err.code !== 'EEXIST') throw err;
-      // Check if lock is stale
+      let liveOwner = false;
+      let knownOwner = false;
       try {
         const owner = JSON.parse(fs.readFileSync(lockFile, 'utf8'));
-        if (owner.pid && !isProcessAlive(owner.pid)) {
-          process.stderr.write(`Removing stale lock from dead PID ${owner.pid}: ${lockFile}\n`);
-          fs.unlinkSync(lockFile);
-          continue; // Retry immediately
+        if (owner.pid) {
+          knownOwner = true;
+          const ownerCommand = processCommand(owner.pid);
+          liveOwner = !!ownerCommand;
+          if (!liveOwner) {
+            process.stderr.write(`Removing stale lock from dead PID ${owner.pid}: ${lockFile}\n`);
+            fs.unlinkSync(lockFile);
+            continue; // Retry immediately
+          }
+          if (owner.command && ownerCommand && owner.command !== ownerCommand) {
+            process.stderr.write(`Removing stale lock from reused PID ${owner.pid}: ${lockFile}\n`);
+            fs.unlinkSync(lockFile);
+            continue; // Retry immediately
+          }
+          if (!owner.command && !isChromuxCommand(ownerCommand)) {
+            liveOwner = false;
+          }
         }
       } catch {}
+      if (liveOwner) {
+        await sleep(300 + Math.random() * 200);
+        continue;
+      }
       try {
         const stat = fs.statSync(lockFile);
-        if (Date.now() - stat.mtimeMs > STALE_MS) {
+        if ((!knownOwner || !liveOwner) && Date.now() - stat.mtimeMs > STALE_MS) {
           process.stderr.write(`Removing stale lock: ${lockFile}\n`);
           fs.unlinkSync(lockFile);
           continue; // Retry immediately
