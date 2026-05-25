@@ -3,6 +3,9 @@ set -e
 
 CT="$(dirname "$0")/chromux.mjs"
 PROFILE="test-$$"
+COLD_PROFILE="$PROFILE-cold"
+LIVE_LOCK_PROFILE="$PROFILE-live-lock"
+STALE_LOCK_PROFILE="$PROFILE-stale-lock"
 PASS=0
 FAIL=0
 
@@ -24,8 +27,11 @@ cleanup() {
   echo ""
   echo "--- Cleanup ---"
   node "$CT" kill "$PROFILE" 2>/dev/null || true
-  chmod -R u+rwX "$HOME/.chromux/profiles/$PROFILE" 2>/dev/null || true
-  rm -rf "$HOME/.chromux/profiles/$PROFILE"
+  node "$CT" kill "$COLD_PROFILE" 2>/dev/null || true
+  node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null || true
+  node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null || true
+  chmod -R u+rwX "$HOME/.chromux/profiles/$PROFILE" "$HOME/.chromux/profiles/$COLD_PROFILE" "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+  rm -rf "$HOME/.chromux/profiles/$PROFILE" "$HOME/.chromux/profiles/$COLD_PROFILE" "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE"
   echo "  ✓ cleaned up profile $PROFILE"
 }
 trap cleanup EXIT
@@ -308,7 +314,125 @@ fi
 
 # --- Test 11: Dead-PID startup lock recovery ---
 echo ""
-echo "--- Test 11: Dead-PID startup lock recovery ---"
+echo "--- Test 11: Concurrent cold-start auto-launch ---"
+node "$CT" kill "$COLD_PROFILE" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$HOME/.chromux/profiles/$COLD_PROFILE" 2>/dev/null || true
+rm -rf "$HOME/.chromux/profiles/$COLD_PROFILE"
+PIDS=()
+for i in 0 1 2; do
+  (
+    set +e
+    CHROMUX_PROFILE=$COLD_PROFILE CHROMUX_MODE=crawl node "$CT" open "cold-$i" "https://example.com/?cold=$i" > "/tmp/chromux-cold-$i-$$.out" 2>&1
+    echo $? > "/tmp/chromux-cold-$i-$$.status"
+  ) &
+  PIDS+=("$!")
+done
+for pid in "${PIDS[@]}"; do
+  wait "$pid" || true
+done
+for i in 0 1 2; do
+  COLD_OUT=$(cat "/tmp/chromux-cold-$i-$$.out" 2>/dev/null || true)
+  COLD_STATUS=$(cat "/tmp/chromux-cold-$i-$$.status" 2>/dev/null || echo 1)
+  if [ "$COLD_STATUS" = "0" ]; then
+    check "cold-start worker $i opened" "example.com" "$COLD_OUT"
+  else
+    echo "  ✗ cold-start worker $i failed: $COLD_OUT"
+    FAIL=$((FAIL+1))
+  fi
+done
+COLD_LIST=$(CHROMUX_PROFILE=$COLD_PROFILE CHROMUX_MODE=crawl node "$CT" list 2>/dev/null)
+check "cold-start shared daemon has worker sessions" "cold-0" "$COLD_LIST"
+check "cold-start shared daemon has third worker" "cold-2" "$COLD_LIST"
+COLD_PS=$(node "$CT" ps 2>/dev/null)
+check "cold-start daemon is healthy" "$COLD_PROFILE" "$COLD_PS"
+check "cold-start daemon health is ok" "ok" "$COLD_PS"
+node "$CT" kill "$COLD_PROFILE" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$HOME/.chromux/profiles/$COLD_PROFILE" 2>/dev/null || true
+rm -rf "$HOME/.chromux/profiles/$COLD_PROFILE" /tmp/chromux-cold-*-$$.out /tmp/chromux-cold-*-$$.status
+
+# --- Test 12: Live startup lock preservation ---
+echo ""
+echo "--- Test 12: Live startup lock preservation ---"
+node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE"
+mkdir -p "$HOME/.chromux/run"
+( node -e 'setTimeout(() => {}, 4000)' chromux.mjs ) &
+LIVE_PID=$!
+LIVE_LOCK="$HOME/.chromux/run/$LIVE_LOCK_PROFILE.lock"
+printf '{"pid":%s,"ts":%s}' "$LIVE_PID" "$(date +%s000)" > "$LIVE_LOCK"
+touch -t 200001010000 "$LIVE_LOCK"
+(
+  set +e
+  CHROMUX_PROFILE=$LIVE_LOCK_PROFILE node "$CT" open live-lock-test https://example.com > "/tmp/chromux-live-lock-$$.out" 2>&1
+  echo $? > "/tmp/chromux-live-lock-$$.status"
+) &
+WAITER_PID=$!
+sleep 1
+if [ -f "$LIVE_LOCK" ]; then
+  echo "  ✓ live-owner startup lock preserved"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ live-owner startup lock was removed while owner was alive"
+  FAIL=$((FAIL+1))
+fi
+wait "$LIVE_PID" || true
+wait "$WAITER_PID" || true
+LIVE_LOCK_OUT=$(cat "/tmp/chromux-live-lock-$$.out" 2>/dev/null || true)
+LIVE_LOCK_STATUS=$(cat "/tmp/chromux-live-lock-$$.status" 2>/dev/null || echo 1)
+if [ "$LIVE_LOCK_STATUS" = "0" ]; then
+  check "open succeeds after live lock owner exits" "example.com" "$LIVE_LOCK_OUT"
+else
+  echo "  ✗ open after live lock owner exit failed: $LIVE_LOCK_OUT"
+  FAIL=$((FAIL+1))
+fi
+node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" "/tmp/chromux-live-lock-$$.out" "/tmp/chromux-live-lock-$$.status"
+
+# --- Test 13: Reused-PID stale lock recovery ---
+echo ""
+echo "--- Test 13: Reused-PID stale lock recovery ---"
+node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE"
+( sleep 6 ) &
+STALE_PID=$!
+STALE_LOCK="$HOME/.chromux/run/$STALE_LOCK_PROFILE.lock"
+printf '{"pid":%s,"ts":%s,"command":"node /tmp/old/chromux.mjs open stale"}' "$STALE_PID" "$(date +%s000)" > "$STALE_LOCK"
+touch -t 200001010000 "$STALE_LOCK"
+(
+  set +e
+  CHROMUX_PROFILE=$STALE_LOCK_PROFILE node "$CT" open stale-lock-test https://example.com > "/tmp/chromux-stale-lock-$$.out" 2>&1
+  echo $? > "/tmp/chromux-stale-lock-$$.status"
+) &
+STALE_WAITER_PID=$!
+sleep 1
+if kill -0 "$STALE_PID" 2>/dev/null; then
+  echo "  ✓ stale lock owner process still alive during recovery"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ stale lock owner process exited before recovery check"
+  FAIL=$((FAIL+1))
+fi
+wait "$STALE_WAITER_PID" || true
+STALE_LOCK_OUT=$(cat "/tmp/chromux-stale-lock-$$.out" 2>/dev/null || true)
+STALE_LOCK_STATUS=$(cat "/tmp/chromux-stale-lock-$$.status" 2>/dev/null || echo 1)
+if [ "$STALE_LOCK_STATUS" = "0" ]; then
+  check "open succeeds despite reused-pid stale lock" "example.com" "$STALE_LOCK_OUT"
+else
+  echo "  ✗ open with reused-pid stale lock failed: $STALE_LOCK_OUT"
+  FAIL=$((FAIL+1))
+fi
+kill "$STALE_PID" 2>/dev/null || true
+wait "$STALE_PID" 2>/dev/null || true
+node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" "/tmp/chromux-stale-lock-$$.out" "/tmp/chromux-stale-lock-$$.status"
+
+# --- Test 14: Dead-PID startup lock recovery ---
+echo ""
+echo "--- Test 14: Dead-PID startup lock recovery ---"
 mkdir -p "$HOME/.chromux/run"
 ( : ) &
 DEAD_PID=$!

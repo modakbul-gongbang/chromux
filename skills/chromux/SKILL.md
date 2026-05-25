@@ -100,7 +100,8 @@ Crawl mode adds resource guardrails: capped expensive operations, capped active
 sessions, media/font/analytics blocking, shorter navigation waits, initial blank
 tab cleanup, idle session cleanup, optional worker-tab recycling, and automatic
 closure of CDP-unresponsive sessions. It can opt into crawl-only renderer
-compaction flags for iframe-heavy process growth. Tune with:
+compaction flags for iframe-heavy process growth. Concurrent cold-start tab
+commands for one profile coordinate through the profile startup lock. Tune with:
 
 - `CHROMUX_MAX_CONCURRENT_OPS_PER_PROFILE` (default `4`)
 - `CHROMUX_MAX_QUEUED_OPS_PER_PROFILE` (default `16`)
@@ -231,4 +232,6 @@ Bad site knowledge:
 - Auth walls are user-owned. If a site redirects to login and no saved profile
   is available, stop and ask the user to log in manually.
 - Always close sessions you open. Use `chromux ps` and `chromux kill <profile>`
-  when profile cleanup is needed.
+  when profile cleanup is needed; `kill` also clears stale Chrome singleton lock
+  files and profile markers after confirming the isolated profile has no
+  remaining Chrome process.

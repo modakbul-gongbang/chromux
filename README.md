@@ -270,6 +270,9 @@ CLI / AI agents
 - **Profile adoption** — `.state` is a cache, not the source of truth; `chromux ps`,
   `launch`, `open`, and `kill` rediscover live Chrome processes from
   `--user-data-dir` + CDP when daemon/socket/state files drift or disappear
+- **Cold-start coordination** — concurrent first `open` calls for the same profile
+  share one startup lock so only one process launches Chrome and the daemon while
+  the others wait for the profile socket to become healthy.
 
 ## Configuration
 

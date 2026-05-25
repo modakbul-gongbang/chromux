@@ -23,7 +23,8 @@ skill and `chromux help`.
 - Start from a real chromux profile. Prefer an existing logged-in profile for
   user-owned sites.
 - Same profile, different sessions: subagents share the selected profile and
-  use unique session names.
+  use unique session names. Concurrent cold starts are coordinated by chromux,
+  but pre-launching the profile is still useful when you want faster first work.
 - Recon first. Do not fan out before checking login state, page shape, blockers,
   site hints, and whether the task is parallel-safe.
 - For crawling, use `CHROMUX_MODE=crawl` and a small worker-tab pool instead of

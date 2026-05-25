@@ -318,6 +318,9 @@ chromux kill <profile>
 
 chromux stores isolated profile state under `~/.chromux/profiles/<profile>/`
 and transient daemon sockets/locks under `~/.chromux/run/`.
+`chromux kill <profile>` also removes stale Chrome singleton lock files after it
+has confirmed that no Chrome process is still using that isolated profile. The
+cleanup can include Chrome's profile version marker when Chrome left it behind.
 
 ### Switch between default and crawl mode
 
