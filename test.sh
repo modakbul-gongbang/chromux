@@ -23,6 +23,17 @@ check() {
   fi
 }
 
+count_profile_chrome_processes() {
+  local profile="$1"
+  local dir="$HOME/.chromux/profiles/$profile"
+  local ps_out="/tmp/chromux-ps-$profile-$$.txt"
+  if ! ps -axo command= > "$ps_out" 2>/dev/null; then
+    ps -eo args= > "$ps_out" 2>/dev/null || true
+  fi
+  grep -F -- "--user-data-dir=$dir" "$ps_out" 2>/dev/null | wc -l | tr -d ' '
+  rm -f "$ps_out"
+}
+
 cleanup() {
   echo ""
   echo "--- Cleanup ---"
@@ -427,12 +438,16 @@ rm -rf "$HOME/.chromux/profiles/$GUARD_PROFILE" /tmp/chromux-guard-out-$$.txt
 PREFIX_OTHER="$PROFILE-prefix-other"
 PREFIX_TARGET="$PROFILE-prefix"
 CHROMUX_PROFILE=$PREFIX_OTHER CHROMUX_MODE=crawl node "$CT" open prefix-other https://example.org 2>/dev/null > /dev/null
-if CHROMUX_PROFILE=$PREFIX_TARGET CHROMUX_MODE=crawl CHROMUX_MAX_CHROME_PROCESSES_PER_PROFILE=8 node "$CT" open prefix-target https://example.com >/tmp/chromux-prefix-out-$$.txt 2>&1; then
+CHROMUX_PROFILE=$PREFIX_TARGET CHROMUX_MODE=crawl node "$CT" open prefix-target https://example.com 2>/dev/null > /dev/null
+PREFIX_TARGET_COUNT=$(count_profile_chrome_processes "$PREFIX_TARGET")
+PREFIX_OTHER_COUNT=$(count_profile_chrome_processes "$PREFIX_OTHER")
+PREFIX_LIMIT=$((PREFIX_TARGET_COUNT + 1))
+if [ "$PREFIX_TARGET_COUNT" -gt 0 ] && [ "$PREFIX_OTHER_COUNT" -gt 0 ] && CHROMUX_PROFILE=$PREFIX_TARGET CHROMUX_MODE=crawl CHROMUX_MAX_CHROME_PROCESSES_PER_PROFILE=$PREFIX_LIMIT node "$CT" open prefix-target-2 https://example.com/?second=1 >/tmp/chromux-prefix-out-$$.txt 2>&1; then
   PREFIX_OUT=$(cat /tmp/chromux-prefix-out-$$.txt)
   check "resource guard uses exact profile names" "example.com" "$PREFIX_OUT"
 else
-  PREFIX_OUT=$(cat /tmp/chromux-prefix-out-$$.txt)
-  echo "  ✗ resource guard matched prefix profile incorrectly: $PREFIX_OUT"
+  PREFIX_OUT=$(cat /tmp/chromux-prefix-out-$$.txt 2>/dev/null || true)
+  echo "  ✗ resource guard matched prefix profile incorrectly: target=$PREFIX_TARGET_COUNT other=$PREFIX_OTHER_COUNT limit=$PREFIX_LIMIT $PREFIX_OUT"
   FAIL=$((FAIL+1))
 fi
 node "$CT" kill "$PREFIX_TARGET" 2>/dev/null > /dev/null || true
