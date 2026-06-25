@@ -129,8 +129,50 @@ Check:
 - how many visible results are available before scrolling or query rotation?
 - is the task read-only and safe to parallelize?
 
-If recon finds an auth wall, stop and ask the user to log in. Auth is
-user-owned.
+### Front-load authentication
+
+Authentication is user-owned and must be resolved during recon, before any
+action work — never mid-flow. chromux uses a real, persistent Chrome profile,
+so a login the user performs once persists in that profile across sessions: the
+goal is "log in once up front, then run unattended," not "authenticate on every
+run." Deferring auth until a submit step is wrong: the redirect usually discards
+the form/modal state you just filled, and a headless profile has no screen for
+the user to log in on.
+
+Detect login state from the recon snapshot with a heuristic, since chromux has
+no first-class "is logged in" command:
+
+- URL contains `/login`, `/signin`, `/auth`, or an identity-provider host
+  (e.g. `accounts.google.com`)
+- a `password`-type input is present
+- visible "로그인" / "Sign in" / "Log in" text where authenticated content
+  should be
+
+When recon shows the profile is NOT authenticated, stop before doing the task
+and hand the login to the user:
+
+```bash
+# Use a HEADED profile so the user can actually log in (not --headless)
+CHROMUX_PROFILE=<profile> /path/to/chromux pause                 # hard-stop agent work
+CHROMUX_PROFILE=<profile> /path/to/chromux open --foreground recon-<slug> <login-url>
+```
+
+Then ask the user to log in directly in the browser, stating that you will not
+touch their credentials. Wait for a post-login signal, then resume:
+
+```bash
+CHROMUX_PROFILE=<profile> /path/to/chromux wait-for-selector recon-<slug> "<authed-only-selector>"
+CHROMUX_PROFILE=<profile> /path/to/chromux resume
+```
+
+Only after auth is confirmed do you proceed to the action flow (e.g. a
+button → modal → fill → submit sequence). Because the session is already
+authenticated, a later submit will not hit an auth wall.
+
+If an auth screen still appears mid-flow as an exception: detect it with the
+same heuristic, do NOT enter credentials, hand off to the user as above, and
+after they log in re-drive the action flow from the start (re-open the modal,
+re-fill, re-submit) since the redirect likely cleared the prior state.
 
 ## 3. Decide Single Agent Or Parallel
 
