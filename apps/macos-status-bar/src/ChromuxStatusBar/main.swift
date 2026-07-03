@@ -80,6 +80,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         Bundle.main.path(forResource: name, ofType: type)
     }
 
+    private func statusAppLaunch(chromuxPath: String) -> (executable: URL, arguments: [String]) {
+        let nodeCandidates = [
+            ProcessInfo.processInfo.environment["CHROMUX_NODE"],
+            "/opt/homebrew/bin/node",
+            "/usr/local/bin/node",
+            "/usr/bin/node",
+        ].compactMap { $0 }
+
+        for candidate in nodeCandidates {
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return (
+                    URL(fileURLWithPath: candidate),
+                    [chromuxPath, "app", "--host", "127.0.0.1", "--port", "0"]
+                )
+            }
+        }
+
+        return (
+            URL(fileURLWithPath: "/usr/bin/env"),
+            ["node", chromuxPath, "app", "--host", "127.0.0.1", "--port", "0"]
+        )
+    }
+
+    private func serverEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let defaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        if let path = env["PATH"], !path.isEmpty {
+            env["PATH"] = "\(defaultPath):\(path)"
+        } else {
+            env["PATH"] = defaultPath
+        }
+        return env
+    }
+
     private func startServer() {
         guard serverProcess == nil else { return }
         guard let chromuxPath = resourcePath("chromux", type: "mjs") else {
@@ -90,11 +124,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         let process = Process()
         let output = Pipe()
         let error = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["node", chromuxPath, "app", "--host", "127.0.0.1", "--port", "0"]
+        let launch = statusAppLaunch(chromuxPath: chromuxPath)
+        process.executableURL = launch.executable
+        process.arguments = launch.arguments
         process.standardOutput = output
         process.standardError = error
-        process.environment = ProcessInfo.processInfo.environment
+        process.environment = serverEnvironment()
         process.terminationHandler = { [weak self] proc in
             DispatchQueue.main.async {
                 if self?.serverProcess === proc {
@@ -107,7 +142,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard let text = String(data: data, encoding: .utf8) else { return }
             DispatchQueue.main.async {
                 self?.handleServerOutput(text)
             }
@@ -115,7 +154,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
 
         error.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard let text = String(data: data, encoding: .utf8) else { return }
             DispatchQueue.main.async {
                 self?.updateStatus(text.trimmingCharacters(in: .whitespacesAndNewlines))
             }

@@ -36,6 +36,7 @@ const DEFAULT_PROFILE = 'default';
 const DEFAULT_ACTIVITY_RETENTION_DAYS = 90;
 const ACTIVITY_RETENTION_OPTIONS = new Set([7, 30, 90, 365, 'unlimited']);
 const ACTIVITY_IDLE_WINDOW_MS = 30 * 60 * 1000;
+const ACTIVITY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const LAUNCH_MODES = new Set(['headless', 'headed']);
 const MODES = new Set(['default', 'crawl']);
 const TRUE_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
@@ -200,8 +201,10 @@ function normalizeRetentionDays(value) {
 
 function loadActivityConfig() {
   const cfg = readJsonFile(ACTIVITY_CONFIG_PATH, {});
+  const lastPrunedAt = typeof cfg.lastPrunedAt === 'string' ? cfg.lastPrunedAt : null;
   return {
     retentionDays: normalizeRetentionDays(cfg.retentionDays ?? DEFAULT_ACTIVITY_RETENTION_DAYS),
+    lastPrunedAt,
   };
 }
 
@@ -209,6 +212,7 @@ function saveActivityConfig(cfg) {
   const normalized = {
     retentionDays: normalizeRetentionDays(cfg.retentionDays),
   };
+  if (typeof cfg.lastPrunedAt === 'string') normalized.lastPrunedAt = cfg.lastPrunedAt;
   writeJsonFile(ACTIVITY_CONFIG_PATH, normalized);
   return normalized;
 }
@@ -272,9 +276,13 @@ function writeActivityEvents(events) {
   fs.writeFileSync(ACTIVITY_EVENTS_PATH, body ? `${body}\n` : '', { mode: 0o600 });
 }
 
-function pruneActivityEvents(nowMs = Date.now()) {
+function pruneActivityEvents(nowMs = Date.now(), { force = false } = {}) {
   const cfg = loadActivityConfig();
   if (cfg.retentionDays === 'unlimited') return { removed: 0, retentionDays: 'unlimited' };
+  const lastPrunedMs = cfg.lastPrunedAt ? Date.parse(cfg.lastPrunedAt) : NaN;
+  if (!force && Number.isFinite(lastPrunedMs) && nowMs - lastPrunedMs < ACTIVITY_PRUNE_INTERVAL_MS) {
+    return { removed: 0, retentionDays: cfg.retentionDays, skipped: true };
+  }
   const cutoff = nowMs - cfg.retentionDays * 24 * 60 * 60 * 1000;
   const events = readActivityEventsRaw();
   const kept = events.filter(event => {
@@ -282,7 +290,8 @@ function pruneActivityEvents(nowMs = Date.now()) {
     return !Number.isFinite(ts) || ts >= cutoff;
   });
   if (kept.length !== events.length) writeActivityEvents(kept);
-  return { removed: events.length - kept.length, retentionDays: cfg.retentionDays };
+  saveActivityConfig({ retentionDays: cfg.retentionDays, lastPrunedAt: new Date(nowMs).toISOString() });
+  return { removed: events.length - kept.length, retentionDays: cfg.retentionDays, skipped: false };
 }
 
 function readActivityEvents({ prune = true } = {}) {
@@ -374,7 +383,7 @@ function redactActivityEvents(scope) {
 
 function setActivityRetention(retentionDays) {
   const config = saveActivityConfig({ retentionDays });
-  const prune = pruneActivityEvents();
+  const prune = pruneActivityEvents(Date.now(), { force: true });
   return { config, prune };
 }
 
@@ -3250,8 +3259,12 @@ async function runStatusAppSelfTest() {
   ];
   writeActivityEvents(events);
   for (const event of events) updateActivityAggregates(event);
-  const prune = pruneActivityEvents(now);
+  const prune = pruneActivityEvents(now, { force: true });
   assertSelfTest(prune.removed === 1, 'retention prunes events older than configured days', checks);
+  const guardedPrune = pruneActivityEvents(now + 1000);
+  assertSelfTest(guardedPrune.skipped === true, 'retention pruning is guarded between daily runs', checks);
+  const laterPrune = pruneActivityEvents(now + ACTIVITY_PRUNE_INTERVAL_MS + 1000);
+  assertSelfTest(laterPrune.skipped === false, 'retention pruning runs again after the daily guard window', checks);
   const retained = readActivityEventsRaw();
   assertSelfTest(retained.length === 3, 'activity JSONL keeps recent events', checks);
   const timeline = buildActivityTimeline(retained);
