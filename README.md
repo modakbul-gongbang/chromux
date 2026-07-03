@@ -46,6 +46,16 @@ chromux open agent-b https://reddit.com/r/programming
 # New tabs are background by default so headed Chrome does not steal focus
 chromux open agent-c https://example.com
 
+# Label related work for the local activity timeline
+CHROMUX_TASK=research-pass chromux open agent-d https://example.com
+
+# Open the local profile/activity companion app
+chromux app --open
+
+# Build and launch the native macOS status bar wrapper
+./apps/macos-status-bar/build.sh
+open "apps/macos-status-bar/dist/Chromux Status.app"
+
 # Each operates independently
 chromux snapshot agent-a
 chromux click agent-a @3
@@ -209,6 +219,7 @@ chromux cdp s Runtime.evaluate '{"expression":"navigator.userAgent","returnByVal
 | `launch [name]` | Launch Chrome with isolated profile (default: "default") |
 | `launch <name> --port N` | Launch with specific port |
 | `ps` | List running profiles |
+| `app [--port N] [--open]` | Serve the local profile/activity companion app |
 | `pause [name]` | Hard-stop new browser work for a profile |
 | `resume [name]` | Allow browser work again for a paused profile |
 | `kill <name>` | Stop profile (Chrome + daemon) |
@@ -273,15 +284,20 @@ pattern.
 
 Chrome instance A (port 9300, ~/.chromux/profiles/default/)
   ↑ CDP WebSocket per tab
-chromux daemon (Unix socket /tmp/chromux-default.sock)
+chromux daemon (Unix socket ~/.chromux/run/default.sock)
   ↑ HTTP
 CLI / AI agents
 
 Chrome instance B (port 9301, ~/.chromux/profiles/work/)
   ↑ CDP WebSocket per tab
-chromux daemon (Unix socket /tmp/chromux-work.sock)
+chromux daemon (Unix socket ~/.chromux/run/work.sock)
   ↑ HTTP
 CLI / AI agents
+
+chromux status app (local HTTP)
+  ↑ reads profile state, activity logs, and site notes
+~/.chromux/activity/events.jsonl
+~/.chromux/activity/aggregates.json
 ```
 
 - **No Playwright/Puppeteer** — raw `WebSocket` + `http` from Node.js stdlib
@@ -298,6 +314,15 @@ CLI / AI agents
 - **macOS agent-home compatibility** — chromux state follows the invoking
   process `HOME`, while the Chrome child uses the real account home on macOS;
   `--user-data-dir` still keeps the Chrome profile isolated
+- **Local activity log** — CLI commands append local JSONL events with profile,
+  session, command, result, duration, Task label, and full URL/title when
+  available; Chrome History files are not read
+- **Companion status app** — `chromux app` serves a zero-dependency local UI for
+  profile status, raw events, Task timeline, site-note links, retention,
+  deletion, and redaction
+- **macOS status bar wrapper** — `apps/macos-status-bar` builds a native AppKit
+  menu bar app that starts the local status server and opens the dashboard in a
+  WebKit window
 
 ## Configuration
 
@@ -341,6 +366,8 @@ chromux open --foreground tab https://example.com
 |----------|---------|-------------|
 | `CHROMUX_PROFILE` | `default` | Active profile name |
 | `CHROMUX_MODE` | `default` | Browser policy mode: `default` for compatibility/QA, `crawl` for efficient crawling |
+| `CHROMUX_TASK` | empty | Optional Task label written to activity events and used by the status app timeline |
+| `CHROMUX_HOME` | `~/.chromux` | Override chromux state root for tests or isolated runs |
 | `CHROMUX_LAUNCH_MODE` | `headless` for auto-launch | Auto-launch mode used by tab commands when a profile is not running: `headless` or `headed` |
 | `CHROMUX_OPEN_BACKGROUND` | `1` | New tabs are created through `Target.createTarget({ background: true })` by default. Set to `0`, `false`, `no`, or `off`, or pass `open --foreground`, to activate new tabs instead |
 | `CHROMUX_MAX_CONCURRENT_OPS_PER_PROFILE` | `4` in crawl, unlimited in default | Maximum expensive daemon operations running at once |
@@ -359,6 +386,46 @@ chromux open --foreground tab https://example.com
 | `CHROMUX_RENDERER_PROCESS_LIMIT` | `8` in compact mode | Renderer process cap passed to Chrome when compact renderer mode is enabled |
 | `CHROMUX_EXTRA_CHROME_ARGS` | empty | Extra Chrome launch args, split like shell words |
 | `CHROMUX_CLI_TIMEOUT_MS` | `90000` in crawl, `30000` in default | Default CLI request timeout for commands such as `open` |
+
+## Activity Log And Status App
+
+chromux records local activity events for CLI usage under
+`~/.chromux/activity/events.jsonl`. Events include timestamp, profile, session,
+command, sanitized command arguments, result, duration, optional `CHROMUX_TASK`,
+and the full URL/title/host when the command result exposes page state. Input
+text for `fill` and `type`, and inline code for `run` and `eval`, are not stored
+as raw arguments.
+
+The default full-URL retention is 90 days. The status app can set retention to
+7, 30, 90, 365 days, or unlimited, delete all/profile/Task raw events, and
+redact URL/title/host fields while preserving command aggregate counters in
+`~/.chromux/activity/aggregates.json`.
+
+Start the app locally:
+
+```bash
+chromux app
+chromux app --port 9341 --open
+```
+
+The app lists known profiles, selected profile state, daemon/session counts when
+available, active-first profile sorting, search/status filters, bulk profile
+selection/deletion, raw command events, Task-first timeline groups, fallback
+session windows, and site knowledge note paths under
+`~/.chromux/skills/<host>/*.md`. V1 does not read Chrome History.
+
+On macOS, build the native status bar wrapper when you want a real menu bar app
+instead of a browser tab:
+
+```bash
+./apps/macos-status-bar/build.sh
+open "apps/macos-status-bar/dist/Chromux Status.app"
+```
+
+The wrapper adds a `cx` item to the macOS status bar, starts the same local
+dashboard server, and exposes menu actions for opening the dashboard, opening it
+in a browser, restarting the server, and quitting. The `cx` menu also refreshes
+and shows currently active profiles when it opens.
 
 ## License
 

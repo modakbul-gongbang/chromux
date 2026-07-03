@@ -93,6 +93,17 @@ tabs are background by default so they should not steal focus:
 Use `CHROMUX_PROFILE=<profile>` or `--profile <profile>` for every tab command.
 Use `open --foreground` only when bringing Chrome to the front is intentional.
 
+Choose a short, non-secret Task label before opening tabs, then include it on
+every related command:
+
+```bash
+CHROMUX_TASK=<task-label> CHROMUX_PROFILE=<profile> /path/to/chromux open recon-<slug> <url>
+```
+
+The label drives the local companion app's Task timeline. Avoid private data,
+credentials, or user-provided secrets in Task labels because labels are stored in
+`~/.chromux/activity/events.jsonl`.
+
 For efficient read-only crawling, launch/use the same profile with crawl mode:
 
 ```bash
@@ -118,8 +129,8 @@ lengths, duration, and errors). It does not replace a site-specific parser.
 Open one recon session before planning the work split:
 
 ```bash
-CHROMUX_PROFILE=<profile> /path/to/chromux open recon-<slug> <url>
-CHROMUX_PROFILE=<profile> /path/to/chromux snapshot recon-<slug>
+CHROMUX_TASK=<task-label> CHROMUX_PROFILE=<profile> /path/to/chromux open recon-<slug> <url>
+CHROMUX_TASK=<task-label> CHROMUX_PROFILE=<profile> /path/to/chromux snapshot recon-<slug>
 ```
 
 Check:
@@ -277,7 +288,7 @@ profile plus post id, or profile plus first stable text when no URL is exposed.
 Close sessions explicitly and read the output:
 
 ```bash
-CHROMUX_PROFILE=<profile> /path/to/chromux close recon-<slug>
+CHROMUX_TASK=<task-label> CHROMUX_PROFILE=<profile> /path/to/chromux close recon-<slug>
 ```
 
 If the response includes `knowledgeHint`, decide whether to update the host note.
@@ -291,6 +302,25 @@ Update only durable, public, reusable knowledge:
 Never discard close output with `>/dev/null 2>/dev/null` during normal
 chromux-work. If you need quiet cleanup, first run one close visibly or inspect
 the relevant host notes manually.
+
+For longer work, use the companion app as a local audit surface:
+
+```bash
+/path/to/chromux app
+```
+
+On macOS, use the native status bar wrapper when the user expects a real desktop
+app instead of a browser tab:
+
+```bash
+/path/to/chromux/apps/macos-status-bar/build.sh
+open "/path/to/chromux/apps/macos-status-bar/dist/Chromux Status.app"
+```
+
+It shows known profiles, selected profile status, raw activity events,
+Task-first timeline groups, site knowledge note paths, and lifecycle controls
+for retention, deletion, and URL/title redaction. It does not read Chrome
+History.
 
 ## 7. Final Report
 
