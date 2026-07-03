@@ -9,6 +9,14 @@ STALE_LOCK_PROFILE="$PROFILE-stale-lock"
 PASS=0
 FAIL=0
 
+if [ -z "${CHROMUX_HOME:-}" ]; then
+  CHROMUX_HOME="$(mktemp -d /tmp/chromux-test-home-XXXXXX)"
+  CHROMUX_TEST_OWNS_HOME=1
+else
+  CHROMUX_TEST_OWNS_HOME=0
+fi
+export CHROMUX_HOME
+
 # Keep the suite independent from the user's shell defaults.
 unset CHROMUX_LAUNCH_MODE CHROMUX_AUTO_LAUNCH_MODE CHROMUX_OPEN_BACKGROUND CHROMUX_BACKGROUND_TABS
 
@@ -25,7 +33,7 @@ check() {
 
 count_profile_chrome_processes() {
   local profile="$1"
-  local dir="$HOME/.chromux/profiles/$profile"
+  local dir="$CHROMUX_HOME/profiles/$profile"
   local ps_out="/tmp/chromux-ps-$profile-$$.txt"
   if ! ps -axo command= > "$ps_out" 2>/dev/null; then
     ps -eo args= > "$ps_out" 2>/dev/null || true
@@ -41,14 +49,40 @@ cleanup() {
   node "$CT" kill "$COLD_PROFILE" 2>/dev/null || true
   node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null || true
   node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null || true
-  chmod -R u+rwX "$HOME/.chromux/profiles/$PROFILE" "$HOME/.chromux/profiles/$COLD_PROFILE" "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
-  rm -rf "$HOME/.chromux/profiles/$PROFILE" "$HOME/.chromux/profiles/$COLD_PROFILE" "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE"
+  chmod -R u+rwX "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+  rm -rf "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
+  if [ "$CHROMUX_TEST_OWNS_HOME" = "1" ]; then
+    rm -rf "$CHROMUX_HOME"
+  fi
   echo "  ✓ cleaned up profile $PROFILE"
 }
 trap cleanup EXIT
 
 echo "=== chromux test suite ==="
 echo "profile: $PROFILE"
+echo "chromux home: $CHROMUX_HOME"
+echo ""
+
+# --- Test 0: Status app data layer ---
+echo "--- Test 0: Status app data layer ---"
+SELF_TEST=$(node "$CT" app --self-test 2>/dev/null)
+check "status app self-test passed" '"ok": true' "$SELF_TEST"
+check "status app tests Task grouping" "timeline groups Task-labeled events" "$SELF_TEST"
+check "status app tests redaction" "profile redaction removes URL and title fields" "$SELF_TEST"
+if [ "$(uname -s)" = "Darwin" ] && command -v swiftc >/dev/null 2>&1; then
+  MAC_APP_BUILD=$(./apps/macos-status-bar/build.sh 2>&1)
+  check "macOS status bar app builds" "Built" "$MAC_APP_BUILD"
+  if [ -f "apps/macos-status-bar/dist/Chromux Status.app/Contents/MacOS/Chromux Status" ]; then
+    echo "  ✓ macOS app executable exists"
+    PASS=$((PASS+1))
+  else
+    echo "  ✗ macOS app executable missing"
+    FAIL=$((FAIL+1))
+  fi
+else
+  echo "  ✓ macOS status bar app build skipped on non-Darwin or without swiftc"
+  PASS=$((PASS+1))
+fi
 echo ""
 
 # --- Test 1: Launch ---
@@ -86,7 +120,7 @@ check "ps shows running" "running" "$PS"
 # --- Test 2b: Missing .state adoption ---
 echo ""
 echo "--- Test 2b: Missing .state adoption ---"
-STATE="$HOME/.chromux/profiles/$PROFILE/.state"
+STATE="$CHROMUX_HOME/profiles/$PROFILE/.state"
 rm -f "$STATE"
 PS_ADOPT=$(node "$CT" ps 2>/dev/null)
 check "ps adopts profile without .state" "$PROFILE" "$PS_ADOPT"
@@ -116,6 +150,19 @@ check "background tab env opened" "example.org" "$R3D"
 
 R3E=$(CHROMUX_PROFILE=$PROFILE CHROMUX_OPEN_BACKGROUND=0 node "$CT" open tab-fg-env https://example.net 2>/dev/null)
 check "foreground tab env opened" "example.net" "$R3E"
+
+echo ""
+echo "--- Test 3b: Activity logging ---"
+CHROMUX_PROFILE=$PROFILE CHROMUX_TASK=activity-suite node "$CT" snapshot tab-a >/tmp/chromux-activity-snapshot-$$.txt 2>/dev/null
+CHROMUX_PROFILE=$PROFILE CHROMUX_TASK=activity-suite node "$CT" close tab-bg-env >/tmp/chromux-activity-close-$$.txt 2>/dev/null
+ACTIVITY_SUMMARY=$(node -e 'const fs=require("fs"); const file=process.env.CHROMUX_HOME+"/activity/events.jsonl"; const events=fs.readFileSync(file,"utf8").trim().split(/\n/).filter(Boolean).map(JSON.parse).filter(e=>e.profile===process.argv[1]); const commands=[...new Set(events.map(e=>e.command))].sort().join(","); const hasTask=events.some(e=>e.task==="activity-suite"); const hasFullUrl=events.some(e=>e.command==="open"&&e.url&&e.url.includes("https://example.com")); const closeHasUrl=events.some(e=>e.command==="close"&&e.url); console.log(`${commands} task=${hasTask} fullUrl=${hasFullUrl} closeUrl=${closeHasUrl}`);' "$PROFILE")
+check "activity log records open" "open" "$ACTIVITY_SUMMARY"
+check "activity log records snapshot" "snapshot" "$ACTIVITY_SUMMARY"
+check "activity log records close" "close" "$ACTIVITY_SUMMARY"
+check "activity task metadata recorded" "task=true" "$ACTIVITY_SUMMARY"
+check "activity log keeps full URL" "fullUrl=true" "$ACTIVITY_SUMMARY"
+check "close activity records URL" "closeUrl=true" "$ACTIVITY_SUMMARY"
+rm -f /tmp/chromux-activity-snapshot-$$.txt /tmp/chromux-activity-close-$$.txt
 
 # --- Test 4: Isolation ---
 echo ""
@@ -451,8 +498,8 @@ else
   check "resource guard rejects open" "resource guard" "$GUARD_OUT"
 fi
 node "$CT" kill "$GUARD_PROFILE" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$GUARD_PROFILE" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$GUARD_PROFILE" /tmp/chromux-guard-out-$$.txt
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$GUARD_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$GUARD_PROFILE" /tmp/chromux-guard-out-$$.txt
 
 PREFIX_OTHER="$PROFILE-prefix-other"
 PREFIX_TARGET="$PROFILE-prefix"
@@ -471,8 +518,8 @@ else
 fi
 node "$CT" kill "$PREFIX_TARGET" 2>/dev/null > /dev/null || true
 node "$CT" kill "$PREFIX_OTHER" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$PREFIX_TARGET" "$HOME/.chromux/profiles/$PREFIX_OTHER" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$PREFIX_TARGET" "$HOME/.chromux/profiles/$PREFIX_OTHER" /tmp/chromux-prefix-out-$$.txt
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$PREFIX_TARGET" "$CHROMUX_HOME/profiles/$PREFIX_OTHER" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$PREFIX_TARGET" "$CHROMUX_HOME/profiles/$PREFIX_OTHER" /tmp/chromux-prefix-out-$$.txt
 
 # --- Test 10: Kill profile ---
 echo ""
@@ -493,8 +540,8 @@ fi
 echo ""
 echo "--- Test 11: Concurrent cold-start auto-launch ---"
 node "$CT" kill "$COLD_PROFILE" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$COLD_PROFILE" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$COLD_PROFILE"
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$COLD_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$COLD_PROFILE"
 PIDS=()
 for i in 0 1 2; do
   (
@@ -524,19 +571,19 @@ COLD_PS=$(node "$CT" ps 2>/dev/null)
 check "cold-start daemon is healthy" "$COLD_PROFILE" "$COLD_PS"
 check "cold-start daemon health is ok" "ok" "$COLD_PS"
 node "$CT" kill "$COLD_PROFILE" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$COLD_PROFILE" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$COLD_PROFILE" /tmp/chromux-cold-*-$$.out /tmp/chromux-cold-*-$$.status
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$COLD_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$COLD_PROFILE" /tmp/chromux-cold-*-$$.out /tmp/chromux-cold-*-$$.status
 
 # --- Test 12: Live startup lock preservation ---
 echo ""
 echo "--- Test 12: Live startup lock preservation ---"
 node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE"
-mkdir -p "$HOME/.chromux/run"
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE"
+mkdir -p "$CHROMUX_HOME/run"
 ( node -e 'setTimeout(() => {}, 4000)' chromux.mjs ) &
 LIVE_PID=$!
-LIVE_LOCK="$HOME/.chromux/run/$LIVE_LOCK_PROFILE.lock"
+LIVE_LOCK="$CHROMUX_HOME/run/$LIVE_LOCK_PROFILE.lock"
 printf '{"pid":%s,"ts":%s}' "$LIVE_PID" "$(date +%s000)" > "$LIVE_LOCK"
 touch -t 200001010000 "$LIVE_LOCK"
 (
@@ -564,18 +611,18 @@ else
   FAIL=$((FAIL+1))
 fi
 node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$LIVE_LOCK_PROFILE" "/tmp/chromux-live-lock-$$.out" "/tmp/chromux-live-lock-$$.status"
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "/tmp/chromux-live-lock-$$.out" "/tmp/chromux-live-lock-$$.status"
 
 # --- Test 13: Reused-PID stale lock recovery ---
 echo ""
 echo "--- Test 13: Reused-PID stale lock recovery ---"
 node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE"
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
 ( sleep 6 ) &
 STALE_PID=$!
-STALE_LOCK="$HOME/.chromux/run/$STALE_LOCK_PROFILE.lock"
+STALE_LOCK="$CHROMUX_HOME/run/$STALE_LOCK_PROFILE.lock"
 printf '{"pid":%s,"ts":%s,"command":"node /tmp/old/chromux.mjs open stale"}' "$STALE_PID" "$(date +%s000)" > "$STALE_LOCK"
 touch -t 200001010000 "$STALE_LOCK"
 (
@@ -604,17 +651,17 @@ fi
 kill "$STALE_PID" 2>/dev/null || true
 wait "$STALE_PID" 2>/dev/null || true
 node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
-chmod -R u+rwX "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
-rm -rf "$HOME/.chromux/profiles/$STALE_LOCK_PROFILE" "/tmp/chromux-stale-lock-$$.out" "/tmp/chromux-stale-lock-$$.status"
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" "/tmp/chromux-stale-lock-$$.out" "/tmp/chromux-stale-lock-$$.status"
 
 # --- Test 14: Dead-PID startup lock recovery ---
 echo ""
 echo "--- Test 14: Dead-PID startup lock recovery ---"
-mkdir -p "$HOME/.chromux/run"
+mkdir -p "$CHROMUX_HOME/run"
 ( : ) &
 DEAD_PID=$!
 wait "$DEAD_PID" || true
-LOCK="$HOME/.chromux/run/$PROFILE.lock"
+LOCK="$CHROMUX_HOME/run/$PROFILE.lock"
 printf '{"pid":%s,"ts":%s}' "$DEAD_PID" "$(date +%s000)" > "$LOCK"
 R11=$(CHROMUX_PROFILE=$PROFILE node "$CT" open lock-test https://example.com 2>&1)
 check "open succeeds after dead-PID lock" "example.com" "$R11"

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>chromux status</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-row">
+          <div class="brand-mark" aria-hidden="true">cx</div>
+          <div>
+            <h1>chromux status</h1>
+            <p id="homePath"></p>
+          </div>
+        </div>
+        <div class="sidebar-stats" aria-label="Activity totals">
+          <div>
+            <span id="profileCount">0</span>
+            <label>profiles</label>
+          </div>
+          <div>
+            <span id="eventCount">0</span>
+            <label>events</label>
+          </div>
+        </div>
+        <div class="profile-toolbar">
+          <span>Profiles</span>
+          <button id="refreshButton" class="icon-button" title="Refresh">R</button>
+        </div>
+        <div class="filter-toolbar">
+          <input id="profileSearch" type="search" aria-label="Search profiles" placeholder="Search">
+          <select id="profileStatusFilter" aria-label="Filter profiles by status">
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="stopped">Stopped</option>
+          </select>
+        </div>
+        <div class="bulk-toolbar">
+          <label class="select-all">
+            <input id="selectAllProfiles" type="checkbox">
+            <span>Select</span>
+          </label>
+          <span id="selectedProfileCount">0 selected / 0 shown</span>
+          <button id="deleteSelectedProfiles" class="danger" disabled>Delete selected</button>
+        </div>
+        <nav id="profileList" class="profile-list" aria-label="Profiles"></nav>
+      </aside>
+
+      <main class="main-pane">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Selected profile</p>
+            <h2 id="selectedName">No profile</h2>
+          </div>
+          <div id="profileActions" class="actions"></div>
+        </header>
+
+        <section class="summary-band" aria-label="Profile summary">
+          <div>
+            <label>Status</label>
+            <strong id="summaryStatus">-</strong>
+          </div>
+          <div>
+            <label>Daemon</label>
+            <strong id="summaryDaemon">-</strong>
+          </div>
+          <div>
+            <label>Sessions</label>
+            <strong id="summarySessions">-</strong>
+          </div>
+          <div>
+            <label>Modified</label>
+            <strong id="summaryModified">-</strong>
+          </div>
+        </section>
+
+        <section class="detail-layout">
+          <div class="profile-facts">
+            <h3>Runtime</h3>
+            <dl id="runtimeFacts"></dl>
+          </div>
+          <div class="profile-facts">
+            <h3>Activity</h3>
+            <dl id="activityFacts"></dl>
+          </div>
+        </section>
+
+        <div class="tabbar" role="tablist" aria-label="Activity views">
+          <button class="tab-button is-active" data-tab="timeline" role="tab">Timeline</button>
+          <button class="tab-button" data-tab="raw" role="tab">Raw log</button>
+          <button class="tab-button" data-tab="settings" role="tab">Lifecycle</button>
+        </div>
+
+        <section id="timelineView" class="tab-view is-active" aria-label="Task timeline">
+          <div id="timelineList" class="timeline-list"></div>
+        </section>
+
+        <section id="rawView" class="tab-view" aria-label="Raw event log">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Command</th>
+                  <th>Task</th>
+                  <th>Session</th>
+                  <th>URL / Title</th>
+                  <th>Result</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="rawLogBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="settingsView" class="tab-view lifecycle" aria-label="Activity lifecycle">
+          <div class="lifecycle-row">
+            <label for="retentionSelect">Retention</label>
+            <select id="retentionSelect">
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">365 days</option>
+              <option value="unlimited">Unlimited</option>
+            </select>
+            <button id="saveRetention">Save</button>
+          </div>
+
+          <div class="lifecycle-grid">
+            <div>
+              <h3>Delete</h3>
+              <button data-lifecycle="delete-profile">Delete profile events</button>
+              <button data-lifecycle="delete-task">Delete selected Task</button>
+              <button data-lifecycle="delete-all" class="danger">Delete all events</button>
+            </div>
+            <div>
+              <h3>Redact</h3>
+              <button data-lifecycle="redact-profile">Redact profile URLs</button>
+              <button data-lifecycle="redact-task">Redact selected Task URLs</button>
+            </div>
+            <div>
+              <h3>Task</h3>
+              <select id="taskSelect"></select>
+              <p class="privacy-line">Full URLs stay local in ~/.chromux/activity.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

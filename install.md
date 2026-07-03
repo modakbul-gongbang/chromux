@@ -118,6 +118,43 @@ command -v chromux
 chromux help
 ```
 
+The optional local companion app is served by the same zero-dependency CLI:
+
+```bash
+chromux app
+chromux app --port 9341 --open
+```
+
+It reads local profile state and activity files under `~/.chromux/activity/`.
+It sorts active profiles first, filters profiles by name/status, and can
+bulk-delete selected local profile directories. The app does not require
+Electron, Playwright, Puppeteer, Python, an account, or an external service.
+
+On macOS, install the status bar app from a GitHub Release when you want a
+double-clickable menu bar app:
+
+```bash
+unzip Chromux-Status-macos-<version>.zip
+open "Chromux Status.app"
+```
+
+The release app requires Node.js >= 22 on the Mac. It bundles `chromux.mjs` and
+the dashboard UI, then runs them with the local `node` binary. It resolves Node
+from `CHROMUX_NODE`, common Homebrew/system paths, and then `PATH`. If the
+download is unsigned and macOS blocks the first launch, use Control-click > Open
+or approve it in System Settings > Privacy & Security.
+
+From a repo checkout, build the same native wrapper locally:
+
+```bash
+./apps/macos-status-bar/build.sh
+open "apps/macos-status-bar/dist/Chromux Status.app"
+```
+
+The wrapper creates a `cx` menu bar item, starts the local `chromux app` server,
+opens the dashboard in a WebKit window, and shows currently active profiles in
+the `cx` menu when it opens.
+
 If you use pnpm globally, this also works:
 
 ```bash
@@ -239,13 +276,15 @@ CHROMUX_PROFILE=chromux-smoke chromux wait-for-text smoke "Example Domain" 5000
 CHROMUX_PROFILE=chromux-smoke chromux run smoke "return await js('document.title')"
 CHROMUX_PROFILE=chromux-smoke chromux run smoke "return await page('({title:document.title,url:location.href})')"
 CHROMUX_PROFILE=chromux-smoke chromux cdp smoke Runtime.evaluate '{"expression":"location.href","returnByValue":true}'
+CHROMUX_TASK=smoke CHROMUX_PROFILE=chromux-smoke chromux snapshot smoke
 CHROMUX_PROFILE=chromux-smoke chromux close smoke
 chromux kill chromux-smoke
 ```
 
 Expected result: `wait-for-text` reports `Example Domain`, the `run` command
 prints `Example Domain`, the `cdp` command returns a `Runtime.evaluate` result
-containing `https://example.com/`, and the profile is killed at the end.
+containing `https://example.com/`, the `CHROMUX_TASK=smoke` snapshot creates a
+local activity event with that Task label, and the profile is killed at the end.
 
 ## Builtin Helper Material
 
@@ -295,8 +334,21 @@ workflow at `.github/workflows/ci.yml` runs on pull requests, pushes, and manual
 runs. It validates `node --check`, `chromux help`, skill files, built-in
 snippets, `npm pack --dry-run`, and the real headless Chrome `./test.sh` suite.
 
+The macOS status app release workflow at
+`.github/workflows/release-macos-status-app.yml` runs on `v*` tags and manual
+dispatch. It builds `Chromux Status.app`, uploads a workflow artifact, and
+attaches `Chromux-Status-macos-<version>.zip` plus its SHA-256 file to the
+GitHub Release for tag runs.
+
 If a manual npm release is needed later, run the CI checks first and publish only
 when the user explicitly asks for a package release.
+
+To package the macOS app locally from a macOS checkout:
+
+```bash
+./apps/macos-status-bar/package-release.sh
+ls apps/macos-status-bar/release/
+```
 
 For a publishable fix:
 

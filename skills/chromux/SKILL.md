@@ -80,6 +80,12 @@ Run `chromux help` for exact syntax. The day-to-day mental model is:
 - `show` opens DevTools for a live tab.
 - `close`, `list`, `launch`, `ps`, `kill`, and `stop` manage sessions/profiles.
 - `pause` and `resume` hard-stop or allow new browser work for a profile.
+- `app` serves the local profile/activity companion app.
+
+When a browser task has a stable name, set `CHROMUX_TASK=<label>` on every
+related chromux command. The label is stored in local activity events and lets
+the companion app group raw commands into a Task timeline. Use short,
+non-secret labels such as `checkout-qa` or `pricing-crawl`, not private content.
 
 ## Modes
 
@@ -210,6 +216,34 @@ Use `watch` for console and network capture:
 Use diagnostics as supporting evidence. A passing UI action with new console
 errors or failed requests should be reported as partial or suspicious, not
 silently accepted.
+
+## Local Activity Log
+
+chromux writes local activity events under `~/.chromux/activity/events.jsonl`.
+Events include profile, session, command, result, duration, optional
+`CHROMUX_TASK`, and full URL/title/host when command results expose page state.
+`fill`/`type` text and inline `run`/`eval` code are not stored as raw arguments.
+
+Open the companion app when profile state, raw command history, Task timeline,
+site-note links, retention, deletion, or redaction controls are useful:
+
+```bash
+/path/to/chromux app
+```
+
+On macOS, the repo also includes a native status bar wrapper:
+
+```bash
+/path/to/chromux/apps/macos-status-bar/build.sh
+open "/path/to/chromux/apps/macos-status-bar/dist/Chromux Status.app"
+```
+
+The wrapper adds a `cx` item to the macOS menu bar and opens the same local
+dashboard in a WebKit window. GitHub Release zips contain the same app bundle
+for double-click use on Macs with Node.js >= 22 installed.
+
+The app and activity layer do not read Chrome History. Full URL retention
+defaults to 90 days and can be changed in the app.
 
 ## Site Knowledge
 

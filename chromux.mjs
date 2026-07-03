@@ -15,17 +15,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 // ============================================================
 // Constants & Config
 // ============================================================
 
-const CHROMUX_HOME = path.join(os.homedir(), '.chromux');
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CHROMUX_HOME = path.resolve(process.env.CHROMUX_HOME || path.join(os.homedir(), '.chromux'));
 const PROFILES_DIR = path.join(CHROMUX_HOME, 'profiles');
 const CONFIG_PATH = path.join(CHROMUX_HOME, 'config.json');
+const ACTIVITY_DIR = path.join(CHROMUX_HOME, 'activity');
+const ACTIVITY_EVENTS_PATH = path.join(ACTIVITY_DIR, 'events.jsonl');
+const ACTIVITY_CONFIG_PATH = path.join(ACTIVITY_DIR, 'config.json');
+const ACTIVITY_AGGREGATES_PATH = path.join(ACTIVITY_DIR, 'aggregates.json');
+const STATUS_APP_DIR = path.join(MODULE_DIR, 'status-app');
 const PORT_RANGE_START = 9300;
 const PORT_RANGE_END = 9399;
 const DEFAULT_PROFILE = 'default';
+const DEFAULT_ACTIVITY_RETENTION_DAYS = 90;
+const ACTIVITY_RETENTION_OPTIONS = new Set([7, 30, 90, 365, 'unlimited']);
+const ACTIVITY_IDLE_WINDOW_MS = 30 * 60 * 1000;
+const ACTIVITY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const LAUNCH_MODES = new Set(['headless', 'headed']);
 const MODES = new Set(['default', 'crawl']);
 const TRUE_ENV_VALUES = new Set(['1', 'true', 'yes', 'on']);
@@ -120,20 +131,358 @@ function chromeSingletonPaths(name) {
   ];
 }
 
-function siteKnowledgeHintForUrl(rawUrl) {
+function hostFromUrl(rawUrl) {
   try {
     const u = new URL(rawUrl);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return '';
     const host = u.hostname.replace(/^www\./, '');
-    if (!host) return null;
-    return {
-      host,
-      dir: `~/.chromux/skills/${host}`,
-      hint: 'Review/update reusable non-secret site notes here if this session revealed durable behavior or stale notes.',
-    };
+    return host || '';
   } catch {
-    return null;
+    return '';
   }
+}
+
+function displayChromuxPath(absPath) {
+  const resolved = path.resolve(absPath);
+  const rel = path.relative(CHROMUX_HOME, resolved);
+  if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return `~/.chromux/${rel.split(path.sep).join('/')}`;
+  }
+  return resolved;
+}
+
+function siteKnowledgePathsForHost(host) {
+  if (!host || !VALID_NAME.test(host.replace(/\./g, '_'))) return [];
+  const dir = path.join(CHROMUX_HOME, 'skills', host);
+  try {
+    return fs.readdirSync(dir)
+      .filter(file => file.endsWith('.md'))
+      .sort()
+      .map(file => displayChromuxPath(path.join(dir, file)));
+  } catch {
+    return [];
+  }
+}
+
+function siteKnowledgeHintForUrl(rawUrl) {
+  const host = hostFromUrl(rawUrl);
+  if (!host) return null;
+  return {
+    host,
+    dir: `~/.chromux/skills/${host}`,
+    paths: siteKnowledgePathsForHost(host),
+    hint: 'Review/update reusable non-secret site notes here if this session revealed durable behavior or stale notes.',
+  };
+}
+
+// ============================================================
+// Activity log helpers
+// ============================================================
+
+function ensureActivityDir() {
+  fs.mkdirSync(ACTIVITY_DIR, { recursive: true, mode: 0o700 });
+}
+
+function readJsonFile(filePath, fallback) {
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+  catch { return fallback; }
+}
+
+function writeJsonFile(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+}
+
+function normalizeRetentionDays(value) {
+  if (value === 'unlimited' || value === null) return 'unlimited';
+  const n = Number(value);
+  return ACTIVITY_RETENTION_OPTIONS.has(n) ? n : DEFAULT_ACTIVITY_RETENTION_DAYS;
+}
+
+function loadActivityConfig() {
+  const cfg = readJsonFile(ACTIVITY_CONFIG_PATH, {});
+  const lastPrunedAt = typeof cfg.lastPrunedAt === 'string' ? cfg.lastPrunedAt : null;
+  return {
+    retentionDays: normalizeRetentionDays(cfg.retentionDays ?? DEFAULT_ACTIVITY_RETENTION_DAYS),
+    lastPrunedAt,
+  };
+}
+
+function saveActivityConfig(cfg) {
+  const normalized = {
+    retentionDays: normalizeRetentionDays(cfg.retentionDays),
+  };
+  if (typeof cfg.lastPrunedAt === 'string') normalized.lastPrunedAt = cfg.lastPrunedAt;
+  writeJsonFile(ACTIVITY_CONFIG_PATH, normalized);
+  return normalized;
+}
+
+function activityLoggingEnabled() {
+  return process.env.CHROMUX_ACTIVITY_LOG !== '0';
+}
+
+function activityEventId(timestamp) {
+  return `${timestamp.replace(/[^0-9]/g, '')}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeActivityEvent(event) {
+  const timestamp = event.timestamp || new Date().toISOString();
+  const url = event.url || event.fullUrl || null;
+  const host = event.host || hostFromUrl(url);
+  const siteKnowledgePaths = event.siteKnowledgePaths || (host ? siteKnowledgePathsForHost(host) : []);
+  return {
+    version: 1,
+    id: event.id || activityEventId(timestamp),
+    timestamp,
+    profile: event.profile || DEFAULT_PROFILE,
+    session: event.session || null,
+    command: event.command || 'unknown',
+    args: Array.isArray(event.args) ? event.args : [],
+    context: event.context || {},
+    task: event.task || null,
+    url,
+    fullUrl: url,
+    host: host || null,
+    title: event.title || null,
+    ok: event.ok !== false,
+    error: event.error || null,
+    durationMs: Number.isFinite(Number(event.durationMs)) ? Number(event.durationMs) : null,
+    siteKnowledgePaths,
+    redacted: event.redacted === true,
+    redactedAt: event.redactedAt || null,
+  };
+}
+
+function parseActivityLine(line) {
+  if (!line.trim()) return null;
+  try { return normalizeActivityEvent(JSON.parse(line)); }
+  catch { return null; }
+}
+
+function readActivityEventsRaw() {
+  try {
+    return fs.readFileSync(ACTIVITY_EVENTS_PATH, 'utf8')
+      .split('\n')
+      .map(parseActivityLine)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function writeActivityEvents(events) {
+  ensureActivityDir();
+  const body = events.map(event => JSON.stringify(normalizeActivityEvent(event))).join('\n');
+  fs.writeFileSync(ACTIVITY_EVENTS_PATH, body ? `${body}\n` : '', { mode: 0o600 });
+}
+
+function pruneActivityEvents(nowMs = Date.now(), { force = false } = {}) {
+  const cfg = loadActivityConfig();
+  if (cfg.retentionDays === 'unlimited') return { removed: 0, retentionDays: 'unlimited' };
+  const lastPrunedMs = cfg.lastPrunedAt ? Date.parse(cfg.lastPrunedAt) : NaN;
+  if (!force && Number.isFinite(lastPrunedMs) && nowMs - lastPrunedMs < ACTIVITY_PRUNE_INTERVAL_MS) {
+    return { removed: 0, retentionDays: cfg.retentionDays, skipped: true };
+  }
+  const cutoff = nowMs - cfg.retentionDays * 24 * 60 * 60 * 1000;
+  const events = readActivityEventsRaw();
+  const kept = events.filter(event => {
+    const ts = Date.parse(event.timestamp);
+    return !Number.isFinite(ts) || ts >= cutoff;
+  });
+  if (kept.length !== events.length) writeActivityEvents(kept);
+  saveActivityConfig({ retentionDays: cfg.retentionDays, lastPrunedAt: new Date(nowMs).toISOString() });
+  return { removed: events.length - kept.length, retentionDays: cfg.retentionDays, skipped: false };
+}
+
+function readActivityEvents({ prune = true } = {}) {
+  if (prune) pruneActivityEvents();
+  return readActivityEventsRaw();
+}
+
+function emptyActivityAggregates() {
+  return {
+    version: 1,
+    total: 0,
+    byCommand: {},
+    byProfile: {},
+    byTask: {},
+    updatedAt: null,
+  };
+}
+
+function loadActivityAggregates() {
+  return { ...emptyActivityAggregates(), ...readJsonFile(ACTIVITY_AGGREGATES_PATH, {}) };
+}
+
+function bumpActivityBucket(bucket, key, event) {
+  if (!key) return;
+  const row = bucket[key] || { count: 0, ok: 0, error: 0, lastAt: null };
+  row.count++;
+  if (event.ok) row.ok++;
+  else row.error++;
+  row.lastAt = event.timestamp;
+  bucket[key] = row;
+}
+
+function updateActivityAggregates(event) {
+  const aggregates = loadActivityAggregates();
+  aggregates.total = Number(aggregates.total || 0) + 1;
+  aggregates.updatedAt = event.timestamp;
+  bumpActivityBucket(aggregates.byCommand, event.command, event);
+  bumpActivityBucket(aggregates.byProfile, event.profile, event);
+  bumpActivityBucket(aggregates.byTask, event.task || '(untasked)', event);
+  writeJsonFile(ACTIVITY_AGGREGATES_PATH, aggregates);
+}
+
+function appendActivityEvent(event) {
+  if (!activityLoggingEnabled()) return null;
+  pruneActivityEvents();
+  const normalized = normalizeActivityEvent(event);
+  ensureActivityDir();
+  fs.appendFileSync(ACTIVITY_EVENTS_PATH, JSON.stringify(normalized) + '\n', { mode: 0o600 });
+  updateActivityAggregates(normalized);
+  return normalized;
+}
+
+function activityScopeMatches(event, scope) {
+  if (!scope || scope.type === 'all') return true;
+  if (scope.type === 'profile') return event.profile === scope.profile;
+  if (scope.type === 'task') return (event.task || '') === scope.task;
+  return false;
+}
+
+function deleteActivityEvents(scope) {
+  const events = readActivityEventsRaw();
+  const kept = events.filter(event => !activityScopeMatches(event, scope));
+  writeActivityEvents(kept);
+  return { deleted: events.length - kept.length, remaining: kept.length };
+}
+
+function redactActivityEvents(scope) {
+  const now = new Date().toISOString();
+  const events = readActivityEventsRaw();
+  let redacted = 0;
+  const next = events.map(event => {
+    if (!activityScopeMatches(event, scope)) return event;
+    if (!event.url && !event.fullUrl && !event.title && !event.host) return event;
+    redacted++;
+    return {
+      ...event,
+      url: null,
+      fullUrl: null,
+      host: null,
+      title: null,
+      siteKnowledgePaths: [],
+      redacted: true,
+      redactedAt: now,
+    };
+  });
+  writeActivityEvents(next);
+  return { redacted, total: next.length };
+}
+
+function setActivityRetention(retentionDays) {
+  const config = saveActivityConfig({ retentionDays });
+  const prune = pruneActivityEvents(Date.now(), { force: true });
+  return { config, prune };
+}
+
+function enrichActivityEvent(event) {
+  if (event.redacted || !event.host) return event;
+  return {
+    ...event,
+    siteKnowledgePaths: event.siteKnowledgePaths?.length
+      ? event.siteKnowledgePaths
+      : siteKnowledgePathsForHost(event.host),
+  };
+}
+
+function buildActivityTimeline(events, idleWindowMs = ACTIVITY_IDLE_WINDOW_MS) {
+  const sorted = [...events].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const groups = [];
+  const taskGroups = new Map();
+  const fallbackGroups = new Map();
+
+  const createGroup = (event, source, key) => {
+    const group = {
+      id: `${source}:${key}:${groups.length}`,
+      label: source === 'task' ? event.task : (event.session ? `Session ${event.session}` : `Profile ${event.profile}`),
+      source,
+      derived: source !== 'task',
+      task: source === 'task' ? event.task : null,
+      profile: event.profile,
+      session: source === 'task' ? null : event.session,
+      startedAt: event.timestamp,
+      endedAt: event.timestamp,
+      eventCount: 0,
+      okCount: 0,
+      errorCount: 0,
+      commands: [],
+      hosts: [],
+      events: [],
+      _commands: new Set(),
+      _hosts: new Set(),
+    };
+    groups.push(group);
+    return group;
+  };
+
+  for (const event of sorted) {
+    const ts = Date.parse(event.timestamp) || 0;
+    let group;
+    if (event.task) {
+      const key = `${event.profile}:${event.task}`;
+      group = taskGroups.get(key);
+      if (!group) {
+        group = createGroup(event, 'task', key);
+        taskGroups.set(key, group);
+      }
+    } else {
+      const key = `${event.profile}:${event.session || '(profile)'}`;
+      const current = fallbackGroups.get(key);
+      if (!current || ts - current.lastTs > idleWindowMs) {
+        group = createGroup(event, 'session-fallback', `${key}:${ts || groups.length}`);
+        fallbackGroups.set(key, { group, lastTs: ts });
+      } else {
+        group = current.group;
+        current.lastTs = ts;
+      }
+    }
+
+    group.endedAt = event.timestamp;
+    group.eventCount++;
+    if (event.ok) group.okCount++;
+    else group.errorCount++;
+    group._commands.add(event.command);
+    if (event.host) group._hosts.add(event.host);
+    group.events.push(event);
+  }
+
+  return groups.map(group => {
+    const { _commands, _hosts, ...clean } = group;
+    return {
+      ...clean,
+      commands: [..._commands],
+      hosts: [..._hosts],
+      events: clean.events.slice(-8),
+    };
+  }).sort((a, b) => Date.parse(b.endedAt) - Date.parse(a.endedAt));
+}
+
+function activitySnapshot() {
+  const events = readActivityEvents().map(enrichActivityEvent);
+  const newest = [...events].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+  const tasks = [...new Set(events.map(event => event.task).filter(Boolean))].sort();
+  const hosts = [...new Set(events.map(event => event.host).filter(Boolean))].sort();
+  return {
+    config: loadActivityConfig(),
+    aggregates: loadActivityAggregates(),
+    totalEvents: events.length,
+    events: newest.slice(0, 500),
+    timeline: buildActivityTimeline(events),
+    tasks,
+    hosts,
+  };
 }
 
 // ============================================================
@@ -469,6 +818,121 @@ async function findFreePort(cfg) {
     if (!taken) return port;
   }
   return null;
+}
+
+function listKnownProfileNames() {
+  fs.mkdirSync(PROFILES_DIR, { recursive: true });
+  let names = [];
+  try {
+    names = fs.readdirSync(PROFILES_DIR)
+      .filter(name => VALID_NAME.test(name))
+      .filter(name => {
+        try { return fs.statSync(profileDir(name)).isDirectory(); }
+        catch { return false; }
+      });
+  } catch {}
+  for (const proc of listChromuxChromeProcesses()) names.push(proc.profile);
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+}
+
+function profileFileInfo(profileName) {
+  const dir = profileDir(profileName);
+  try {
+    const stat = fs.statSync(dir);
+    return {
+      exists: true,
+      userDataDir: dir,
+      modifiedAt: stat.mtime.toISOString(),
+    };
+  } catch {
+    return {
+      exists: false,
+      userDataDir: dir,
+      modifiedAt: null,
+    };
+  }
+}
+
+async function readDaemonSnapshot(sock) {
+  if (!fs.existsSync(sock)) {
+    return { status: 'idle', sessions: null, mode: null, paused: false, resources: null };
+  }
+  try {
+    const health = await cliReq('GET', '/health', null, sock, 1500);
+    return {
+      status: 'ok',
+      sessions: health.sessions ?? null,
+      mode: health.mode || null,
+      paused: Boolean(health.paused),
+      resources: health.resources || null,
+      gate: health.gate || null,
+      queued: health.queued || null,
+    };
+  } catch (err) {
+    return { status: 'stale', sessions: null, mode: null, paused: false, resources: null, error: err.message };
+  }
+}
+
+async function readActiveTabCount(runtime) {
+  if (!runtime?.port || runtime.status !== 'running') return null;
+  try {
+    const targets = await cdpFetch(runtime.port, '/json/list');
+    if (!Array.isArray(targets)) return null;
+    return targets.filter(target => target.type === 'page').length;
+  } catch {
+    return null;
+  }
+}
+
+async function profileInventoryItem(profileName) {
+  const fileInfo = profileFileInfo(profileName);
+  const runtime = await resolveProfileRuntime(profileName).catch(err => ({
+    profile: profileName,
+    status: 'error',
+    reason: err.message,
+  }));
+  const sock = sockPath(profileName);
+  const daemon = await readDaemonSnapshot(sock);
+  const activeTabs = await readActiveTabCount(runtime);
+  const paused = fs.existsSync(profileStopPath(profileName));
+  return {
+    name: profileName,
+    status: runtime?.status || 'stopped',
+    reason: runtime?.reason || null,
+    pid: runtime?.pid || null,
+    port: runtime?.port || null,
+    launchMode: runtime?.launchMode || null,
+    headless: runtime?.headless ?? null,
+    source: runtime?.source || null,
+    userDataDir: runtime?.userDataDir || fileInfo.userDataDir,
+    modifiedAt: fileInfo.modifiedAt,
+    daemon,
+    activeTabs,
+    paused,
+  };
+}
+
+function profileInventoryIsActive(profile) {
+  return profile?.status === 'running'
+    || (profile?.activeTabs ?? 0) > 0
+    || profile?.daemon?.status === 'ok'
+    || profile?.daemon?.status === 'running';
+}
+
+function compareProfileInventory(a, b) {
+  const activeDelta = Number(profileInventoryIsActive(b)) - Number(profileInventoryIsActive(a));
+  if (activeDelta !== 0) return activeDelta;
+  const statusRank = { running: 0, stale: 1, error: 2, stopped: 3 };
+  const rankDelta = (statusRank[a.status] ?? 4) - (statusRank[b.status] ?? 4);
+  if (rankDelta !== 0) return rankDelta;
+  return a.name.localeCompare(b.name);
+}
+
+async function collectProfileInventory() {
+  const names = listKnownProfileNames();
+  const profiles = [];
+  for (const name of names) profiles.push(await profileInventoryItem(name));
+  return profiles.sort(compareProfileInventory);
 }
 
 // ============================================================
@@ -1453,16 +1917,19 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const session = decodeURIComponent(routePath.split('/')[2]);
     const s = sessions.get(session);
     let knowledgeHint = null;
+    let pageInfo = null;
     if (s) {
       try {
-        const r = await s.cdp.send('Runtime.evaluate', { expression: 'location.href', returnByValue: true }, 2000);
-        knowledgeHint = siteKnowledgeHintForUrl(r.result?.value);
+        pageInfo = await readPageInfo(port, s.targetId, s.cdp, settings);
+        knowledgeHint = siteKnowledgeHintForUrl(pageInfo.url);
       } catch {}
       s.cdp.close();
       await closeTab(port, s.targetId).catch(() => {});
       sessions.delete(session);
     }
     const result = { closed: session };
+    if (pageInfo?.url) result.url = pageInfo.url;
+    if (pageInfo?.title) result.title = pageInfo.title;
     if (knowledgeHint) result.knowledgeHint = knowledgeHint;
     return result;
   }
@@ -2325,6 +2792,90 @@ async function waitForSocketGone(sock, timeoutMs = 3000) {
 // CLI router
 // ============================================================
 
+function inferActivitySession(cmd, args) {
+  if (cmd === 'open') return parseOpenArgs([...args]).session || null;
+  if (cmd === 'batch' || cmd === 'ps' || cmd === 'launch' || cmd === 'kill' || cmd === 'pause' || cmd === 'resume') return null;
+  return args[0] || null;
+}
+
+function sanitizeActivityArgs(cmd, args) {
+  const copy = args.map(arg => String(arg));
+  if (cmd === 'fill') return copy.map((arg, i) => i >= 2 ? '[redacted-text]' : arg);
+  if (cmd === 'type') return copy.map((arg, i) => i >= 1 ? '[redacted-text]' : arg);
+  if (cmd === 'run' || cmd === 'eval') {
+    return copy.map((arg, i) => {
+      if (i <= 0) return arg;
+      if (arg === '-' || arg === '--file' || copy[i - 1] === '--file' || arg === '--timeout' || copy[i - 1] === '--timeout') return arg;
+      if (arg === '--no-iife') return arg;
+      return '[code]';
+    });
+  }
+  if (cmd === 'cdp') {
+    return copy.map((arg, i) => i >= 2 && copy[i - 1] !== '--params-file' && copy[i - 1] !== '--timeout' ? '[params-json]' : arg);
+  }
+  return copy;
+}
+
+function parseSnapshotActivityInfo(text) {
+  if (typeof text !== 'string') return {};
+  const lines = text.split('\n');
+  const title = lines[0]?.startsWith('# ') ? lines[0].slice(2).trim() : null;
+  const url = lines[1]?.startsWith('# ') ? lines[1].slice(2).trim() : null;
+  return { title, url };
+}
+
+function extractActivityPageInfo(cmd, result) {
+  if (cmd === 'snapshot') return parseSnapshotActivityInfo(result);
+  if (!result || typeof result !== 'object') return {};
+  const pageInfo = result.page && typeof result.page === 'object' ? result.page : result;
+  return {
+    url: pageInfo.url || pageInfo.fullUrl || result.url || result.fullUrl || null,
+    title: pageInfo.title || result.title || null,
+    siteKnowledgePaths: result.knowledgeHint?.paths || result.siteKnowledgePaths || null,
+  };
+}
+
+function recordCliActivity({ cmd, args, profile, session, result, error, startedAt }) {
+  try {
+    if (cmd === 'app' || cmd === '--daemon') return;
+    const pageInfo = extractActivityPageInfo(cmd, result);
+    const url = pageInfo.url || null;
+    const host = hostFromUrl(url) || null;
+    appendActivityEvent({
+      timestamp: new Date().toISOString(),
+      profile: profile || DEFAULT_PROFILE,
+      session: session || inferActivitySession(cmd, args),
+      command: cmd,
+      args: sanitizeActivityArgs(cmd, args),
+      context: {
+        mode: process.env.CHROMUX_MODE || 'default',
+        cwd: process.cwd(),
+        pid: process.pid,
+      },
+      task: process.env.CHROMUX_TASK || null,
+      url,
+      host,
+      title: pageInfo.title || null,
+      ok: !error,
+      error: error ? error.message : null,
+      durationMs: Date.now() - startedAt,
+      siteKnowledgePaths: pageInfo.siteKnowledgePaths || (host ? siteKnowledgePathsForHost(host) : []),
+    });
+  } catch {}
+}
+
+async function runLoggedProfileCommand(cmd, args, profile, fn) {
+  const startedAt = Date.now();
+  try {
+    const result = await fn();
+    recordCliActivity({ cmd, args, profile, session: null, result, startedAt });
+    return result;
+  } catch (error) {
+    recordCliActivity({ cmd, args, profile, session: null, error, startedAt });
+    throw error;
+  }
+}
+
 async function runCli(cmd, args) {
   // Profile-level commands (no daemon needed)
   if (cmd === 'launch') {
@@ -2338,70 +2889,440 @@ async function runCli(cmd, args) {
     const launchMode = args.includes('--headless')
       ? 'headless'
       : 'headed';
-    return cmdLaunch(name, port, launchMode);
+    return runLoggedProfileCommand(cmd, args, name, () => cmdLaunch(name, port, launchMode));
   }
-  if (cmd === 'ps') return cmdPs();
+  if (cmd === 'ps') return runLoggedProfileCommand(cmd, args, getProfile(), () => cmdPs());
   if (cmd === 'kill') {
     if (!args[0]) { console.error('Usage: chromux kill <profile>'); process.exit(1); }
-    return cmdKill(args[0]);
+    return runLoggedProfileCommand(cmd, args, args[0], () => cmdKill(args[0]));
   }
-  if (cmd === 'pause') return cmdPause(args[0] || getProfile());
-  if (cmd === 'resume') return cmdResume(args[0] || getProfile());
+  if (cmd === 'pause') {
+    const profileName = args[0] || getProfile();
+    return runLoggedProfileCommand(cmd, args, profileName, () => cmdPause(profileName));
+  }
+  if (cmd === 'resume') {
+    const profileName = args[0] || getProfile();
+    return runLoggedProfileCommand(cmd, args, profileName, () => cmdResume(profileName));
+  }
+  if (cmd === 'app') return cmdApp(args);
 
   // Tab commands (need daemon)
   const profile = getProfile();
-  const sock = await ensureDaemon(profile);
+  const tabCommands = new Set([
+    'show', 'open', 'snapshot', 'cdp', 'run', 'batch', 'click', 'fill', 'type',
+    'press', 'wait-for-text', 'wait-for-selector', 'eval', 'scroll-until',
+    'screenshot', 'scroll', 'wait', 'watch', 'console', 'network', 'close',
+    'list', 'stop',
+  ]);
+  if (!tabCommands.has(cmd)) { console.error(`Unknown: ${cmd}. Run: chromux help`); process.exit(1); }
 
-  // Special: show — open DevTools in user's browser
-  if (cmd === 'show') {
-    if (!args[0]) { console.error('Usage: chromux show <session>'); process.exit(1); }
-    const info = await cliReq('GET', `/show/${args[0]}`, null, sock);
-    const url = info.devtoolsFrontendUrl;
-    if (!url) { console.error('No DevTools URL available'); process.exit(1); }
-    // Open in user's default browser (macOS: open, Linux: xdg-open)
-    const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
-    spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
-    console.log(JSON.stringify(info, null, 2));
+  const startedAt = Date.now();
+  const session = inferActivitySession(cmd, args);
+  let sock;
+  try {
+    sock = await ensureDaemon(profile);
+
+    // Special: show — open DevTools in user's browser
+    if (cmd === 'show') {
+      if (!args[0]) { console.error('Usage: chromux show <session>'); process.exit(1); }
+      const info = await cliReq('GET', `/show/${args[0]}`, null, sock);
+      const url = info.devtoolsFrontendUrl;
+      if (!url) { console.error('No DevTools URL available'); process.exit(1); }
+      // Open in user's default browser (macOS: open, Linux: xdg-open)
+      const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+      spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
+      recordCliActivity({ cmd, args, profile, session, result: info, startedAt });
+      console.log(JSON.stringify(info, null, 2));
+      return;
+    }
+
+    const routes = {
+      open:       () => {
+        const openArgs = parseOpenArgs(args);
+        return cliReq('POST', '/open', openArgs, sock, defaultCliTimeoutMs());
+      },
+      snapshot:   () => {
+        const filter = getArgValue(args, '--filter') || (args.includes('--interactive') ? 'interactive' : null);
+        const q = filter ? `?filter=${encodeURIComponent(filter)}` : '';
+        return cliReq('GET', `/snapshot/${args[0]}${q}`, null, sock);
+      },
+      cdp:        () => cmdCdp(args, sock),
+      run:        () => cmdRun(args, sock),
+      batch:      () => cmdBatch(args, sock),
+      click:      () => cmdClick(args, sock),
+      fill:       () => cliReq('POST', '/fill', { session: args[0], selector: args[1], text: args[2] }, sock),
+      type:       () => cliReq('POST', '/type', { session: args[0], text: args[1] }, sock),
+      press:      () => cmdPress(args, sock),
+      'wait-for-text': () => cmdWaitFor(args, sock, 'text'),
+      'wait-for-selector': () => cmdWaitFor(args, sock, 'selector'),
+      eval:       () => cmdEval(args, sock),
+      'scroll-until': () => cmdScrollUntil(args, sock),
+      screenshot: () => cliReq('POST', '/screenshot', { session: args[0], path: args[1] }, sock),
+      scroll:     () => cliReq('POST', '/scroll', { session: args[0], direction: args[1] || 'down' }, sock),
+      wait:       () => cliReq('POST', '/wait', { session: args[0], ms: parseInt(args[1]) || 1000 }, sock),
+      watch:      () => cmdWatch(args, sock),
+      console:    () => cliReq('POST', '/console', { session: args[0], off: args.includes('--off') }, sock),
+      network:    () => cliReq('POST', '/network', { session: args[0], off: args.includes('--off'), all: args.includes('--all') }, sock),
+      close:      () => cliReq('DELETE', `/session/${args[0]}`, null, sock),
+      list:       () => cliReq('GET', '/list', null, sock),
+      stop:       () => cliReq('POST', '/stop', {}, sock),
+    };
+
+    const r = await routes[cmd]();
+    recordCliActivity({ cmd, args, profile, session, result: r, startedAt });
+    console.log(typeof r === 'string' ? r : JSON.stringify(r, null, 2));
+  } catch (e) {
+    recordCliActivity({ cmd, args, profile, session, error: e, startedAt });
+    console.error(`Error: ${e.message}`);
+    process.exit(1);
+  }
+}
+
+// ============================================================
+// Companion status app
+// ============================================================
+
+function sendJson(res, status, value) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(value, null, 2));
+}
+
+function sendStatic(res, fileName, contentType) {
+  const filePath = path.join(STATUS_APP_DIR, fileName);
+  try {
+    const body = fs.readFileSync(filePath);
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': 'no-store',
+    });
+    res.end(body);
+  } catch {
+    sendJson(res, 404, { ok: false, error: `Missing status app asset: ${fileName}` });
+  }
+}
+
+function requireHttpName(name, label = 'name') {
+  const value = String(name || '');
+  if (!VALID_NAME.test(value)) throw httpErr(400, `Invalid ${label} "${value}". Use only [a-zA-Z0-9._-]`);
+  return value;
+}
+
+function parseActivityScope(body) {
+  const type = body.type || body.scope || 'all';
+  if (type === 'all') return { type: 'all' };
+  if (type === 'profile') {
+    if (!body.profile) throw httpErr(400, 'profile is required for profile-scoped activity operation');
+    return { type: 'profile', profile: requireHttpName(body.profile, 'profile') };
+  }
+  if (type === 'task') {
+    if (!body.task) throw httpErr(400, 'task is required for task-scoped activity operation');
+    return { type: 'task', task: String(body.task) };
+  }
+  throw httpErr(400, `Unsupported activity scope: ${type}`);
+}
+
+async function statusAppState() {
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    chromuxHome: CHROMUX_HOME,
+    profiles: await collectProfileInventory(),
+    activity: activitySnapshot(),
+  };
+}
+
+function runSelfCommand(args, extraEnv = {}, timeoutMs = 60_000) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [process.argv[1], ...args], {
+      cwd: process.cwd(),
+      env: { ...process.env, ...extraEnv },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      resolve({ ok: false, code: null, stdout, stderr: `${stderr}\nCommand timed out after ${timeoutMs}ms`.trim() });
+    }, timeoutMs);
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('close', code => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0, code, stdout: stdout.trim(), stderr: stderr.trim() });
+    });
+    child.on('error', err => {
+      clearTimeout(timer);
+      resolve({ ok: false, code: null, stdout: stdout.trim(), stderr: err.message });
+    });
+  });
+}
+
+async function performProfileAction(profileName, action) {
+  validateName(profileName);
+  if (action === 'launch-headed') {
+    return runSelfCommand(['launch', profileName], { CHROMUX_LAUNCH_MODE: 'headed' });
+  }
+  if (action === 'launch-headless') {
+    return runSelfCommand(['launch', profileName, '--headless']);
+  }
+  if (action === 'open-foreground') {
+    const session = `status-${Date.now().toString(36)}`;
+    return runSelfCommand(['--profile', profileName, 'open', '--foreground', session, 'about:blank'], {
+      CHROMUX_LAUNCH_MODE: 'headed',
+      CHROMUX_OPEN_BACKGROUND: '0',
+    });
+  }
+  if (action === 'stop-daemon') {
+    const sock = sockPath(profileName);
+    if (!fs.existsSync(sock)) return { ok: false, code: null, stdout: '', stderr: 'No daemon socket found for this profile.' };
+    try {
+      const result = await cliReq('POST', '/stop', {}, sock, 3000);
+      return { ok: true, code: 0, stdout: JSON.stringify(result, null, 2), stderr: '' };
+    } catch (err) {
+      return { ok: false, code: null, stdout: '', stderr: err.message };
+    }
+  }
+  if (action === 'kill') {
+    return runSelfCommand(['kill', profileName]);
+  }
+  if (action === 'pause') {
+    return runSelfCommand(['pause', profileName]);
+  }
+  if (action === 'resume') {
+    return runSelfCommand(['resume', profileName]);
+  }
+  throw httpErr(400, `Unsupported profile action: ${action}`);
+}
+
+async function deleteProfile(profileName) {
+  const name = requireHttpName(profileName, 'profile');
+  const killResult = await performProfileAction(name, 'kill');
+  fs.rmSync(profileDir(name), { recursive: true, force: true });
+  for (const filePath of [
+    sockPath(name),
+    profileStopPath(name),
+    path.join(RUN_DIR, `${name}.lock`),
+  ]) {
+    try { fs.unlinkSync(filePath); } catch {}
+  }
+  return {
+    profile: name,
+    ok: killResult.ok,
+    killed: killResult.ok,
+    removed: !fs.existsSync(profileDir(name)),
+    result: killResult,
+  };
+}
+
+async function deleteProfiles(profileNames) {
+  if (!Array.isArray(profileNames)) throw httpErr(400, 'profiles must be an array');
+  const names = [...new Set(profileNames.map(name => requireHttpName(name, 'profile')))];
+  if (!names.length) throw httpErr(400, 'at least one profile is required');
+  const results = [];
+  for (const name of names) {
+    try {
+      results.push(await deleteProfile(name));
+    } catch (err) {
+      results.push({ profile: name, ok: false, removed: false, error: err.message });
+    }
+  }
+  return {
+    ok: results.every(result => result.ok && result.removed),
+    deleted: results.filter(result => result.removed).length,
+    failed: results.filter(result => !result.ok || !result.removed).length,
+    results,
+  };
+}
+
+async function handleStatusAppApi(req, res, url) {
+  if (req.method === 'GET' && url.pathname === '/api/state') {
+    sendJson(res, 200, await statusAppState());
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/activity/config') {
+    const body = await readBody(req);
+    sendJson(res, 200, { ok: true, ...setActivityRetention(body.retentionDays) });
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/activity/delete') {
+    const body = await readBody(req);
+    const result = deleteActivityEvents(parseActivityScope(body));
+    sendJson(res, 200, { ok: true, ...result, activity: activitySnapshot() });
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/activity/redact') {
+    const body = await readBody(req);
+    const result = redactActivityEvents(parseActivityScope(body));
+    sendJson(res, 200, { ok: true, ...result, activity: activitySnapshot() });
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/profiles/delete') {
+    const body = await readBody(req);
+    const result = await deleteProfiles(body.profiles);
+    sendJson(res, result.ok ? 200 : 409, result);
+    return true;
+  }
+
+  const actionMatch = url.pathname.match(/^\/api\/profiles\/([^/]+)\/action$/);
+  if (req.method === 'POST' && actionMatch) {
+    const profileName = requireHttpName(decodeURIComponent(actionMatch[1]), 'profile');
+    const body = await readBody(req);
+    const result = await performProfileAction(profileName, body.action);
+    sendJson(res, result.ok ? 200 : 409, { ok: result.ok, action: body.action, profile: profileName, result });
+    return true;
+  }
+
+  return false;
+}
+
+function createStatusAppServer() {
+  return http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    try {
+      if (url.pathname.startsWith('/api/')) {
+        if (await handleStatusAppApi(req, res, url)) return;
+        sendJson(res, 404, { ok: false, error: `Unknown API route: ${url.pathname}` });
+        return;
+      }
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { ok: false, error: 'Method not allowed' });
+        return;
+      }
+      if (url.pathname === '/' || url.pathname === '/index.html') return sendStatic(res, 'index.html', 'text/html; charset=utf-8');
+      if (url.pathname === '/app.js') return sendStatic(res, 'app.js', 'application/javascript; charset=utf-8');
+      if (url.pathname === '/styles.css') return sendStatic(res, 'styles.css', 'text/css; charset=utf-8');
+      sendJson(res, 404, { ok: false, error: `Not found: ${url.pathname}` });
+    } catch (err) {
+      sendJson(res, err.status || 500, { ok: false, error: err.message });
+    }
+  });
+}
+
+function assertSelfTest(condition, message, checks) {
+  if (!condition) throw new Error(message);
+  checks.push(message);
+}
+
+async function runStatusAppSelfTest() {
+  if (!process.env.CHROMUX_HOME) throw new Error('chromux app --self-test requires CHROMUX_HOME to point at an isolated temp directory');
+  fs.rmSync(ACTIVITY_DIR, { recursive: true, force: true });
+  fs.rmSync(PROFILES_DIR, { recursive: true, force: true });
+  fs.rmSync(RUN_DIR, { recursive: true, force: true });
+  fs.mkdirSync(profileDir('alpha'), { recursive: true });
+  fs.mkdirSync(profileDir('beta'), { recursive: true });
+
+  const checks = [];
+  saveActivityConfig({ retentionDays: 90 });
+  const now = Date.now();
+  const oldEvent = normalizeActivityEvent({
+    timestamp: new Date(now - 100 * 24 * 60 * 60 * 1000).toISOString(),
+    profile: 'alpha',
+    session: 'old',
+    command: 'open',
+    url: 'https://old.example/path',
+  });
+  const events = [
+    oldEvent,
+    normalizeActivityEvent({
+      timestamp: new Date(now - 1000).toISOString(),
+      profile: 'alpha',
+      session: 's1',
+      command: 'open',
+      task: 'task-a',
+      url: 'https://example.com/a',
+      title: 'A',
+    }),
+    normalizeActivityEvent({
+      timestamp: new Date(now).toISOString(),
+      profile: 'alpha',
+      session: 's1',
+      command: 'snapshot',
+      task: 'task-a',
+      url: 'https://example.com/a',
+      title: 'A',
+    }),
+    normalizeActivityEvent({
+      timestamp: new Date(now + 1000).toISOString(),
+      profile: 'beta',
+      session: 's2',
+      command: 'close',
+      url: 'https://example.org/b',
+      title: 'B',
+    }),
+  ];
+  writeActivityEvents(events);
+  for (const event of events) updateActivityAggregates(event);
+  const prune = pruneActivityEvents(now, { force: true });
+  assertSelfTest(prune.removed === 1, 'retention prunes events older than configured days', checks);
+  const guardedPrune = pruneActivityEvents(now + 1000);
+  assertSelfTest(guardedPrune.skipped === true, 'retention pruning is guarded between daily runs', checks);
+  const laterPrune = pruneActivityEvents(now + ACTIVITY_PRUNE_INTERVAL_MS + 1000);
+  assertSelfTest(laterPrune.skipped === false, 'retention pruning runs again after the daily guard window', checks);
+  const retained = readActivityEventsRaw();
+  assertSelfTest(retained.length === 3, 'activity JSONL keeps recent events', checks);
+  const timeline = buildActivityTimeline(retained);
+  assertSelfTest(timeline.some(group => group.source === 'task' && group.task === 'task-a' && group.eventCount === 2), 'timeline groups Task-labeled events', checks);
+  assertSelfTest(timeline.some(group => group.source === 'session-fallback' && group.derived), 'timeline creates derived session fallback groups', checks);
+  const redaction = redactActivityEvents({ type: 'profile', profile: 'alpha' });
+  assertSelfTest(redaction.redacted === 2, 'profile redaction removes URL and title fields', checks);
+  const redacted = readActivityEventsRaw().filter(event => event.profile === 'alpha');
+  assertSelfTest(redacted.every(event => event.url === null && event.title === null && event.redacted), 'redacted events keep command metadata only', checks);
+  const deletion = deleteActivityEvents({ type: 'task', task: 'task-a' });
+  assertSelfTest(deletion.deleted === 2, 'Task-scoped deletion removes matching raw events', checks);
+  const retention = setActivityRetention('unlimited');
+  assertSelfTest(retention.config.retentionDays === 'unlimited', 'retention accepts unlimited', checks);
+  const inventory = await collectProfileInventory();
+  assertSelfTest(inventory.some(profile => profile.name === 'alpha') && inventory.some(profile => profile.name === 'beta'), 'profile inventory lists known local profiles', checks);
+  const sortedSample = [
+    { name: 'stopped-profile', status: 'stopped', activeTabs: null, daemon: { status: 'idle' } },
+    { name: 'active-profile', status: 'running', activeTabs: 1, daemon: { status: 'ok' } },
+  ].sort(compareProfileInventory);
+  assertSelfTest(sortedSample[0].name === 'active-profile', 'profile inventory sorts active profiles first', checks);
+  const deleteResult = await deleteProfiles(['beta']);
+  assertSelfTest(deleteResult.deleted === 1 && !fs.existsSync(profileDir('beta')), 'bulk profile deletion removes selected profile files', checks);
+  const aggregates = loadActivityAggregates();
+  assertSelfTest(aggregates.byCommand.open?.count >= 1, 'command aggregates survive redaction and deletion', checks);
+  return { ok: true, checks };
+}
+
+async function cmdApp(args) {
+  if (args.includes('--self-test')) {
+    const result = await runStatusAppSelfTest();
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 
-  const routes = {
-    open:       () => {
-      const openArgs = parseOpenArgs(args);
-      return cliReq('POST', '/open', openArgs, sock, defaultCliTimeoutMs());
-    },
-    snapshot:   () => {
-      const filter = getArgValue(args, '--filter') || (args.includes('--interactive') ? 'interactive' : null);
-      const q = filter ? `?filter=${encodeURIComponent(filter)}` : '';
-      return cliReq('GET', `/snapshot/${args[0]}${q}`, null, sock);
-    },
-    cdp:        () => cmdCdp(args, sock),
-    run:        () => cmdRun(args, sock),
-    batch:      () => cmdBatch(args, sock),
-    click:      () => cmdClick(args, sock),
-    fill:       () => cliReq('POST', '/fill', { session: args[0], selector: args[1], text: args[2] }, sock),
-    type:       () => cliReq('POST', '/type', { session: args[0], text: args[1] }, sock),
-    press:      () => cmdPress(args, sock),
-    'wait-for-text': () => cmdWaitFor(args, sock, 'text'),
-    'wait-for-selector': () => cmdWaitFor(args, sock, 'selector'),
-    eval:       () => cmdEval(args, sock),
-    'scroll-until': () => cmdScrollUntil(args, sock),
-    screenshot: () => cliReq('POST', '/screenshot', { session: args[0], path: args[1] }, sock),
-    scroll:     () => cliReq('POST', '/scroll', { session: args[0], direction: args[1] || 'down' }, sock),
-    wait:       () => cliReq('POST', '/wait', { session: args[0], ms: parseInt(args[1]) || 1000 }, sock),
-    watch:      () => cmdWatch(args, sock),
-    console:    () => cliReq('POST', '/console', { session: args[0], off: args.includes('--off') }, sock),
-    network:    () => cliReq('POST', '/network', { session: args[0], off: args.includes('--off'), all: args.includes('--all') }, sock),
-    close:      () => cliReq('DELETE', `/session/${args[0]}`, null, sock),
-    list:       () => cliReq('GET', '/list', null, sock),
-    stop:       () => cliReq('POST', '/stop', {}, sock),
-  };
+  const portValue = getArgValue(args, '--port');
+  const host = getArgValue(args, '--host') || '127.0.0.1';
+  const port = portValue ? Number(portValue) : 9340;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    console.error('Usage: chromux app [--host 127.0.0.1] [--port N] [--open]');
+    process.exit(1);
+  }
 
-  if (!routes[cmd]) { console.error(`Unknown: ${cmd}. Run: chromux help`); process.exit(1); }
-  try {
-    const r = await routes[cmd]();
-    console.log(typeof r === 'string' ? r : JSON.stringify(r, null, 2));
-  } catch (e) { console.error(`Error: ${e.message}`); process.exit(1); }
+  const server = createStatusAppServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, resolve);
+  }).catch(err => {
+    console.error(`Failed to start chromux app: ${err.message}`);
+    process.exit(1);
+  });
+  const address = server.address();
+  const actualPort = typeof address === 'object' ? address.port : port;
+  const url = `http://${host}:${actualPort}/`;
+  console.log(`chromux status app: ${url}`);
+  if (args.includes('--open')) {
+    const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+    spawn(opener, [url], { detached: true, stdio: 'ignore' }).unref();
+  }
 }
 
 // ============================================================
@@ -2543,6 +3464,8 @@ Lifecycle:
   chromux launch <name> --headless   Launch in headless mode (no window)
   chromux launch <name> --port N     Launch with specific port
   chromux ps                         List running profiles
+  chromux app [--port N]             Local profile/activity companion app
+  chromux app --open                 Serve the app and open it in a browser
   chromux pause [name]               Hard-stop new tab work for a profile
   chromux resume [name]              Allow tab work again for a paused profile
   chromux kill <name>                Stop profile (Chrome + daemon)
@@ -2581,6 +3504,7 @@ Profile selection:
   chromux --mode crawl <cmd>         Use crawl resource policy for this profile daemon
   CHROMUX_PROFILE=<name> chromux     Via environment variable
   CHROMUX_MODE=crawl chromux         Efficient crawl mode (default mode preserves legacy behavior)
+  CHROMUX_TASK=<label> chromux       Label activity events for Task timeline grouping
   CHROMUX_OPEN_BACKGROUND=0 chromux open ...    Create new tabs in foreground
   (default profile: "default")
 
@@ -2591,10 +3515,14 @@ Crawl mode:
   and honors chromux pause/resume hard-stop files.
 
 Paths:
+  CHROMUX_HOME                       Override chromux state root for tests or isolation
   ~/.chromux/config.json             Global config
   ~/.chromux/profiles/<name>/        Chrome user-data-dir per profile
   ~/.chromux/run/<name>.sock          Daemon socket per profile
-  ~/.chromux/run/<name>.lock          Daemon startup lock (transient)`;
+  ~/.chromux/run/<name>.lock          Daemon startup lock (transient)
+  ~/.chromux/activity/events.jsonl    Local full-URL activity event log
+  ~/.chromux/activity/config.json     Activity retention config
+  ~/.chromux/activity/aggregates.json Command aggregate counters`;
 
 // ============================================================
 // Entry
