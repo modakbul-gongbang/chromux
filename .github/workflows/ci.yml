@@ -87,28 +87,32 @@ jobs:
           $ErrorActionPreference = "Stop"
           $env:CHROMUX_HOME = Join-Path $env:RUNNER_TEMP "chromux-home"
           New-Item -ItemType Directory -Force -Path $env:CHROMUX_HOME | Out-Null
-
-          node chromux.mjs launch win-ci --headless
-          $env:CHROMUX_PROFILE = "win-ci"
-          node chromux.mjs open tab-a https://example.com
-          $snapshot = node chromux.mjs snapshot tab-a
-          if ($snapshot -notmatch "Example Domain") { throw "snapshot did not include Example Domain" }
-          $list = node chromux.mjs list
-          if ($list -notmatch "tab-a") { throw "list did not include tab-a" }
-          $ps = node chromux.mjs ps
-          if ($ps -notmatch "win-ci" -or $ps -notmatch "ok") { throw "ps did not show healthy win-ci daemon" }
-
-          $app = Start-Process -FilePath "node" -ArgumentList @("chromux.mjs", "app", "--host", "127.0.0.1", "--port", "9348", "--open") -PassThru -NoNewWindow
           try {
-            Start-Sleep -Seconds 3
-            $state = Invoke-RestMethod -Uri "http://127.0.0.1:9348/api/state" -TimeoutSec 5
-            if (-not $state.ok) { throw "status app state endpoint returned ok=false" }
-          } finally {
-            Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
-          }
+            node chromux.mjs launch win-ci --headless
+            $env:CHROMUX_PROFILE = "win-ci"
+            node chromux.mjs open tab-a https://example.com
 
-          Remove-Item Env:\CHROMUX_PROFILE -ErrorAction SilentlyContinue
-          node chromux.mjs kill win-ci
+            $snapshot = (node chromux.mjs snapshot tab-a) -join "`n"
+            if ($snapshot -notmatch "Example Domain") { throw "snapshot did not include Example Domain" }
+
+            $list = (node chromux.mjs list) -join "`n"
+            if ($list -notmatch "tab-a") { throw "list did not include tab-a" }
+
+            $ps = (node chromux.mjs ps) -join "`n"
+            if ($ps -notmatch "win-ci" -or $ps -notmatch "ok") { throw "ps did not show healthy win-ci daemon" }
+
+            $app = Start-Process -FilePath "node" -ArgumentList @("chromux.mjs", "app", "--host", "127.0.0.1", "--port", "9348", "--open") -PassThru -NoNewWindow
+            try {
+              Start-Sleep -Seconds 3
+              $state = Invoke-RestMethod -Uri "http://127.0.0.1:9348/api/state" -TimeoutSec 5
+              if (-not $state.ok) { throw "status app state endpoint returned ok=false" }
+            } finally {
+              if ($app) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
+            }
+          } finally {
+            Remove-Item Env:\CHROMUX_PROFILE -ErrorAction SilentlyContinue
+            node chromux.mjs kill win-ci
+          }
 
       - name: Upload chromux state on failure
         if: failure()
