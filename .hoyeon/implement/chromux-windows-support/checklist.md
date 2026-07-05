@@ -26,11 +26,11 @@
   - Verification: V2, V3
   - Evidence: `chromux app --self-test` covers Windows discovery, opener, command parsing, and endpoint migration; `./test.sh` covers real Chrome migration, stale/reuse, resource guard, process matching, and cold-start behavior.
 
-- [ ] T5. Build and run the macOS/Linux/Windows parity matrix with real Chrome runtime proof where required.
+- [x] T5. Build and run the macOS/Linux/Windows parity matrix with real Chrome runtime proof where required.
   - Requirements: R8
   - Acceptance Criteria: AC10, AC12
   - Verification: V4, V5
-  - Evidence: macOS local `./test.sh` passed 102/102; Linux `./test.sh` remains in CI; Windows PowerShell real Chrome smoke was added to `.github/workflows/ci.yml` but has not been executed from this macOS-only run.
+  - Evidence: macOS local `./test.sh` passed 102/102; GitHub Actions run `28729902858` passed Ubuntu `validate` and Windows `windows-runtime`; Windows PowerShell real Chrome smoke covered help/static, Chrome Stable launch, duplicate launch reuse, open, snapshot, close, list, ps, app --open, kill, and dead-lock stale recovery.
 
 - [x] T6. Update Windows install docs, platform wording, and agent-facing skills only after validation evidence exists.
   - Requirements: R9
@@ -52,18 +52,18 @@
 
 ## Acceptance Criteria
 
-- [ ] AC1. Native Windows `chromux help` works from PowerShell or cmd. Evidence pending Windows CI execution.
-- [ ] AC2. Native Windows Chrome Stable auto-discovery works without custom `chromePath`. Evidence pending Windows CI execution; helper self-test covers candidates.
-- [x] AC3. Daemon requests work through localhost TCP on macOS locally and Linux/Windows via CI workflow coverage.
+- [x] AC1. Native Windows `chromux help` works from PowerShell or cmd. Evidence: GitHub Actions run `28729902858`, Windows `Validate package surface`.
+- [x] AC2. Native Windows Chrome Stable auto-discovery works without custom `chromePath`. Evidence: GitHub Actions run `28729902858`, Windows `Run Windows Chrome smoke` launched Chrome Stable without custom `chromePath`.
+- [x] AC3. Daemon requests work through localhost TCP on macOS, Linux, and Windows. Evidence: local macOS smoke, Ubuntu `validate`, Windows `windows-runtime`.
 - [x] AC4. Runtime state distinguishes daemon HTTP `daemonPort` from Chrome CDP `port`.
-- [ ] AC5. `chromux launch` starts or adopts the correct Windows profile without duplicate instances. Evidence pending Windows CI execution.
-- [ ] AC6. Auto-launch `open`, `snapshot`, `close`, and `list` work on Windows with a real Chrome profile. Evidence pending Windows CI execution.
-- [ ] AC7. `chromux ps` and `chromux kill` target the correct Windows chromux-managed profile only. Evidence pending Windows CI execution.
-- [ ] AC8. `chromux app --open` opens the local HTTP dashboard on Windows without AppKit. Evidence pending Windows CI execution; local macOS dashboard smoke passed.
+- [x] AC5. `chromux launch` starts or adopts the correct Windows profile without duplicate instances. Evidence: Windows `Run Windows Chrome smoke` launched `win-ci`, ran a second `launch`, and asserted reuse.
+- [x] AC6. Auto-launch `open`, `snapshot`, `close`, and `list` work on Windows with a real Chrome profile. Evidence: Windows smoke covered `open`, `snapshot`, `list`, `close`, and post-close empty list.
+- [x] AC7. `chromux ps` and `chromux kill` target the correct Windows chromux-managed profile only. Evidence: Windows smoke checked `ps` for `win-ci` daemon `ok` and ran `kill win-ci` in cleanup.
+- [x] AC8. `chromux app --open` opens the local HTTP dashboard on Windows without AppKit. Evidence: Windows smoke started `chromux app --open` and verified `/api/state`.
 - [x] AC9. Resource guard telemetry behaves or falls back conservatively.
-- [ ] AC10. Parity matrix covers help, launch, open, snapshot, close, list, ps, kill, app --open, stale/reuse on macOS, Linux, Windows. Windows execution pending.
+- [x] AC10. Parity matrix covers help, launch, open, snapshot, close, list, ps, kill, app --open, stale/reuse on macOS, Linux, Windows. Evidence: local macOS full suite, Ubuntu full suite, Windows smoke with duplicate launch reuse and dead-lock stale recovery.
 - [x] AC11. README, install.md, and agent-facing skills give accurate PowerShell-first Windows CLI guidance and macOS-only native app guidance.
-- [x] AC12. Existing macOS validations pass locally; Linux validations remain covered by existing CI job.
+- [x] AC12. Existing macOS validations pass locally; Linux validations passed in GitHub Actions run `28729902858`.
 - [x] AC13. `npm pack --dry-run` excludes `.hoyeon/` and native app build products.
 
 ## Verification
@@ -71,7 +71,7 @@
 - [x] V1. Build/static: `node chromux.mjs help`, existing regression suite, package health.
 - [x] V2. Automated behavior: platform abstractions and lifecycle behavior.
 - [x] V3. Automated behavior: TCP endpoint state, daemon/CDP port separation, migration, stale cleanup.
-- [ ] V4. Browser/runtime: real Chrome smoke for common commands and stale/reuse behavior. macOS passed; Windows pending CI execution.
-- [ ] V5. Cross-platform CI/runtime: macOS/Linux/Windows parity matrix. Linux/Windows jobs are configured; current run has local macOS evidence only.
+- [x] V4. Browser/runtime: real Chrome smoke for common commands and stale/reuse behavior. macOS local suite passed; Windows CI smoke passed.
+- [x] V5. Cross-platform CI/runtime: macOS/Linux/Windows parity matrix. macOS local suite passed; Ubuntu and Windows jobs passed in GitHub Actions run `28729902858`.
 - [x] V6. Docs/skills: platform wording matches validated behavior.
 - [x] V7. Package audit: dry-run package contents are clean.

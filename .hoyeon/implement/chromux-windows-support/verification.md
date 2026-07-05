@@ -4,9 +4,9 @@
 
 ### Status
 
-Partially Done.
+Done.
 
-Implementation work is complete in the local repo, but native Windows real Chrome runtime proof is pending execution on a Windows runner.
+Implementation work is complete and native Windows real Chrome runtime proof passed in GitHub Actions run `28729902858`.
 
 ### What Changed
 
@@ -17,7 +17,7 @@ Implementation work is complete in the local repo, but native Windows real Chrom
 ### Approved Structure Conformance
 
 - Approved structure followed: Yes.
-- Deviations: None in implementation structure. Verification is partial because the local environment is macOS-only and cannot execute native Windows Chrome.
+- Deviations: None.
 
 ### Task Completion
 
@@ -25,25 +25,25 @@ Implementation work is complete in the local repo, but native Windows real Chrom
 - T2: Complete. Windows Chrome Stable discovery added; explicit `chromePath` preserved.
 - T3: Complete. Windows opener/process lifecycle support added.
 - T4: Complete. Regression coverage added.
-- T5: Partially complete. macOS runtime passed; Linux CI and Windows CI configured; Windows runtime result pending.
+- T5: Complete. macOS runtime passed locally; Ubuntu and Windows CI passed in GitHub Actions run `28729902858`.
 - T6: Complete. Docs and skills updated after local validation.
 - T7: Complete. Package dry-run passed and excluded planning/native build artifacts.
-- T8: Complete. This report records R/AC/V coverage and pending proof.
+- T8: Complete. This report records R/AC/V coverage and final proof.
 
 ### Acceptance Criteria Sweep
 
-- AC1: Pending Windows CI execution. Windows job runs `node chromux.mjs help` from PowerShell.
-- AC2: Pending Windows CI execution. Helper self-test covers Windows candidate generation.
-- AC3: Met for local macOS runtime; Linux/Windows covered by CI workflow configuration.
+- AC1: Met. Windows CI `Validate package surface` ran `node chromux.mjs help` from PowerShell.
+- AC2: Met. Windows CI launched Chrome Stable without a custom `chromePath`; self-test also covers Windows candidate generation.
+- AC3: Met. macOS local runtime and GitHub Actions Ubuntu/Windows runtime passed through localhost TCP daemon requests.
 - AC4: Met. `./test.sh` verifies `port`/`cdpPort` differs from `daemonPort` and legacy `sock` is removed.
-- AC5: Pending Windows CI execution. Shared launch/adoption code passes macOS runtime suite.
-- AC6: Pending Windows CI execution. Windows job covers `open`, `snapshot`, and `list`.
-- AC7: Pending Windows CI execution. Windows job covers `ps` and `kill`; helper code targets profile-specific `--user-data-dir`.
-- AC8: Pending Windows CI execution. Local `chromux app --open` dashboard smoke passed.
+- AC5: Met. Windows CI launched `win-ci`, ran a second `launch`, and asserted the running profile was reused.
+- AC6: Met. Windows CI covered real Chrome `open`, `snapshot`, `list`, `close`, and post-close empty list.
+- AC7: Met. Windows CI checked `ps` for the `win-ci` profile and ran `kill win-ci` cleanup.
+- AC8: Met. Windows CI ran `chromux app --open` and verified local `/api/state`.
 - AC9: Met. Windows RSS reports best-effort fallback while process/renderers remain profile-specific.
-- AC10: Pending Windows CI execution. macOS local matrix passed; Linux existing CI and Windows new CI are configured.
+- AC10: Met. macOS local suite, Ubuntu full suite, and Windows PowerShell smoke cover the parity matrix, including duplicate launch reuse and dead-lock stale recovery.
 - AC11: Met. README, install.md, and skills now include PowerShell-first Windows CLI guidance and macOS-only native app boundaries.
-- AC12: Met locally for macOS. Existing Linux CI job remains in place.
+- AC12: Met. macOS local validations passed and Ubuntu CI passed in run `28729902858`.
 - AC13: Met. `npm pack --dry-run` excludes `.hoyeon/` and native app build outputs.
 
 ### Verification Evidence
@@ -69,13 +69,13 @@ Implementation work is complete in the local repo, but native Windows real Chrom
 - Local macOS smoke: `launch`, `open`, `list`, `ps`, and `kill` with a real Chrome profile passed.
 - Local macOS dashboard smoke: `chromux app --open` served `http://127.0.0.1:9351/` and `/api/state` returned `ok`.
 - Full local `./test.sh`: passed 102/102 with real Chrome.
-- Native Windows runtime: pending CI execution.
+- Native Windows runtime: GitHub Actions run `28729902858`, job `windows-runtime`, passed. The smoke launched Chrome Stable on Windows Server 2025, verified duplicate launch reuse, opened `https://example.com`, verified `snapshot`, `list`, `ps`, `close`, `chromux app --open`, `/api/state`, `kill`, and dead-lock stale recovery.
 
 #### V5. Cross-Platform CI/Runtime
 
-- Existing Ubuntu CI job still runs static/package checks and `./test.sh`.
-- Added Windows CI job on `windows-latest` with PowerShell validation, app self-test, npm pack dry-run, and real Chrome smoke for `launch`, `open`, `snapshot`, `list`, `ps`, `app --open`, and `kill`.
-- Windows job has not been executed in this local run.
+- GitHub Actions run `28729902858` completed successfully.
+- Ubuntu `validate` passed package/static checks and the real headless Chrome `./test.sh` suite.
+- Windows `windows-runtime` passed PowerShell validation, app self-test, npm pack dry-run, and real Chrome smoke for `launch`, duplicate launch reuse, `open`, `snapshot`, `close`, `list`, `ps`, `app --open`, `kill`, and stale lock recovery.
 
 #### V6. Docs/Skills
 
@@ -92,16 +92,15 @@ Implementation work is complete in the local repo, but native Windows real Chrom
 | OS | Evidence | Status |
 | --- | --- | --- |
 | macOS | Local `./test.sh` 102/102, local TCP smoke, local `app --open` smoke | Passed |
-| Linux | Existing GitHub Actions Ubuntu job preserved | Pending next CI run |
-| Windows | New GitHub Actions Windows PowerShell job added | Pending next CI run |
+| Linux | GitHub Actions run `28729902858`, Ubuntu `validate` | Passed |
+| Windows | GitHub Actions run `28729902858`, Windows `windows-runtime` | Passed |
 
 ### Human Review Needed
 
 - H1: Not needed; no WSL, Edge/Chromium auto-discovery, or native Windows app packaging was added.
-- H2: Recommended for final Windows install wording.
+- H2: Recommended for human polish review, but not blocking implementation completion.
 - H3: Not needed; all-platform TCP transport was implemented.
 
 ### Not Done, Risks, And Follow-Ups
 
-- Native Windows real Chrome proof is not locally executed.
-- GitHub Actions Windows job should be run before declaring PRD status `Done`.
+- None required for the PRD implementation scope.

@@ -9,3 +9,4 @@
 - Added regression coverage in `chromux app --self-test`, `test.sh`, and `.github/workflows/ci.yml`.
 - Updated `README.md`, `install.md`, `skills/chromux/SKILL.md`, and `skills/chromux-work/SKILL.md`.
 - Bumped `package.json` to `0.10.0` for the new Windows CLI support feature.
+- Pushed branch and confirmed GitHub Actions run `28729902858` passed both Ubuntu `validate` and Windows `windows-runtime`, including the expanded Windows parity smoke.

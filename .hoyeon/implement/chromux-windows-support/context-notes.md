@@ -10,8 +10,8 @@
 
 ## Tradeoffs
 
-- Native Windows real Chrome runtime proof cannot be executed from this macOS workspace. The implementation adds a Windows GitHub Actions smoke job, but AC1, AC2, AC5, AC6, AC7, AC8, and the Windows leg of AC10 remain pending until that job runs.
+- Native Windows real Chrome runtime proof was executed through GitHub Actions run `28729902858` after pushing the branch. The first Windows run exposed a PowerShell multiline assertion bug in the workflow, which was fixed in commit `136efd6`; the final smoke was expanded in commit `a393de6` to include close, duplicate launch reuse, and dead-lock stale recovery.
 
 ## Blockers
 
-- Native Windows runtime execution is not available in this local environment.
+- None currently known.
