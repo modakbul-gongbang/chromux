@@ -116,6 +116,9 @@ echo "--- Test 2: PS ---"
 PS=$(node "$CT" ps 2>/dev/null)
 check "ps shows profile" "$PROFILE" "$PS"
 check "ps shows running" "running" "$PS"
+PS_JSON=$(node "$CT" ps --json 2>/dev/null)
+check "ps --json reports profiles" '"profiles"' "$PS_JSON"
+check "ps --json reports resources" '"resources"' "$PS_JSON"
 
 # --- Test 2b: Missing .state adoption ---
 echo ""
@@ -212,6 +215,24 @@ check "run page helper works" "example.com" "$RUN_PAGE"
 
 RUN_TIMEOUT_PROPAGATES=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a --timeout 15000 "return await js('new Promise(resolve => setTimeout(() => resolve(location.hostname), 11000))')" 2>/dev/null)
 check "run --timeout propagates to js helper" "example.com" "$RUN_TIMEOUT_PROPAGATES"
+
+RUN_RECEIPT="/tmp/chromux-run-receipt-$$.json"
+RUN_WITH_RECEIPT=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a "return {url: 'https://example.com/path?token=do-not-store&q=typed secret text#secret-fragment', pageUrl: await js('location.href'), secretToken: 'do-not-store', text: 'typed secret text'}" --receipt "$RUN_RECEIPT" 2>/dev/null)
+check "run --receipt preserves command result" "example.com" "$RUN_WITH_RECEIPT"
+if [ -s "$RUN_RECEIPT" ]; then
+  RECEIPT_SUMMARY=$(node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const stored=JSON.stringify(r).includes("do-not-store")||JSON.stringify(r).includes("typed secret text"); console.log(`ok=${r.ok} codeStored=${r.codeStored} leaked=${stored} duration=${typeof r.durationMs}`);' "$RUN_RECEIPT")
+  check "run receipt records success" "ok=true" "$RECEIPT_SUMMARY"
+  check "run receipt does not store inline code" "codeStored=false" "$RECEIPT_SUMMARY"
+  check "run receipt redacts sensitive strings" "leaked=false" "$RECEIPT_SUMMARY"
+else
+  echo "  ✗ run receipt missing"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$RUN_RECEIPT"
+
+RUN_WAIT_HELPERS=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a "const ready = await waitFor('Example Domain', { kind: 'text', timeoutMs: 5000 }); const asserted = await assertPage('document.body.innerText.includes(\"Example Domain\")'); return {ready, asserted};" 2>/dev/null)
+check "run waitFor helper proves visible text" "Example Domain" "$RUN_WAIT_HELPERS"
+check "run assertPage helper returns assertion proof" '"asserted": true' "$RUN_WAIT_HELPERS"
 
 RUN_JS_ISOLATED=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a - <<'JS' 2>/dev/null
 await js('const input = 1; return input;');
@@ -414,11 +435,11 @@ else
   PASS=$((PASS+1))
 fi
 
-if node -e "const fs=require('fs'); const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor; new AsyncFunction('cdp','js','sleep','waitLoad', fs.readFileSync('snippets/_builtin/scroll-until.js','utf8'));" 2>/dev/null; then
-  echo "  ✓ builtin scroll-until helper compiles for chromux run"
+if node -e "const fs=require('fs'); const files=fs.readdirSync('snippets/_builtin').filter(f=>f.endsWith('.js')); const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor; for (const file of files) new AsyncFunction('cdp','js','sleep','waitLoad','page','waitFor','assertPage', fs.readFileSync('snippets/_builtin/'+file,'utf8'));" 2>/dev/null; then
+  echo "  ✓ builtin helpers compile for chromux run"
   PASS=$((PASS+1))
 else
-  echo "  ✗ builtin scroll-until helper failed to compile for chromux run"
+  echo "  ✗ builtin helpers failed to compile for chromux run"
   FAIL=$((FAIL+1))
 fi
 
@@ -477,14 +498,23 @@ echo "--- Test 9b: Crawl orchestration helpers ---"
 BATCH_IN="/tmp/chromux-batch-urls-$$.txt"
 BATCH_OUT="/tmp/chromux-batch-out-$$.jsonl"
 printf 'https://example.com\nhttps://example.org\n' > "$BATCH_IN"
-BATCH=$(CHROMUX_PROFILE=$PROFILE CHROMUX_MODE=crawl node "$CT" batch --file "$BATCH_IN" --workers 2 --out "$BATCH_OUT" --session-prefix batch-test 2>/dev/null)
+BATCH=$(CHROMUX_PROFILE=$PROFILE CHROMUX_MODE=crawl node "$CT" batch --file "$BATCH_IN" --workers 2 --retries 1 --host-backoff-ms 20 --out "$BATCH_OUT" --session-prefix batch-test 2>/dev/null)
 check "batch reports total" '"total": 2' "$BATCH"
 check "batch reports success" '"ok": 2' "$BATCH"
+check "batch reports retry budget" '"retries": 1' "$BATCH"
+check "batch reports p50 timing" '"p50DurationMs"' "$BATCH"
 if [ "$(wc -l < "$BATCH_OUT" | tr -d ' ')" = "2" ]; then
   echo "  ✓ batch wrote JSONL output"
   PASS=$((PASS+1))
 else
   echo "  ✗ batch JSONL output count wrong"
+  FAIL=$((FAIL+1))
+fi
+if node -e 'const fs=require("fs"); const rows=fs.readFileSync(process.argv[1],"utf8").trim().split(/\n/).filter(Boolean).map(JSON.parse); if (!rows.every(row => row.attempts >= 1 && "failureKind" in row && row.host)) process.exit(1);' "$BATCH_OUT"; then
+  echo "  ✓ batch JSONL includes attempts, host, and failureKind"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ batch JSONL missing scheduler metadata"
   FAIL=$((FAIL+1))
 fi
 rm -f "$BATCH_IN" "$BATCH_OUT"
@@ -686,6 +716,25 @@ else
   PASS=$((PASS+1))
 fi
 CHROMUX_PROFILE=$PROFILE node "$CT" kill "$PROFILE" 2>/dev/null > /dev/null || true
+
+# --- Test 15: Benchmark and docs verifier ---
+echo ""
+echo "--- Test 15: Benchmark and docs verifier ---"
+BENCH_OUT="/tmp/chromux-benchmark-smoke-$$.json"
+BENCH=$(CHROMUX_HOME="$CHROMUX_HOME" node benchmarks/chromux-benchmark.mjs --smoke --out "$BENCH_OUT" 2>/tmp/chromux-benchmark-smoke-$$.err)
+check "benchmark smoke reports ok" '"ok": true' "$BENCH"
+check "benchmark reports cold launch" '"coldLaunchMs"' "$BENCH"
+check "benchmark reports batch p95" '"batchP95DurationMs"' "$BENCH"
+if [ -s "$BENCH_OUT" ]; then
+  echo "  ✓ benchmark wrote JSON artifact"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ benchmark JSON artifact missing"
+  FAIL=$((FAIL+1))
+fi
+DOC_CHECK=$(node benchmarks/chromux-doc-check.mjs 2>/dev/null)
+check "doc check passed" '"ok": true' "$DOC_CHECK"
+rm -f "$BENCH_OUT" "${BENCH_OUT%.json}.png" "${BENCH_OUT%.json}-run-receipt.json" "${BENCH_OUT%.json}-batch.jsonl" /tmp/chromux-benchmark-smoke-$$.err
 
 # Cancel the EXIT trap since kill already cleaned up
 trap - EXIT

@@ -1,0 +1,554 @@
+{
+  "schema": "hoyeon.prd-implement.verification-plan.v1",
+  "status": "ready",
+  "generatedAt": "2026-07-06T02:44:49.574Z",
+  "prdPath": ".hoyeon/prd/chromux-dominant-browser-automation/prd.md",
+  "prdSha256": "2f8d936a5b10996e9b11278b8a9928e355ebdd0b06b3b24d6fcdee76f6f42dab",
+  "verificationContractHash": "c83d5dc8c99c2d6e3d55185fa994f26d4ba6f7090749ee708cacea3f6ec3267d",
+  "statePath": ".hoyeon/implement/chromux-dominant-browser-automation/state.json",
+  "environment": {
+    "packageManager": "npm",
+    "packageScripts": [],
+    "browserTool": "chromux",
+    "serverStrategy": "no dev server script detected",
+    "serviceStrategy": "use repo-local dev/test commands; ask if services are required",
+    "dbStrategy": "no DB surface detected"
+  },
+  "checks": [
+    {
+      "id": "VP1",
+      "verificationId": "V1",
+      "level": "General",
+      "source": "verification_matrix",
+      "category": "command",
+      "tool": "verify-run",
+      "command": "node --check chromux.mjs && bash -n test.sh && node chromux.mjs help && npm pack --dry-run",
+      "target": null,
+      "covers": {
+        "requirements": [
+          "R8"
+        ],
+        "acceptanceCriteria": [
+          "AC13",
+          "AC15"
+        ],
+        "tasks": [
+          "T8"
+        ]
+      },
+      "artifactKinds": [
+        "command-log"
+      ],
+      "passCriteria": "Static checks, `node chromux.mjs help`, and `npm pack --dry-run` prove the CLI, help surface, and package surface remain coherent",
+      "requiredForDone": true,
+      "canBeBlocked": false,
+      "testMode": "build/static",
+      "testModeContract": {
+        "id": "TM1",
+        "mode": "build/static",
+        "normalizedMode": "build-static",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "covers": "CLI syntax, help surface, package allowlist, docs consistency",
+        "humanDecision": "approve any public command-surface change"
+      },
+      "contract": {
+        "mode": "build/static",
+        "covers": "R8, AC13, AC15, T8",
+        "method": "`node --check chromux.mjs && bash -n test.sh && node chromux.mjs help && npm pack --dry-run`",
+        "artifact": "command-log",
+        "passCriteria": "Static checks, `node chromux.mjs help`, and `npm pack --dry-run` prove the CLI, help surface, and package surface remain coherent",
+        "environment": "",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "local only",
+        "liveProof": "",
+        "sideEffect": "",
+        "sensitiveDataPolicy": "no secrets or browser profile data required"
+      },
+      "contractHash": "b7b677eb7538a3aa565f0a00eff962cc87ae5780fc3087cbe1f4a7f6644ddc52",
+      "status": "planned",
+      "notes": []
+    },
+    {
+      "id": "VP2",
+      "verificationId": "V2",
+      "level": "General",
+      "source": "verification_matrix",
+      "category": "automated",
+      "tool": "verify-run",
+      "command": "bash ./test.sh",
+      "target": null,
+      "covers": {
+        "requirements": [
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6"
+        ],
+        "acceptanceCriteria": [
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7",
+          "AC8",
+          "AC9",
+          "AC10",
+          "AC11",
+          "AC12",
+          "AC14"
+        ],
+        "tasks": [
+          "T3",
+          "T4",
+          "T5",
+          "T6",
+          "T7"
+        ]
+      },
+      "artifactKinds": [
+        "command-log"
+      ],
+      "passCriteria": "Automated tests prove adaptive scheduling, readiness helpers, receipt redaction, diagnosis states, and snippet contracts against deterministic fixtures",
+      "requiredForDone": true,
+      "canBeBlocked": false,
+      "testMode": "automated behavior",
+      "testModeContract": {
+        "id": "TM2",
+        "mode": "automated behavior",
+        "normalizedMode": "automated-behavior",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "covers": "scheduler, readiness, receipts, snippets, diagnosis, redaction regressions",
+        "humanDecision": "none"
+      },
+      "contract": {
+        "mode": "automated behavior",
+        "covers": "R2-R6, AC4-AC12, AC14, T3-T7",
+        "method": "`bash ./test.sh`",
+        "artifact": "command-log",
+        "passCriteria": "Automated tests prove adaptive scheduling, readiness helpers, receipt redaction, diagnosis states, and snippet contracts against deterministic fixtures",
+        "environment": "",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "local Chrome fixtures only",
+        "liveProof": "",
+        "sideEffect": "",
+        "sensitiveDataPolicy": "isolated `CHROMUX_HOME`; no raw typed text, tokens, cookies, or inline code stored"
+      },
+      "contractHash": "1a9466aa3c201cf46d238710a772aed428c010c6bce748b4cdf89291592a678d",
+      "status": "planned",
+      "notes": []
+    },
+    {
+      "id": "VP3",
+      "verificationId": "V3",
+      "level": "General",
+      "source": "verification_matrix",
+      "category": "command",
+      "tool": "verify-run",
+      "command": "CHROMUX_HOME=\"$(mktemp -d /tmp/chromux-dominant-runtime-XXXXXX)\" node benchmarks/chromux-benchmark.mjs --smoke --out .hoyeon/implement/chromux-dominant-browser-automation/artifacts/logs/runtime-smoke.json",
+      "target": null,
+      "covers": {
+        "requirements": [
+          "R1",
+          "R2",
+          "R3",
+          "R4",
+          "R5",
+          "R6"
+        ],
+        "acceptanceCriteria": [
+          "AC3",
+          "AC4",
+          "AC5",
+          "AC6",
+          "AC7",
+          "AC8",
+          "AC9",
+          "AC10"
+        ],
+        "tasks": [
+          "T2",
+          "T3",
+          "T4",
+          "T5",
+          "T6"
+        ]
+      },
+      "artifactKinds": [
+        "command-log",
+        "dom-log",
+        "screenshot",
+        "console-log"
+      ],
+      "passCriteria": "Real Chrome smoke flows prove bundled QA, crawl worker reuse, profile recovery, watch diagnostics, and cleanup behavior in an isolated `CHROMUX_HOME` using benchmark-owned local fixtures",
+      "requiredForDone": true,
+      "canBeBlocked": false,
+      "testMode": "browser/runtime",
+      "testModeContract": {
+        "id": "TM3",
+        "mode": "browser/runtime",
+        "normalizedMode": "browser-runtime",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "covers": "real Chrome behavior for QA, crawl, profile lifecycle, diagnostics",
+        "humanDecision": "final confidence that behavior is Chrome-real"
+      },
+      "contract": {
+        "mode": "browser/runtime",
+        "covers": "R1-R6, AC3-AC10, T2-T6",
+        "method": "`CHROMUX_HOME=\"$(mktemp -d /tmp/chromux-dominant-runtime-XXXXXX)\" node benchmarks/chromux-benchmark.mjs --smoke --out .hoyeon/implement/chromux-dominant-browser-automation/artifacts/logs/runtime-smoke.json`",
+        "artifact": "command-log plus benchmark JSON file under `.hoyeon/implement/chromux-dominant-browser-automation/artifacts/logs/`",
+        "passCriteria": "Real Chrome smoke flows prove bundled QA, crawl worker reuse, profile recovery, watch diagnostics, and cleanup behavior in an isolated `CHROMUX_HOME` using benchmark-owned local fixtures",
+        "environment": "",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "deterministic localhost fixture server started and stopped by benchmark harness",
+        "liveProof": "",
+        "sideEffect": "",
+        "sensitiveDataPolicy": "isolated temporary profile; benchmark artifacts must redact text entry and inline runner code"
+      },
+      "contractHash": "716dd9b4529d685cb4c342d25789d36c16e9d400355bb8b70ebc70f9ed83f4e1",
+      "status": "planned",
+      "notes": []
+    },
+    {
+      "id": "VP4",
+      "verificationId": "V4",
+      "level": "General",
+      "source": "verification_matrix",
+      "category": "command",
+      "tool": "verify-run",
+      "command": "CHROMUX_HOME=\"$(mktemp -d /tmp/chromux-dominant-bench-XXXXXX)\" node benchmarks/chromux-benchmark.mjs --out .hoyeon/implement/chromux-dominant-browser-automation/artifacts/logs/benchmark.json",
+      "target": null,
+      "covers": {
+        "requirements": [
+          "R1",
+          "R2",
+          "R5",
+          "R7"
+        ],
+        "acceptanceCriteria": [
+          "AC1",
+          "AC2",
+          "AC4",
+          "AC5"
+        ],
+        "tasks": [
+          "T1",
+          "T3"
+        ]
+      },
+      "artifactKinds": [
+        "command-log",
+        "dom-log"
+      ],
+      "passCriteria": "Benchmark artifacts report p50/p95 latency, throughput, retry/failure classification, and resource snapshots against baseline-derived budgets",
+      "requiredForDone": true,
+      "canBeBlocked": false,
+      "testMode": "performance benchmark",
+      "testModeContract": {
+        "id": "TM4",
+        "mode": "performance benchmark",
+        "normalizedMode": "performance-benchmark",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "covers": "cold/warm command latency, batch throughput, resource budgets",
+        "humanDecision": "approve baseline-derived budget method"
+      },
+      "contract": {
+        "mode": "performance benchmark",
+        "covers": "R1, R2, R5, R7, AC1, AC2, AC4, AC5, T1, T3",
+        "method": "`CHROMUX_HOME=\"$(mktemp -d /tmp/chromux-dominant-bench-XXXXXX)\" node benchmarks/chromux-benchmark.mjs --out .hoyeon/implement/chromux-dominant-browser-automation/artifacts/logs/benchmark.json`",
+        "artifact": "benchmark JSON file and command-log under `.hoyeon/implement/chromux-dominant-browser-automation/artifacts/logs/`",
+        "passCriteria": "Benchmark artifacts report p50/p95 latency, throughput, retry/failure classification, and resource snapshots against baseline-derived budgets",
+        "environment": "",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "deterministic localhost fixture server only",
+        "liveProof": "",
+        "sideEffect": "",
+        "sensitiveDataPolicy": "isolated temporary profile; no production pages or user data"
+      },
+      "contractHash": "377a786fcde7ab680809d5dc0ac9559fe622950780b2314467ea20eb5391420f",
+      "status": "planned",
+      "notes": []
+    },
+    {
+      "id": "VP5",
+      "verificationId": "V5",
+      "level": "General",
+      "source": "verification_matrix",
+      "category": "command",
+      "tool": "verify-run",
+      "command": "node benchmarks/chromux-doc-check.mjs",
+      "target": null,
+      "covers": {
+        "requirements": [
+          "R1",
+          "R6",
+          "R8"
+        ],
+        "acceptanceCriteria": [
+          "AC11",
+          "AC12",
+          "AC13"
+        ],
+        "tasks": [
+          "T7",
+          "T8"
+        ]
+      },
+      "artifactKinds": [
+        "command-log"
+      ],
+      "passCriteria": "README, install docs, `skills/chromux`, and `skills/chromux-work` teach the fastest safe path and match `chromux help`",
+      "requiredForDone": true,
+      "canBeBlocked": false,
+      "testMode": "documentation review",
+      "testModeContract": {
+        "id": "TM5",
+        "mode": "documentation review",
+        "normalizedMode": "documentation-review",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "covers": "README, install, skills, and orchestration guidance",
+        "humanDecision": "approve agent-facing workflow framing"
+      },
+      "contract": {
+        "mode": "documentation review",
+        "covers": "R1, R6, R8, AC11-AC13, T7, T8",
+        "method": "`node benchmarks/chromux-doc-check.mjs`",
+        "artifact": "command-log",
+        "passCriteria": "README, install docs, `skills/chromux`, and `skills/chromux-work` teach the fastest safe path and match `chromux help`",
+        "environment": "",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "local file and help-output inspection only",
+        "liveProof": "",
+        "sideEffect": "",
+        "sensitiveDataPolicy": "no secrets or browser profile data required"
+      },
+      "contractHash": "37d7f21e9ac88a53da08a8ca7a01c88f0f94d463e9132a453e0f4d5a2fef1ac2",
+      "status": "planned",
+      "notes": []
+    },
+    {
+      "id": "VP6",
+      "verificationId": "V6",
+      "level": "General",
+      "source": "verification_matrix",
+      "category": "command",
+      "tool": "verify-run",
+      "command": "node ~/.codex/skills/prd-ship/scripts/prd_ship.js status --state .hoyeon/implement/chromux-dominant-browser-automation/state.json",
+      "target": null,
+      "covers": {
+        "requirements": [],
+        "acceptanceCriteria": [
+          "AC16"
+        ],
+        "tasks": [
+          "T8"
+        ]
+      },
+      "artifactKinds": [
+        "command-log",
+        "dom-log",
+        "api-log"
+      ],
+      "passCriteria": "If implementation delivery is approved, branch, PR URL, diff scope, and CI result prove the change is reviewable and unrelated artifacts are excluded",
+      "requiredForDone": false,
+      "canBeBlocked": true,
+      "testMode": "delivery/CI",
+      "testModeContract": {
+        "id": "TM6",
+        "mode": "delivery/CI",
+        "normalizedMode": "delivery-ci",
+        "requiredForDone": false,
+        "requiredForDoneRaw": "no/blockable",
+        "canBeBlocked": true,
+        "covers": "future PR URL, branch diff, and CI status if implementation is shipped",
+        "humanDecision": "PR creation and CI spend require explicit implementation approval"
+      },
+      "contract": {
+        "mode": "delivery/CI",
+        "covers": "AC16, T8",
+        "method": "`node ~/.codex/skills/prd-ship/scripts/prd_ship.js status --state .hoyeon/implement/chromux-dominant-browser-automation/state.json`",
+        "artifact": "api-log or command-log",
+        "passCriteria": "If implementation delivery is approved, branch, PR URL, diff scope, and CI result prove the change is reviewable and unrelated artifacts are excluded",
+        "environment": "",
+        "requiredForDone": false,
+        "requiredForDoneRaw": "no",
+        "canBeBlocked": true,
+        "canBeBlockedRaw": "yes",
+        "safeProbe": "GitHub metadata only after explicit ship request",
+        "liveProof": "",
+        "sideEffect": "",
+        "sensitiveDataPolicy": "PR body and logs must not include local secrets, cookies, tokens, or unpushed `/Users/...` visual artifact paths"
+      },
+      "contractHash": "403b55615e98bd36bb7461ca015334a31e3d57810ce442acc6b5809a65a36826",
+      "status": "planned",
+      "notes": []
+    }
+  ],
+  "coverage": {
+    "AC1": {
+      "title": "A documented benchmark run reports cold launch, warm daemon command, open, `run`, snapshot full, snapshot interactive...",
+      "requirements": [],
+      "coveredBy": [
+        "VP4"
+      ],
+      "status": "covered"
+    },
+    "AC2": {
+      "title": "The benchmark harness uses deterministic local fixtures for required pass/fail gates and may use optional external pa...",
+      "requirements": [],
+      "coveredBy": [
+        "VP4"
+      ],
+      "status": "covered"
+    },
+    "AC3": {
+      "title": "A representative multi-step QA flow can run with a single bundled operation or snippet and returns both result data a...",
+      "requirements": [],
+      "coveredBy": [
+        "VP3"
+      ],
+      "status": "covered"
+    },
+    "AC4": {
+      "title": "A representative large URL queue runs through a bounded worker pool with worker reuse, per-item duration, retry class...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP3",
+        "VP4"
+      ],
+      "status": "covered"
+    },
+    "AC5": {
+      "title": "Crawl execution backs off or fails clearly when profile queue, renderer, process, RSS, host error rate, or timeout po...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP3",
+        "VP4"
+      ],
+      "status": "covered"
+    },
+    "AC6": {
+      "title": "Readiness helpers can wait for visible text, visible selector, DOM assertion, navigation completion, and a bounded qu...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP3"
+      ],
+      "status": "covered"
+    },
+    "AC7": {
+      "title": "Failed readiness reports include the waited condition, timeout budget, last known URL/title, and relevant console or ...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP3"
+      ],
+      "status": "covered"
+    },
+    "AC8": {
+      "title": "Structured receipts redact raw typed text, inline code, tokens, cookies, authorization headers, and secrets while pre...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP3"
+      ],
+      "status": "covered"
+    },
+    "AC9": {
+      "title": "Profile diagnosis evidence can distinguish running, locked, stale daemon, paused, queue full, resource guarded, unres...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP3"
+      ],
+      "status": "covered"
+    },
+    "AC10": {
+      "title": "The status app or CLI-readable status output exposes recent task duration, failure counts, resource guard events, and...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP3"
+      ],
+      "status": "covered"
+    },
+    "AC11": {
+      "title": "Built-in snippets cover at least infinite scroll, structured page extraction, form flow with readiness, network-error...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP5"
+      ],
+      "status": "covered"
+    },
+    "AC12": {
+      "title": "New snippets are tested against local fixtures and documented as runner material, not as new public commands.",
+      "requirements": [],
+      "coveredBy": [
+        "VP2",
+        "VP5"
+      ],
+      "status": "covered"
+    },
+    "AC13": {
+      "title": "`node chromux.mjs help` remains the source of truth and does not expose deprecated compatibility aliases as primary h...",
+      "requirements": [],
+      "coveredBy": [
+        "VP1",
+        "VP5"
+      ],
+      "status": "covered"
+    },
+    "AC14": {
+      "title": "`./test.sh` or a focused automated suite covers scheduler, readiness, receipt redaction, snippet contracts, and diagn...",
+      "requirements": [],
+      "coveredBy": [
+        "VP2"
+      ],
+      "status": "covered"
+    },
+    "AC15": {
+      "title": "`npm pack --dry-run` confirms package contents stay inside the `package.json` allowlist and no planning artifacts are...",
+      "requirements": [],
+      "coveredBy": [
+        "VP1"
+      ],
+      "status": "covered"
+    },
+    "AC16": {
+      "title": "Future PR delivery, if approved, provides a PR URL, reviewable result summary, and CI status without staging unrelate...",
+      "requirements": [],
+      "coveredBy": [
+        "VP6"
+      ],
+      "status": "covered"
+    }
+  },
+  "gaps": []
+}

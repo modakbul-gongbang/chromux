@@ -1,0 +1,503 @@
+{
+  "schema": "hoyeon.prd-implement.receipt.v1",
+  "status": "complete",
+  "summary": "Completed chromux dominant browser automation PRD: benchmark harness, run receipts with URL query/hash redaction, readiness helpers, adaptive batch telemetry, ps --json diagnostics, snippets, docs, CI checks, package version 0.11.0, and refreshed V1-V5 verification. Optional V6 delivery/CI is deferred to prd-ship after receipt.",
+  "verifiedAt": "2026-07-06T03:58:25.703Z",
+  "counts": {
+    "executionOpen": 0,
+    "tasksOpen": 0,
+    "acOpen": 0,
+    "verificationOpen": 0,
+    "totalOpen": 0,
+    "blocked": {
+      "execution": 0,
+      "tasks": 0,
+      "acceptanceCriteria": 0,
+      "verification": 1,
+      "requiredVerification": 0
+    },
+    "requiredVerificationNotPassed": 0
+  },
+  "delivery": {
+    "schema": "hoyeon.delivery.v1",
+    "mode": "pr",
+    "branch": "prd/chromux-dominant-browser-automation",
+    "baseBranch": "main",
+    "prTemplate": null,
+    "ci": {
+      "watch": true,
+      "maxFixAttempts": 2
+    },
+    "staging": {
+      "include": [],
+      "exclude": []
+    },
+    "worktree": {
+      "enabled": true,
+      "path": "/Users/hoyeonlee/team-attention/chromux.worktrees/prd-chromux-dominant-browser-automation",
+      "root": "/Users/hoyeonlee/team-attention/chromux.worktrees",
+      "link": [],
+      "copy": [],
+      "setup": [],
+      "current": true,
+      "skipped": true,
+      "preparation": null
+    },
+    "configPath": ".hoyeon/config.json",
+    "initializedAt": "2026-07-06T02:44:49.572Z"
+  },
+  "worktreeSnapshot": {
+    "capturedAt": "2026-07-06T03:58:25.720Z",
+    "statusHash": "3ced779f",
+    "entryCount": 19,
+    "entries": [
+      {
+        "status": " M",
+        "path": ".github/workflows/ci.yml",
+        "originalPath": null,
+        "sha256": "e1ce5fefe7c92263812f1b9f1fc4eecbc37b84448bb8637b4b37e83d068eced2",
+        "bytes": 5984
+      },
+      {
+        "status": "??",
+        "path": ".hoyeon/config.json",
+        "originalPath": null,
+        "sha256": "58b4fd36e333e58912ab2eca35a59e118c89d5376eea383c9228f33a1153342d",
+        "bytes": 254
+      },
+      {
+        "status": "??",
+        "path": ".hoyeon/prd/chromux-dominant-browser-automation/context-notes.md",
+        "originalPath": null,
+        "sha256": "9c110129ffbea506f56548d550408c02e9e89f2edf0ff5803abbc94f723e3a69",
+        "bytes": 4502
+      },
+      {
+        "status": "??",
+        "path": ".hoyeon/prd/chromux-dominant-browser-automation/intent-scope-audit.md",
+        "originalPath": null,
+        "sha256": "c12b3338af229cfda2eec077b46a8a8634fcec64d925a579960c1bbdd3e96a7d",
+        "bytes": 2214
+      },
+      {
+        "status": "??",
+        "path": ".hoyeon/prd/chromux-dominant-browser-automation/prd.md",
+        "originalPath": null,
+        "sha256": "2f8d936a5b10996e9b11278b8a9928e355ebdd0b06b3b24d6fcdee76f6f42dab",
+        "bytes": 23043
+      },
+      {
+        "status": "??",
+        "path": ".hoyeon/prd/chromux-dominant-browser-automation/verification-contract-audit.md",
+        "originalPath": null,
+        "sha256": "a8872c02e47c33688028fc66dbe8cd3d724796c9fbe39cdc12063c812f30d1d0",
+        "bytes": 2882
+      },
+      {
+        "status": "??",
+        "path": "benchmarks/chromux-benchmark.mjs",
+        "originalPath": null,
+        "sha256": "502cee1f6e43d5952a525b4c12244f024c7cac4e1cd3f7358d12a6e706015e7c",
+        "bytes": 9463
+      },
+      {
+        "status": "??",
+        "path": "benchmarks/chromux-doc-check.mjs",
+        "originalPath": null,
+        "sha256": "f0190667061ff71d2f3023f6a61ac7f9d74e4cf790a5a9661a8e3ca7c2118abd",
+        "bytes": 1807
+      },
+      {
+        "status": " M",
+        "path": "chromux.mjs",
+        "originalPath": null,
+        "sha256": "536a589b640263e12e065dce349b59befc5849f1f03c0ac44e61d3b868faeb26",
+        "bytes": 157207
+      },
+      {
+        "status": " M",
+        "path": "install.md",
+        "originalPath": null,
+        "sha256": "fa32b20a72c644a77327c1b31e9ae4dc96ccaff67d9bf530585ad840761ef56b",
+        "bytes": 21911
+      },
+      {
+        "status": " M",
+        "path": "package.json",
+        "originalPath": null,
+        "sha256": "0222c4f28aa38d48a7ddcd602052db6f4ea10db3789143f470180729dd805db2",
+        "bytes": 827
+      },
+      {
+        "status": " M",
+        "path": "README.md",
+        "originalPath": null,
+        "sha256": "f027316907d4c831b1d8c3665a748654d97f63463436e1f394cb0d2ec799acb5",
+        "bytes": 23877
+      },
+      {
+        "status": " M",
+        "path": "skills/chromux-work/SKILL.md",
+        "originalPath": null,
+        "sha256": "266b8c32b7a2ce0468df4b365e3269b9706e26ed8e141bb2077c1925296c4f21",
+        "bytes": 15604
+      },
+      {
+        "status": " M",
+        "path": "skills/chromux/SKILL.md",
+        "originalPath": null,
+        "sha256": "543055f4fbbd93558cc494663869f89af060fc82d45cdbd869fce33c9a190aa4",
+        "bytes": 14469
+      },
+      {
+        "status": "??",
+        "path": "snippets/_builtin/form-flow.js",
+        "originalPath": null,
+        "sha256": "e51b487a09fa36f5b711f4a8fc8e40713f5e4cd3ca16b3e81e5953af41258425",
+        "bytes": 1946
+      },
+      {
+        "status": "??",
+        "path": "snippets/_builtin/network-errors.js",
+        "originalPath": null,
+        "sha256": "5118481b6a0b977f9acb20b842c15d6d8582dc62076a673819278132c33774c2",
+        "bytes": 1198
+      },
+      {
+        "status": "??",
+        "path": "snippets/_builtin/page-assert.js",
+        "originalPath": null,
+        "sha256": "11e256c0d229f9ee6a5897c9bcaa0b886092311d727a8afbbe328e8233cf4a2d",
+        "bytes": 664
+      },
+      {
+        "status": "??",
+        "path": "snippets/_builtin/page-extract.js",
+        "originalPath": null,
+        "sha256": "0d5a78c2cbae07c31736d885af748b8217363d09dbe6f2eda2a257008f61d9b9",
+        "bytes": 1043
+      },
+      {
+        "status": " M",
+        "path": "test.sh",
+        "originalPath": null,
+        "sha256": "9db2c57ec07bf89fb91432f43d4d8cdf9648eda7fec2aadde43daba22cd6d8b9",
+        "bytes": 37794
+      }
+    ]
+  },
+  "executionPlan": {
+    "status": "ready",
+    "nodeCount": 8,
+    "openNodeCount": 0,
+    "blockingGapCount": 0,
+    "warningCount": 2,
+    "generatedAt": "2026-07-06T02:54:58.713Z"
+  },
+  "taskGraph": {
+    "status": "complete",
+    "nodeCount": 43,
+    "edgeCount": 221,
+    "openNodeCount": 0,
+    "blockingGapCount": 0,
+    "generatedAt": "2026-07-06T03:58:25.722Z"
+  },
+  "artifactCount": 20,
+  "requirementsFidelityReview": {
+    "status": "pass",
+    "summary": "PASS: refreshed after receipt URL query/hash redaction fix and V1-V5 rerun; PRD intent, non-goals, R/AC coverage, artifact-backed verification, privacy guardrails, and delivery sequencing align.",
+    "reportPath": ".hoyeon/implement/chromux-dominant-browser-automation/review/requirements-fidelity-review.md",
+    "reportBytes": 7447,
+    "reportSha256": "48e34fef395e0b27f0c31ac4622eddcf5a18b18a18fd4138c48ddbf34dd13ab6",
+    "worktreeSnapshot": {
+      "capturedAt": "2026-07-06T03:54:09.815Z",
+      "statusHash": "3ced779f",
+      "entryCount": 19,
+      "entries": [
+        {
+          "status": " M",
+          "path": ".github/workflows/ci.yml",
+          "originalPath": null,
+          "sha256": "e1ce5fefe7c92263812f1b9f1fc4eecbc37b84448bb8637b4b37e83d068eced2",
+          "bytes": 5984
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/config.json",
+          "originalPath": null,
+          "sha256": "58b4fd36e333e58912ab2eca35a59e118c89d5376eea383c9228f33a1153342d",
+          "bytes": 254
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/context-notes.md",
+          "originalPath": null,
+          "sha256": "9c110129ffbea506f56548d550408c02e9e89f2edf0ff5803abbc94f723e3a69",
+          "bytes": 4502
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/intent-scope-audit.md",
+          "originalPath": null,
+          "sha256": "c12b3338af229cfda2eec077b46a8a8634fcec64d925a579960c1bbdd3e96a7d",
+          "bytes": 2214
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/prd.md",
+          "originalPath": null,
+          "sha256": "2f8d936a5b10996e9b11278b8a9928e355ebdd0b06b3b24d6fcdee76f6f42dab",
+          "bytes": 23043
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/verification-contract-audit.md",
+          "originalPath": null,
+          "sha256": "a8872c02e47c33688028fc66dbe8cd3d724796c9fbe39cdc12063c812f30d1d0",
+          "bytes": 2882
+        },
+        {
+          "status": "??",
+          "path": "benchmarks/chromux-benchmark.mjs",
+          "originalPath": null,
+          "sha256": "502cee1f6e43d5952a525b4c12244f024c7cac4e1cd3f7358d12a6e706015e7c",
+          "bytes": 9463
+        },
+        {
+          "status": "??",
+          "path": "benchmarks/chromux-doc-check.mjs",
+          "originalPath": null,
+          "sha256": "f0190667061ff71d2f3023f6a61ac7f9d74e4cf790a5a9661a8e3ca7c2118abd",
+          "bytes": 1807
+        },
+        {
+          "status": " M",
+          "path": "chromux.mjs",
+          "originalPath": null,
+          "sha256": "536a589b640263e12e065dce349b59befc5849f1f03c0ac44e61d3b868faeb26",
+          "bytes": 157207
+        },
+        {
+          "status": " M",
+          "path": "install.md",
+          "originalPath": null,
+          "sha256": "fa32b20a72c644a77327c1b31e9ae4dc96ccaff67d9bf530585ad840761ef56b",
+          "bytes": 21911
+        },
+        {
+          "status": " M",
+          "path": "package.json",
+          "originalPath": null,
+          "sha256": "0222c4f28aa38d48a7ddcd602052db6f4ea10db3789143f470180729dd805db2",
+          "bytes": 827
+        },
+        {
+          "status": " M",
+          "path": "README.md",
+          "originalPath": null,
+          "sha256": "f027316907d4c831b1d8c3665a748654d97f63463436e1f394cb0d2ec799acb5",
+          "bytes": 23877
+        },
+        {
+          "status": " M",
+          "path": "skills/chromux-work/SKILL.md",
+          "originalPath": null,
+          "sha256": "266b8c32b7a2ce0468df4b365e3269b9706e26ed8e141bb2077c1925296c4f21",
+          "bytes": 15604
+        },
+        {
+          "status": " M",
+          "path": "skills/chromux/SKILL.md",
+          "originalPath": null,
+          "sha256": "543055f4fbbd93558cc494663869f89af060fc82d45cdbd869fce33c9a190aa4",
+          "bytes": 14469
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/form-flow.js",
+          "originalPath": null,
+          "sha256": "e51b487a09fa36f5b711f4a8fc8e40713f5e4cd3ca16b3e81e5953af41258425",
+          "bytes": 1946
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/network-errors.js",
+          "originalPath": null,
+          "sha256": "5118481b6a0b977f9acb20b842c15d6d8582dc62076a673819278132c33774c2",
+          "bytes": 1198
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/page-assert.js",
+          "originalPath": null,
+          "sha256": "11e256c0d229f9ee6a5897c9bcaa0b886092311d727a8afbbe328e8233cf4a2d",
+          "bytes": 664
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/page-extract.js",
+          "originalPath": null,
+          "sha256": "0d5a78c2cbae07c31736d885af748b8217363d09dbe6f2eda2a257008f61d9b9",
+          "bytes": 1043
+        },
+        {
+          "status": " M",
+          "path": "test.sh",
+          "originalPath": null,
+          "sha256": "9db2c57ec07bf89fb91432f43d4d8cdf9648eda7fec2aadde43daba22cd6d8b9",
+          "bytes": 37794
+        }
+      ]
+    },
+    "recordedAt": "2026-07-06T03:54:09.815Z"
+  },
+  "finalReview": {
+    "status": "pass",
+    "summary": "PASS: refreshed requirements review verified, V1-V5 artifact-backed and fresh, URL query/hash receipt redaction fixed and tested, stale artifact entries cleaned, optional V6 deferred to prd-ship by design.",
+    "reportPath": ".hoyeon/implement/chromux-dominant-browser-automation/review/final-review.md",
+    "reportBytes": 4303,
+    "reportSha256": "1307e0f3e65ae9df241ef97e0c0c6c6889040bc4a016a278c4ff2a8262fddcde",
+    "worktreeSnapshot": {
+      "capturedAt": "2026-07-06T03:55:08.790Z",
+      "statusHash": "3ced779f",
+      "entryCount": 19,
+      "entries": [
+        {
+          "status": " M",
+          "path": ".github/workflows/ci.yml",
+          "originalPath": null,
+          "sha256": "e1ce5fefe7c92263812f1b9f1fc4eecbc37b84448bb8637b4b37e83d068eced2",
+          "bytes": 5984
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/config.json",
+          "originalPath": null,
+          "sha256": "58b4fd36e333e58912ab2eca35a59e118c89d5376eea383c9228f33a1153342d",
+          "bytes": 254
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/context-notes.md",
+          "originalPath": null,
+          "sha256": "9c110129ffbea506f56548d550408c02e9e89f2edf0ff5803abbc94f723e3a69",
+          "bytes": 4502
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/intent-scope-audit.md",
+          "originalPath": null,
+          "sha256": "c12b3338af229cfda2eec077b46a8a8634fcec64d925a579960c1bbdd3e96a7d",
+          "bytes": 2214
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/prd.md",
+          "originalPath": null,
+          "sha256": "2f8d936a5b10996e9b11278b8a9928e355ebdd0b06b3b24d6fcdee76f6f42dab",
+          "bytes": 23043
+        },
+        {
+          "status": "??",
+          "path": ".hoyeon/prd/chromux-dominant-browser-automation/verification-contract-audit.md",
+          "originalPath": null,
+          "sha256": "a8872c02e47c33688028fc66dbe8cd3d724796c9fbe39cdc12063c812f30d1d0",
+          "bytes": 2882
+        },
+        {
+          "status": "??",
+          "path": "benchmarks/chromux-benchmark.mjs",
+          "originalPath": null,
+          "sha256": "502cee1f6e43d5952a525b4c12244f024c7cac4e1cd3f7358d12a6e706015e7c",
+          "bytes": 9463
+        },
+        {
+          "status": "??",
+          "path": "benchmarks/chromux-doc-check.mjs",
+          "originalPath": null,
+          "sha256": "f0190667061ff71d2f3023f6a61ac7f9d74e4cf790a5a9661a8e3ca7c2118abd",
+          "bytes": 1807
+        },
+        {
+          "status": " M",
+          "path": "chromux.mjs",
+          "originalPath": null,
+          "sha256": "536a589b640263e12e065dce349b59befc5849f1f03c0ac44e61d3b868faeb26",
+          "bytes": 157207
+        },
+        {
+          "status": " M",
+          "path": "install.md",
+          "originalPath": null,
+          "sha256": "fa32b20a72c644a77327c1b31e9ae4dc96ccaff67d9bf530585ad840761ef56b",
+          "bytes": 21911
+        },
+        {
+          "status": " M",
+          "path": "package.json",
+          "originalPath": null,
+          "sha256": "0222c4f28aa38d48a7ddcd602052db6f4ea10db3789143f470180729dd805db2",
+          "bytes": 827
+        },
+        {
+          "status": " M",
+          "path": "README.md",
+          "originalPath": null,
+          "sha256": "f027316907d4c831b1d8c3665a748654d97f63463436e1f394cb0d2ec799acb5",
+          "bytes": 23877
+        },
+        {
+          "status": " M",
+          "path": "skills/chromux-work/SKILL.md",
+          "originalPath": null,
+          "sha256": "266b8c32b7a2ce0468df4b365e3269b9706e26ed8e141bb2077c1925296c4f21",
+          "bytes": 15604
+        },
+        {
+          "status": " M",
+          "path": "skills/chromux/SKILL.md",
+          "originalPath": null,
+          "sha256": "543055f4fbbd93558cc494663869f89af060fc82d45cdbd869fce33c9a190aa4",
+          "bytes": 14469
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/form-flow.js",
+          "originalPath": null,
+          "sha256": "e51b487a09fa36f5b711f4a8fc8e40713f5e4cd3ca16b3e81e5953af41258425",
+          "bytes": 1946
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/network-errors.js",
+          "originalPath": null,
+          "sha256": "5118481b6a0b977f9acb20b842c15d6d8582dc62076a673819278132c33774c2",
+          "bytes": 1198
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/page-assert.js",
+          "originalPath": null,
+          "sha256": "11e256c0d229f9ee6a5897c9bcaa0b886092311d727a8afbbe328e8233cf4a2d",
+          "bytes": 664
+        },
+        {
+          "status": "??",
+          "path": "snippets/_builtin/page-extract.js",
+          "originalPath": null,
+          "sha256": "0d5a78c2cbae07c31736d885af748b8217363d09dbe6f2eda2a257008f61d9b9",
+          "bytes": 1043
+        },
+        {
+          "status": " M",
+          "path": "test.sh",
+          "originalPath": null,
+          "sha256": "9db2c57ec07bf89fb91432f43d4d8cdf9648eda7fec2aadde43daba22cd6d8b9",
+          "bytes": 37794
+        }
+      ]
+    },
+    "recordedAt": "2026-07-06T03:55:08.790Z"
+  },
+  "evidenceHash": "132f4bdf"
+}
