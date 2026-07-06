@@ -217,18 +217,37 @@ RUN_TIMEOUT_PROPAGATES=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a --timeout
 check "run --timeout propagates to js helper" "example.com" "$RUN_TIMEOUT_PROPAGATES"
 
 RUN_RECEIPT="/tmp/chromux-run-receipt-$$.json"
-RUN_WITH_RECEIPT=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a "return {url: 'https://example.com/path?token=do-not-store&q=typed secret text#secret-fragment', pageUrl: await js('location.href'), secretToken: 'do-not-store', text: 'typed secret text'}" --receipt "$RUN_RECEIPT" 2>/dev/null)
+RUN_WITH_RECEIPT=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a "return {url: 'https://example.com/path?token=do-not-store&q=typed secret text#secret-fragment', href: 'file:///tmp/private.txt?token=do-not-store#secret-fragment', pageUrl: await js('location.href'), secretToken: 'do-not-store', text: 'typed secret text'}" --receipt "$RUN_RECEIPT" 2>/dev/null)
 check "run --receipt preserves command result" "example.com" "$RUN_WITH_RECEIPT"
 if [ -s "$RUN_RECEIPT" ]; then
-  RECEIPT_SUMMARY=$(node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const stored=JSON.stringify(r).includes("do-not-store")||JSON.stringify(r).includes("typed secret text"); console.log(`ok=${r.ok} codeStored=${r.codeStored} leaked=${stored} duration=${typeof r.durationMs}`);' "$RUN_RECEIPT")
+  RECEIPT_SUMMARY=$(node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const body=JSON.stringify(r); const stored=body.includes("do-not-store")||body.includes("typed secret text")||body.includes("secret-fragment"); const href=r.resultSummary&&r.resultSummary.href; const hrefOk=typeof href==="string"&&href.startsWith("file:///tmp/private.txt?token=")&&href.includes("#[redacted]")&&!href.startsWith("null/"); console.log(`ok=${r.ok} codeStored=${r.codeStored} leaked=${stored} hrefOk=${hrefOk} duration=${typeof r.durationMs}`);' "$RUN_RECEIPT")
   check "run receipt records success" "ok=true" "$RECEIPT_SUMMARY"
   check "run receipt does not store inline code" "codeStored=false" "$RECEIPT_SUMMARY"
   check "run receipt redacts sensitive strings" "leaked=false" "$RECEIPT_SUMMARY"
+  check "run receipt preserves non-http URL protocol" "hrefOk=true" "$RECEIPT_SUMMARY"
 else
   echo "  ✗ run receipt missing"
   FAIL=$((FAIL+1))
 fi
 rm -f "$RUN_RECEIPT"
+
+UNSAFE_RECEIPT="/etc/chromux-disallowed-receipt-$$/receipt.json"
+if CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a "return 1" --receipt "$UNSAFE_RECEIPT" >/tmp/chromux-unsafe-receipt-$$.out 2>&1; then
+  echo "  ✗ run receipt wrote outside allowed artifact roots"
+  FAIL=$((FAIL+1))
+else
+  UNSAFE_OUT=$(cat /tmp/chromux-unsafe-receipt-$$.out)
+  check "run receipt rejects unsafe artifact path before mkdir" "path not allowed" "$UNSAFE_OUT"
+fi
+if [ -e "/etc/chromux-disallowed-receipt-$$" ]; then
+  echo "  ✗ unsafe receipt directory was created"
+  FAIL=$((FAIL+1))
+  rm -rf "/etc/chromux-disallowed-receipt-$$" 2>/dev/null || true
+else
+  echo "  ✓ unsafe receipt directory was not created"
+  PASS=$((PASS+1))
+fi
+rm -f /tmp/chromux-unsafe-receipt-$$.out
 
 RUN_WAIT_HELPERS=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-a "const ready = await waitFor('Example Domain', { kind: 'text', timeoutMs: 5000 }); const asserted = await assertPage('document.body.innerText.includes(\"Example Domain\")'); return {ready, asserted};" 2>/dev/null)
 check "run waitFor helper proves visible text" "Example Domain" "$RUN_WAIT_HELPERS"
@@ -441,6 +460,13 @@ if node -e "const fs=require('fs'); const files=fs.readdirSync('snippets/_builti
 else
   echo "  ✗ builtin helpers failed to compile for chromux run"
   FAIL=$((FAIL+1))
+fi
+if grep -q "innerText" snippets/_builtin/page-extract.js; then
+  echo "  ✗ page-extract uses layout-triggering innerText"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ page-extract uses textContent for metadata extraction"
+  PASS=$((PASS+1))
 fi
 
 # --- Test 6: Snapshot ---
@@ -721,6 +747,7 @@ CHROMUX_PROFILE=$PROFILE node "$CT" kill "$PROFILE" 2>/dev/null > /dev/null || t
 echo ""
 echo "--- Test 15: Benchmark and docs verifier ---"
 BENCH_OUT="/tmp/chromux-benchmark-smoke-$$.json"
+BENCH_URLS="/tmp/chromux-benchmark-urls-$$.txt"
 BENCH=$(CHROMUX_HOME="$CHROMUX_HOME" node benchmarks/chromux-benchmark.mjs --smoke --out "$BENCH_OUT" 2>/tmp/chromux-benchmark-smoke-$$.err)
 check "benchmark smoke reports ok" '"ok": true' "$BENCH"
 check "benchmark reports cold launch" '"coldLaunchMs"' "$BENCH"
@@ -732,9 +759,16 @@ else
   echo "  ✗ benchmark JSON artifact missing"
   FAIL=$((FAIL+1))
 fi
+if [ -e "$BENCH_URLS" ]; then
+  echo "  ✗ benchmark temp URL file was not cleaned up"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ benchmark temp URL file cleaned up"
+  PASS=$((PASS+1))
+fi
 DOC_CHECK=$(node benchmarks/chromux-doc-check.mjs 2>/dev/null)
 check "doc check passed" '"ok": true' "$DOC_CHECK"
-rm -f "$BENCH_OUT" "${BENCH_OUT%.json}.png" "${BENCH_OUT%.json}-run-receipt.json" "${BENCH_OUT%.json}-batch.jsonl" /tmp/chromux-benchmark-smoke-$$.err
+rm -f "$BENCH_OUT" "$BENCH_URLS" "${BENCH_OUT%.json}.png" "${BENCH_OUT%.json}-run-receipt.json" "${BENCH_OUT%.json}-batch.jsonl" /tmp/chromux-benchmark-smoke-$$.err
 
 # Cancel the EXIT trap since kill already cleaned up
 trap - EXIT

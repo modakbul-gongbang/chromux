@@ -148,6 +148,7 @@ async function main() {
   const commands = [];
   const metrics = {};
   const artifacts = {};
+  let urlsPath = null;
 
   try {
     metrics.coldLaunchMs = (await checked('cold launch', ['launch', profile, '--headless'], env, commands)).durationMs;
@@ -173,7 +174,7 @@ async function main() {
     metrics.interactionMs = (await checked('run form flow', ['run', 'bench-form', formCode, '--receipt', receiptPath], env, commands)).durationMs;
     artifacts.runReceipt = receiptPath;
 
-    const urlsPath = path.join(os.tmpdir(), `chromux-benchmark-urls-${process.pid}.txt`);
+    urlsPath = path.join(os.tmpdir(), `chromux-benchmark-urls-${process.pid}.txt`);
     const batchOutPath = outPath.replace(/\.json$/i, '-batch.jsonl');
     const urls = Array.from({ length: smoke ? 3 : 6 }, (_, i) => `${baseUrl}/batch/${i + 1}`).join('\n') + '\n';
     fs.writeFileSync(urlsPath, urls);
@@ -215,6 +216,9 @@ async function main() {
     writeJson(outPath, output);
     console.log(JSON.stringify(output, null, 2));
   } finally {
+    if (urlsPath && fs.existsSync(urlsPath)) {
+      try { fs.unlinkSync(urlsPath); } catch {}
+    }
     await runChromux(['kill', profile], { ...process.env, CHROMUX_PROFILE: profile }, 30_000);
     await new Promise(resolve => server.close(resolve));
   }

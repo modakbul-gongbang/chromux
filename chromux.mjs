@@ -232,25 +232,56 @@ function writeJsonFile(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
 }
 
+function pathWithinBase(candidate, base) {
+  const normalizedCandidate = path.resolve(candidate);
+  const normalizedBase = path.resolve(base);
+  const fold = value => process.platform === 'win32' ? value.toLowerCase() : value;
+  const c = fold(normalizedCandidate);
+  const b = fold(normalizedBase);
+  return c === b || c.startsWith(b + path.sep);
+}
+
+function nearestExistingParent(dirPath) {
+  let current = path.resolve(dirPath);
+  while (!fs.existsSync(current)) {
+    const next = path.dirname(current);
+    if (next === current) return current;
+    current = next;
+  }
+  return current;
+}
+
 function resolveSafeArtifactPath(filePath, label = 'artifact') {
   if (!filePath) throw new Error(`${label} path is required`);
   const resolved = path.resolve(filePath);
-  fs.mkdirSync(path.dirname(resolved), { recursive: true, mode: 0o700 });
-  const realDir = fs.realpathSync(path.dirname(resolved));
-  const realResolved = path.join(realDir, path.basename(resolved));
+  const targetDir = path.dirname(resolved);
+  const cwdPath = process.cwd();
   const cwdReal = fs.realpathSync(process.cwd());
   const allowedBases = [...new Set([
     CHROMUX_HOME,
+    cwdPath,
     cwdReal,
     '/tmp',
     '/private/tmp',
     os.tmpdir(),
     os.homedir(),
-  ].filter(Boolean).map(base => {
-    try { return fs.realpathSync(base); }
-    catch { return path.resolve(base); }
+  ].filter(Boolean).flatMap(base => {
+    const resolvedBase = path.resolve(base);
+    try { return [resolvedBase, fs.realpathSync(base)]; }
+    catch { return [resolvedBase]; }
   }))];
-  if (!allowedBases.some(base => realResolved === base || realResolved.startsWith(base + path.sep))) {
+  if (!allowedBases.some(base => pathWithinBase(resolved, base))) {
+    throw new Error(`${label} path not allowed: ${resolved}`);
+  }
+  const existingParent = nearestExistingParent(targetDir);
+  const parentReal = fs.realpathSync(existingParent);
+  if (!allowedBases.some(base => pathWithinBase(parentReal, base))) {
+    throw new Error(`${label} path not allowed: ${resolved}`);
+  }
+  fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+  const realDir = fs.realpathSync(targetDir);
+  const realResolved = path.join(realDir, path.basename(resolved));
+  if (!allowedBases.some(base => pathWithinBase(realResolved, base))) {
     throw new Error(`${label} path not allowed: ${resolved}`);
   }
   return resolved;
@@ -2971,13 +3002,17 @@ function redactReceiptUrl(value) {
   try {
     const parsed = new URL(text);
     if (!parsed.search && !parsed.hash) return text;
-    const query = [];
-    for (const [key, paramValue] of parsed.searchParams.entries()) {
-      query.push(`${encodeURIComponent(key)}=[sha256:${sha256Text(paramValue).slice(0, 8)};len:${String(paramValue).length}]`);
+    if (parsed.search) {
+      const query = [];
+      for (const [key, paramValue] of parsed.searchParams.entries()) {
+        query.push(`${encodeURIComponent(key)}=[sha256:${sha256Text(paramValue).slice(0, 8)};len:${String(paramValue).length}]`);
+      }
+      parsed.search = query.join('&');
     }
-    const search = query.length ? `?${query.join('&')}` : '';
-    const hash = parsed.hash ? '#[redacted]' : '';
-    return `${parsed.origin}${parsed.pathname}${search}${hash}`;
+    if (parsed.hash) {
+      parsed.hash = '#[redacted]';
+    }
+    return parsed.toString();
   } catch {
     return {
       type: 'string',

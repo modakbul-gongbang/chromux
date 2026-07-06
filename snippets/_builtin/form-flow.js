@@ -14,7 +14,7 @@ await js(`((sel, txt) => {
   if (!el) throw new Error('Missing form field: ' + sel);
   el.focus();
   if ('value' in el) {
-    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const proto = Object.getPrototypeOf(el);
     const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
     if (setter) setter.call(el, txt);
     else el.value = txt;
