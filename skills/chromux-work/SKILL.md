@@ -246,7 +246,11 @@ Parallelize only when all are true:
 - rate-limit or bot-risk is acceptable
 
 Hard limits for browser fan-out:
-- default/QA work: keep browser sessions low and prefer single-agent operation
+- default/QA work: keep browser sessions low and prefer single-agent operation;
+  if you do fan out in default mode, set
+  `CHROMUX_MAX_CONCURRENT_OPS_PER_PROFILE` (default mode is otherwise
+  uncapped) so parallel workers queue at the daemon instead of stampeding the
+  site
 - crawl mode: use 3 to 5 worker sessions per profile
 - plain URL queues: prefer `chromux batch --workers N` over subagent fan-out
 - never create one browser tab per URL for large crawls
@@ -268,7 +272,12 @@ When using subagents, give each one:
 - a unique session prefix
 - exact allowed tool: chromux only
 - a bounded URL/query slice
-- a fixed output schema
+- a fixed output schema — write it to a JSON file and have every subagent run
+  its extraction with `--schema <file>` so all slices come back in one
+  validated shape (mismatches fail loudly instead of polluting the merge)
+- the saved replay script to use, when recon produced one
+  (`chromux run <session> --script <host>/<name>`), so workers replay a proven
+  flow instead of re-deriving selectors in parallel
 - cleanup instruction: close its sessions and report any close hint
 - instruction to use `page(...)` or checked-in extractor files instead of
   shell-quoted one-line JavaScript for complex DOM reads
@@ -290,6 +299,40 @@ Main agent responsibilities:
 - pause the profile before stopping a wave or interrupting runaway workers
 - dedupe and synthesize final results
 - verify claims that affect the final answer
+
+### Parallel Research Recipe
+
+The end-to-end shape for "split a research task and fan out" — derive once
+centrally, replay in parallel, merge validated shapes:
+
+1. **Recon once** (section 2): one session confirms login state, page shape,
+   and blockers. If `open` already lists `scripts` for the host, test-replay
+   the newest one instead of re-deriving the flow.
+2. **Derive the extraction flow once** in the recon session with `run`
+   (`waitFor([...fallback candidates])` + `page(...)`), then freeze it:
+
+   ```bash
+   CHROMUX_PROFILE=<profile> /path/to/chromux script save <host>/<flow-name> --file flow.js
+   printf '{"type":"array","items":{"type":"object","required":["title","url"]}}' > /tmp/slice-schema.json
+   ```
+
+3. **Split by input, not by page state**: distinct search queries, category
+   URLs, or result-page ranges per subagent — never two workers driving one
+   evolving UI. 2 to 4 subagents is usually the sweet spot; each reuses 1 to 2
+   session names.
+4. **Dispatch** (pattern above): every subagent replays
+   `run <session> --script <host>/<flow-name> --schema /tmp/slice-schema.json`
+   on its slice. A worker that hits a schema mismatch or replay failure
+   reports the error text back instead of improvising a new flow — the main
+   agent fixes the script once (`script save` again) and re-dispatches that
+   slice.
+5. **Merge centrally**: dedupe by canonical URL or the strongest stable key,
+   note per-slice counts and failures, and record durable findings with
+   `chromux note` / `chromux script save` so the next run starts warm.
+
+For plain URL queues, skip subagents entirely: `chromux batch --workers N` is
+the fan-out. Reserve subagents for work that needs judgment per slice
+(query rotation, result QA, cross-checking claims).
 
 ## 5. Evidence And Extraction
 

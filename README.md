@@ -17,6 +17,27 @@ chromux solves this by talking to Chrome's DevTools Protocol directly using only
 | Dependencies | 100s of MB | playwright-core | **None** |
 | Profile management | No | No | **Yes** |
 
+Design principles, sharpened against the 2026 agent-browser landscape (see
+`docs/competitive-analysis-2026-07.md` in the repo):
+
+- **No agent loop, no bundled LLM.** chromux is the deterministic hand; the
+  coding agent driving it is the brain. Tools that embed per-step model calls
+  fight cost and flakiness; a saved chromux flow replays for zero tokens, and
+  when it breaks, the calling agent is the self-healing layer.
+- **The user's real, logged-in profiles, locally.** Cloud browsers rebuild
+  identity server-side and extension bridges are fragile; raw CDP over
+  persistent local profiles works anywhere a shell works — WSL, servers, CI.
+- **Observation payloads are the product.** Agents pay per byte they read
+  back: stable snapshot refs, `--interactive`, `snapshot --diff`, and shaped
+  `page(...)` extraction under `--schema` keep per-step reading near-constant
+  even on large pages (see Token Footprint below).
+- **Learning compounds per host.** Site notes (`chromux note`) store durable
+  facts, replay scripts (`chromux script`) store proven flows, and both
+  surface automatically in `open` responses on the next visit.
+- **Parallelism is one profile, many sessions.** A daemon per profile keeps N
+  independent tabs live for concurrent agents, with crawl-mode resource caps,
+  `batch` worker pools, and `pause`/`resume` as the wave kill switch.
+
 ## Prerequisites
 
 - **Node.js >= 22** (for built-in `WebSocket`)
