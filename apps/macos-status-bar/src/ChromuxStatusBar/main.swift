@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import WebKit
+import ServiceManagement
 
 struct StatusState: Decodable {
     let profiles: [ProfileState]
@@ -11,6 +12,7 @@ struct ProfileState: Decodable {
     let status: String
     let port: Int?
     let activeTabs: Int?
+    let diskUsageBytes: Int64?
     let daemon: DaemonState?
 
     var isActive: Bool {
@@ -19,10 +21,14 @@ struct ProfileState: Decodable {
 
     var menuTitle: String {
         let tabText = activeTabs.map { "\($0) tab\($0 == 1 ? "" : "s")" } ?? "tabs unknown"
-        if let port {
-            return "\(name) - \(status), \(tabText), :\(port)"
+        var parts = [tabText]
+        if let diskUsageBytes {
+            parts.append(ByteCountFormatter.string(fromByteCount: diskUsageBytes, countStyle: .file))
         }
-        return "\(name) - \(status), \(tabText)"
+        if let port {
+            parts.append(":\(port)")
+        }
+        return "\(name) - \(status), \(parts.joined(separator: ", "))"
     }
 }
 
@@ -38,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     private var webView: WKWebView?
     private let statusMenu = NSMenu()
     private let statusLine = NSMenuItem(title: "Starting local server...", action: nil, keyEquivalent: "")
+    private let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
     private var profileMenuItems: [NSMenuItem] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -65,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         statusMenu.addItem(NSMenuItem(title: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "o"))
         statusMenu.addItem(NSMenuItem(title: "Open In Browser", action: #selector(openInBrowser), keyEquivalent: "b"))
         statusMenu.addItem(NSMenuItem(title: "Restart Local Server", action: #selector(restartServer), keyEquivalent: "r"))
+        statusMenu.addItem(launchAtLoginItem)
         statusMenu.addItem(NSMenuItem.separator())
         statusMenu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
         statusMenu.items.forEach { $0.target = self }
@@ -73,7 +81,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        refreshLaunchAtLoginState()
         refreshProfileMenu()
+    }
+
+    private func refreshLaunchAtLoginState() {
+        launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            updateStatus("Launch at Login failed: \(error.localizedDescription)")
+        }
+        refreshLaunchAtLoginState()
     }
 
     private func resourcePath(_ name: String, type: String? = nil) -> String? {

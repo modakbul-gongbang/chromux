@@ -140,9 +140,9 @@ CHROMUX_TASK=research-pass chromux open agent-d https://example.com
 # Open the local profile/activity companion app
 chromux app --open
 
-# Build and launch the native macOS app from a checkout (macOS only)
-./apps/macos-status-bar/build.sh
-open "apps/macos-status-bar/dist/chromux.app"
+# Build and install the native macOS app into /Applications (macOS only),
+# so Spotlight and Launchpad can find it
+./apps/macos-status-bar/install-app.sh
 
 # Each operates independently
 chromux snapshot agent-a
@@ -727,10 +727,11 @@ chromux app --port 9341 --open
 ```
 
 The app lists known profiles, selected profile state, daemon/session counts when
-available, active-first profile sorting, search/status filters, bulk profile
-selection/deletion, raw command events, Task-first timeline groups, fallback
-session windows, and site knowledge note paths under
-`~/.chromux/skills/<host>/*.md`. V1 does not read Chrome History.
+available, per-profile disk usage (plus the total across profiles), active-first
+profile sorting, search/status filters, bulk profile selection/deletion, raw
+command events, Task-first timeline groups, fallback session windows, and site
+knowledge note paths under `~/.chromux/skills/<host>/*.md`. V1 does not read
+Chrome History.
 
 On macOS, use the GitHub Release asset when you want a real menu bar app instead
 of a browser tab. The release zip contains `chromux.app`; unzip it, move it to
@@ -747,11 +748,21 @@ with the local `node` binary, looking at `CHROMUX_NODE`, common Homebrew/system
 paths, and then `PATH`. If macOS blocks an unsigned download on first launch,
 use Control-click > Open or approve it in System Settings > Privacy & Security.
 
-The one-pass installer in `install.md` asks macOS users whether to download the
-latest release app, copy it to `/Applications/chromux.app`, and launch it. If
-`/Applications` is not writable, it falls back to `~/Applications/chromux.app`.
+The one-pass setup in `install.md` has agents ask macOS users whether to also
+install the menu bar app, then builds it from the checkout (or downloads the
+latest release app without the Xcode Command Line Tools), copies it to
+`/Applications/chromux.app`, and launches it. If `/Applications` is not
+writable, it falls back to `~/Applications/chromux.app`.
 
-From a repo checkout, build and launch the same native wrapper locally:
+From a repo checkout, build and install the same native wrapper into
+`/Applications` so Spotlight and Launchpad can find it (requires the Xcode
+Command Line Tools):
+
+```bash
+./apps/macos-status-bar/install-app.sh
+```
+
+For a quick dev loop without installing, build and launch from `dist/`:
 
 ```bash
 ./apps/macos-status-bar/build.sh
@@ -767,8 +778,8 @@ ls apps/macos-status-bar/release/
 
 The wrapper adds a `cx` item to the macOS status bar, starts the same local
 dashboard server, and exposes menu actions for opening the dashboard, opening it
-in a browser, restarting the server, and quitting. The `cx` menu also refreshes
-and shows currently active profiles when it opens.
+in a browser, restarting the server, toggling Launch at Login, and quitting.
+The `cx` menu also refreshes and shows currently active profiles when it opens.
 
 ## License
 
