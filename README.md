@@ -190,7 +190,10 @@ response is not proof that the page reached the intended state.
 | `open --background <session> <url>` | Explicitly create a new tab without activating it |
 | `run <session> <code\|--file PATH\|->` | Run multi-step async JS with `cdp`, `js`, `sleep`, `waitLoad`, `page`, `waitFor`, and `assertPage` helpers |
 | `run <session> --page-file PATH` | Run a JS file directly in the page context, bypassing all shell/string escaping |
+| `run <session> --script <host>/<name>` | Replay a saved action script deterministically (no model calls) |
+| `run <session> ... --schema PATH` | Validate the run result against a JSON-schema subset; mismatches fail with per-path errors |
 | `run <session> ... --receipt PATH` | Write a redacted local JSON receipt without storing raw inline code or typed text |
+| `script [save\|show\|rm] [<host>/<name>]` | List, save, show, or remove per-host replay scripts |
 | `batch --file urls.txt --workers N --retries N --host-backoff-ms MS --out results.jsonl` | Crawl URLs through a worker-tab pool with bounded retry and host backoff |
 | `cdp <session> <Method> <params-json>` | Send one raw CDP method to a session |
 | `note [host] [--add "text"]` | List, show, or append durable site notes surfaced on `open` |
@@ -295,8 +298,9 @@ chromux cdp s Runtime.evaluate '{"expression":"navigator.userAgent","returnByVal
 
 | Command | Description |
 |---------|-------------|
-| `snapshot <session>` | Accessibility tree with `@ref` numbers |
+| `snapshot <session>` | Accessibility tree with `@ref` numbers (refs stay stable within a document) |
 | `snapshot <session> --interactive` | Only interactive elements (smaller payload) |
+| `snapshot <session> --diff` | Only lines added/removed since the previous snapshot of this session |
 | `click <session> @<ref>` | Click element by ref |
 | `click <session> "selector"` | Click by CSS selector |
 | `click <session> --xy X Y` | Click validated viewport coordinates via CDP mouse events |
@@ -307,6 +311,15 @@ chromux cdp s Runtime.evaluate '{"expression":"navigator.userAgent","returnByVal
 | `wait-for-selector <session> "selector" [timeout-ms]` | Wait until a selector is visible |
 | `screenshot <session> [path]` | Take PNG screenshot |
 | `show <session>` | Open DevTools in browser (inspect live tab, even headless) |
+
+Snapshot `@ref` numbers are stable within a document: re-snapshotting the same
+page keeps existing refs and only assigns new numbers to new elements, so refs
+held by an agent stay valid until navigation replaces the document. Building on
+that, `snapshot --diff` prints only the lines added and removed since the
+previous snapshot of that session (any action in between), with a one-line
+summary of how many unchanged lines were omitted — after several actions on a
+large page this is a fraction of a full snapshot. The first `--diff` call, or
+one after a navigation, falls back to a full snapshot and says why.
 
 `click` brings the tab forward before acting. Ref/selector clicks scroll the
 target into view and fail when the element is hidden, zero-size, stale, outside
@@ -500,6 +513,42 @@ chromux open --foreground tab https://example.com
 | `CHROMUX_RENDERER_PROCESS_LIMIT` | `8` in compact mode | Renderer process cap passed to Chrome when compact renderer mode is enabled |
 | `CHROMUX_EXTRA_CHROME_ARGS` | empty | Extra Chrome launch args, split like shell words |
 | `CHROMUX_CLI_TIMEOUT_MS` | `90000` in crawl, `30000` in default | Default CLI request timeout for commands such as `open` |
+
+## Saved Action Scripts
+
+Scripts close the observe-once, replay-forever loop: when an agent has derived
+a working flow for a site (selectors, waits, extraction), it saves the flow as
+a plain `run` script under `~/.chromux/scripts/<host>/<name>.js`. Later runs
+replay it deterministically with zero model calls:
+
+```bash
+cat > top-links.js <<'EOF'
+const ready = await waitFor('a[href]', { kind: 'selector', timeoutMs: 5000 });
+return await page(`({
+  title: document.title,
+  links: [...document.querySelectorAll('a[href]')].slice(0, 10)
+    .map(a => ({ text: a.innerText.trim(), url: a.href })),
+})`);
+EOF
+chromux script save news.ycombinator.com/top-links --file top-links.js
+chromux run s --script news.ycombinator.com/top-links
+```
+
+- `open` responses list saved scripts for the page's host (`scripts` and a
+  ready-to-run `replay` command), so agents reuse proven flows instead of
+  re-deriving them.
+- Host matching walks parent domains like site notes: a script saved under
+  `naver.com` also surfaces and resolves on `search.naver.com`.
+- When a replay fails, the error names the script path and ends with a repair
+  hint — the calling agent snapshots the page, fixes the flow, and
+  `chromux script save`s it again. The agent is the self-healing layer; the
+  CLI stays deterministic.
+- Add `--schema contract.json` to any `run` to enforce an extraction contract.
+  The result is validated against a JSON-schema subset (`type`, `required`,
+  `properties`, `items`, `enum`, `const`, `pattern`, `min*`/`max*`,
+  `additionalProperties: false`); mismatches exit non-zero with per-path
+  errors and a result preview, and receipts record `failureKind:
+  "schema_mismatch"`.
 
 ## Site Knowledge
 

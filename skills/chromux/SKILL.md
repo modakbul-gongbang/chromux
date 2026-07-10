@@ -55,7 +55,12 @@ browser work.
    - `<chromux> wait-for-text exp-ab12 "Saved" 5000`
    - `<chromux> wait-for-selector exp-ab12 ".toast" 5000`
 6. Re-run `snapshot` after every meaningful click, fill, type, press,
-   navigation, or state change. `@ref` numbers can go stale.
+   navigation, or state change. Refs stay stable within a document (new
+   elements get new numbers; existing ones keep theirs), but navigation
+   resets them. After an in-page action, prefer
+   `<chromux> snapshot exp-ab12 --diff` — it prints only the lines added and
+   removed since your previous snapshot, which is usually a few lines instead
+   of the whole tree.
 7. Use `screenshot` for visual verification and evidence, not as the primary
    way to locate elements.
 8. Close the session when done: `<chromux> close exp-ab12`.
@@ -69,7 +74,8 @@ Run `chromux help` for exact syntax. The day-to-day mental model is:
   `CHROMUX_OPEN_BACKGROUND=0` only when activation is intentional.
 - `snapshot` returns an accessibility tree with `@ref` handles. Add
   `--interactive` (or `--filter interactive`) to return only actionable
-  elements (buttons, links, inputs) for a smaller payload.
+  elements (buttons, links, inputs) for a smaller payload. Add `--diff` to see
+  only what changed since the previous snapshot of the session.
 - `click`, `fill`, `type`, `press`, `wait-for-text`, and `wait-for-selector`
   are convenience shortcuts for visible interaction and observable UI state.
   For a known multi-step sequence, prefer a single `run` call over many separate
@@ -81,6 +87,14 @@ Run `chromux help` for exact syntax. The day-to-day mental model is:
   `waitLoad`, `page(expr?)`, `waitFor(...)`, and `assertPage(...)` helpers.
   Use `run --receipt PATH` when a flow needs redacted local timing and replay
   evidence.
+- Once a flow works, save it: `chromux script save <host>/<name> --file f.js`,
+  then replay with `run <session> --script <host>/<name>` — zero model calls.
+  `open` responses list saved scripts for the page's host. If a replay fails,
+  the error points at the script file: snapshot the page, fix the flow, and
+  save it again.
+- Add `--schema contract.json` to `run` when extracting structured data — the
+  result is validated against a JSON-schema subset and mismatches fail with
+  per-path errors, so malformed extractions never flow downstream silently.
 - `batch --file urls.txt --workers N --out results.jsonl` processes URL lines or
   JSONL rows through a worker-tab pool in the current profile. Add `--retries N`
   and `--host-backoff-ms MS` for bounded retry and domain backoff.

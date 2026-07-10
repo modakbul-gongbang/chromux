@@ -215,6 +215,68 @@ function readSiteNotesForHostChain(host) {
   return notes;
 }
 
+// ---- Saved action scripts (observe once, replay without an LLM) ----
+//
+// Scripts are plain `chromux run` runner scripts stored per host under
+// ~/.chromux/scripts/<host>/<name>.js. They are the deterministic-replay side
+// of the learning loop: an agent discovers a working flow once, saves it, and
+// later runs replay it with zero model calls. When a replay fails, the CLI
+// points back at the script so the calling agent can repair and re-save it.
+
+const SCRIPTS_DIR = path.join(CHROMUX_HOME, 'scripts');
+
+function validScriptName(name) {
+  return Boolean(name) && !name.includes('/') && VALID_NAME.test(name.replace(/\./g, '_'));
+}
+
+function parseScriptLabel(raw) {
+  const text = String(raw || '');
+  const slash = text.indexOf('/');
+  if (slash <= 0) return null;
+  const host = normalizeNoteHost(text.slice(0, slash));
+  let name = text.slice(slash + 1);
+  if (name.endsWith('.js')) name = name.slice(0, -3);
+  if (!host || !validScriptName(name)) return null;
+  return { host, name, label: `${host}/${name}` };
+}
+
+function scriptPathFor(host, name) {
+  return path.join(SCRIPTS_DIR, host, `${name}.js`);
+}
+
+function listScriptsForHost(host) {
+  try {
+    return fs.readdirSync(path.join(SCRIPTS_DIR, host))
+      .filter(file => file.endsWith('.js'))
+      .sort()
+      .map(file => file.slice(0, -3));
+  } catch {
+    return [];
+  }
+}
+
+// Like site notes, scripts saved under a parent domain also apply to
+// subdomains: naver.com/search-extract is visible on search.naver.com.
+function listScriptsForHostChain(host) {
+  const scripts = [];
+  for (const h of siteKnowledgeHostChain(host)) {
+    for (const name of listScriptsForHost(h)) {
+      scripts.push({ label: `${h}/${name}`, path: scriptPathFor(h, name) });
+    }
+  }
+  return scripts;
+}
+
+// Resolve a script label against the host chain, so `--script search.naver.com/x`
+// also finds a script saved under naver.com/x.
+function resolveScriptPath(ref) {
+  for (const h of siteKnowledgeHostChain(ref.host)) {
+    const p = scriptPathFor(h, ref.name);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
 function siteKnowledgeHintForUrl(rawUrl) {
   const host = hostFromUrl(rawUrl);
   if (!host) return null;
@@ -1341,7 +1403,10 @@ async function closeInitialTabs(port) {
 
 const SNAPSHOT_JS = `((FILTER) => {
   const INTERACTIVE_ONLY = FILTER === 'interactive';
-  let refId = 0;
+  // Refs are stable within a document: an element keeps its data-ct-ref across
+  // re-snapshots, and new elements continue from the persisted counter. A
+  // navigation replaces the document, so refs naturally reset to @1.
+  let refMax = Number(document.documentElement.getAttribute('data-ct-ref-max')) || 0;
   const ROLES = {
     a:'link', button:'button', input:'textbox', select:'combobox',
     textarea:'textbox', img:'img', nav:'navigation', main:'main',
@@ -1404,8 +1469,13 @@ const SNAPSHOT_JS = `((FILTER) => {
     const indent = '  '.repeat(depth);
     let line = indent;
     if (interactive) {
-      const ref = ++refId;
-      el.setAttribute('data-ct-ref', String(ref));
+      let ref = Number(el.getAttribute('data-ct-ref')) || 0;
+      if (!ref) {
+        ref = ++refMax;
+        el.setAttribute('data-ct-ref', String(ref));
+      } else if (ref > refMax) {
+        refMax = ref;
+      }
       line += '@' + ref + ' ';
     }
     line += role || tag;
@@ -1418,8 +1488,58 @@ const SNAPSHOT_JS = `((FILTER) => {
     }
     return line + '\\n' + children;
   }
-  return '# ' + document.title + '\\n# ' + location.href + '\\n\\n' + walk(document.body, 0);
+  const out = '# ' + document.title + '\\n# ' + location.href + '\\n\\n' + walk(document.body, 0);
+  document.documentElement.setAttribute('data-ct-ref-max', String(refMax));
+  return out;
 })`;
+
+// ---- Snapshot diff (change-only reporting between snapshots) ----
+
+function parseSnapshotText(text) {
+  const lines = String(text).split('\n');
+  const title = lines[0]?.startsWith('# ') ? lines[0] : '# ';
+  const url = lines[1]?.startsWith('# ') ? lines[1] : '# ';
+  const body = lines.slice(2).filter(line => line.trim());
+  return { title, url, body };
+}
+
+// Multiset line diff between the previous and current snapshot of a session.
+// Stable @refs make unchanged elements produce identical lines, so the diff
+// stays small even on large pages. Falls back to the full snapshot when there
+// is no baseline or the page navigated since the baseline.
+function renderSnapshotDiff(previousText, currentText) {
+  if (typeof currentText !== 'string') return currentText;
+  const current = parseSnapshotText(currentText);
+  if (typeof previousText !== 'string') {
+    return `${current.title}\n${current.url}\n# diff: no previous snapshot for this session; full snapshot shown\n\n${current.body.join('\n')}\n`;
+  }
+  const previous = parseSnapshotText(previousText);
+  if (previous.url !== current.url) {
+    return `${current.title}\n${current.url}\n# diff: url changed since previous snapshot; full snapshot shown\n\n${current.body.join('\n')}\n`;
+  }
+  const remaining = new Map();
+  for (const line of previous.body) remaining.set(line, (remaining.get(line) || 0) + 1);
+  const added = [];
+  for (const line of current.body) {
+    const count = remaining.get(line) || 0;
+    if (count > 0) remaining.set(line, count - 1);
+    else added.push(line);
+  }
+  const removed = [];
+  for (const [line, count] of remaining) {
+    for (let i = 0; i < count; i++) removed.push(line);
+  }
+  const unchanged = current.body.length - added.length;
+  if (!added.length && !removed.length) {
+    return `${current.title}\n${current.url}\n# diff: no changes since previous snapshot (${unchanged} unchanged lines omitted)\n`;
+  }
+  const summary = `# diff vs previous snapshot: +${added.length} added, -${removed.length} removed, ${unchanged} unchanged omitted`;
+  const diffLines = [
+    ...added.map(line => `+ ${line}`),
+    ...removed.map(line => `- ${line}`),
+  ];
+  return `${current.title}\n${current.url}\n${summary}\n\n${diffLines.join('\n')}\n`;
+}
 
 // ============================================================
 // Daemon server (per-profile)
@@ -1806,6 +1926,13 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       const hints = readSiteNotesForHostChain(knowledgeHint?.host)
         .map(note => `# Hint: ${note.label}\n${note.content}`);
       if (hints.length) result.hints = hints.join('\n\n');
+      // Surface saved replay scripts for this host so agents reuse proven
+      // flows instead of re-deriving them.
+      const scripts = listScriptsForHostChain(knowledgeHint?.host);
+      if (scripts.length) {
+        result.scripts = scripts.map(s => s.label);
+        result.replay = `chromux run ${session} --script ${scripts[0].label}`;
+      }
     } catch {}
     return result;
   }
@@ -1814,11 +1941,19 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const u = new URL(routePath, 'http://x');
     const session = decodeURIComponent(u.pathname.split('/')[2]);
     const filter = u.searchParams.get('filter');
+    const wantDiff = u.searchParams.get('diff') === '1';
     const s = getSession(sessions, session);
     touchSession(s);
     const expression = `(${SNAPSHOT_JS})(${JSON.stringify(filter)})`;
     const r = await s.cdp.send('Runtime.evaluate', { expression, returnByValue: true });
-    return r.result.value;
+    const text = r.result.value;
+    if (typeof text !== 'string') return text;
+    // Every snapshot (plain or --diff) becomes the next baseline per filter.
+    const baselineKey = filter || 'full';
+    if (!s.snapshotBaselines) s.snapshotBaselines = {};
+    const previous = s.snapshotBaselines[baselineKey];
+    s.snapshotBaselines[baselineKey] = text;
+    return wantDiff ? renderSnapshotDiff(previous, text) : text;
   }
 
   if (routePath === '/cdp' && method === 'POST') {
@@ -2811,6 +2946,105 @@ async function cmdNote(args) {
   if (!notes.length) console.log(`No notes for ${host}. Add one: chromux note ${host} --add "durable finding"`);
 }
 
+// ---- Saved action scripts CLI (list, show, save, rm) ----
+
+function requireScriptLabel(raw, usage) {
+  const ref = parseScriptLabel(raw);
+  if (!ref) {
+    console.error(`Invalid script label "${raw || ''}". Use <host>/<name>, e.g. naver.com/search-extract`);
+    console.error(usage);
+    process.exit(1);
+  }
+  return ref;
+}
+
+async function cmdScript(args) {
+  const usage = 'Usage: chromux script [<host> | show <host>/<name> | save <host>/<name> (--file PATH|-) | rm <host>/<name>]';
+  const sub = args[0];
+
+  if (!sub) {
+    let hosts = [];
+    try {
+      hosts = fs.readdirSync(SCRIPTS_DIR).filter(h => listScriptsForHost(h).length);
+    } catch {}
+    if (!hosts.length) {
+      console.log('No saved scripts yet. Save one: chromux script save <host>/<name> --file flow.js');
+      return;
+    }
+    for (const h of hosts.sort()) {
+      console.log(h);
+      for (const name of listScriptsForHost(h)) {
+        console.log(`  ${h}/${name} -> ${displayChromuxPath(scriptPathFor(h, name))}`);
+      }
+    }
+    return;
+  }
+
+  if (sub === 'save') {
+    const ref = requireScriptLabel(args[1], usage);
+    let code;
+    const fileArg = takeFlagValue(args, '--file', { required: 'a path' });
+    if (fileArg) code = fs.readFileSync(fileArg, 'utf8');
+    else if (args.includes('-')) code = fs.readFileSync(0, 'utf8');
+    if (code == null || !code.trim()) {
+      console.error('script save requires code via --file PATH or stdin (-)');
+      process.exit(1);
+    }
+    const filePath = scriptPathFor(ref.host, ref.name);
+    const existed = fs.existsSync(filePath);
+    fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(filePath, code.endsWith('\n') ? code : `${code}\n`, { mode: 0o600 });
+    console.log(JSON.stringify({
+      script: ref.label,
+      path: displayChromuxPath(filePath),
+      bytes: Buffer.byteLength(code),
+      updated: existed,
+      replay: `chromux run <session> --script ${ref.label}`,
+    }, null, 2));
+    return;
+  }
+
+  if (sub === 'show') {
+    const ref = requireScriptLabel(args[1], usage);
+    const filePath = resolveScriptPath(ref);
+    if (!filePath) {
+      console.error(`No script "${ref.label}". Save one: chromux script save ${ref.label} --file flow.js`);
+      process.exit(1);
+    }
+    console.log(fs.readFileSync(filePath, 'utf8'));
+    return;
+  }
+
+  if (sub === 'rm') {
+    const ref = requireScriptLabel(args[1], usage);
+    const filePath = scriptPathFor(ref.host, ref.name);
+    if (!fs.existsSync(filePath)) {
+      console.error(`No script "${ref.label}" at ${displayChromuxPath(filePath)}`);
+      process.exit(1);
+    }
+    fs.unlinkSync(filePath);
+    console.log(JSON.stringify({ script: ref.label, removed: true }, null, 2));
+    return;
+  }
+
+  // `chromux script <host>` — list scripts for the host, including parents.
+  const host = normalizeNoteHost(sub);
+  if (!host) {
+    console.error(`Unknown script subcommand or host: ${sub}`);
+    console.error(usage);
+    process.exit(1);
+  }
+  const scripts = listScriptsForHostChain(host);
+  if (!scripts.length) {
+    console.log(`No scripts for ${host}. Save one: chromux script save ${host}/<name> --file flow.js`);
+    return;
+  }
+  for (const s of scripts) {
+    console.log(`${s.label} -> ${displayChromuxPath(s.path)}`);
+    console.log(`  replay: chromux run <session> --script ${s.label}`);
+  }
+}
+
 // After close/kill, if this session/profile hit failures on hosts that have no
 // site notes yet, point at `chromux note` once. The raw material (per-command
 // ok/error events) is already in the activity log; this closes the loop.
@@ -3111,7 +3345,22 @@ async function cmdRun(args, sock) {
   let timeoutMs;
   let receiptPath = null;
   let codeSource;
-  if (args.includes('--page-file')) {
+  const schemaPath = takeFlagValue(args, '--schema', { required: 'a JSON schema path' });
+  const scriptLabel = takeFlagValue(args, '--script', { required: 'a <host>/<name> script label' });
+  if (scriptLabel) {
+    const ref = requireScriptLabel(scriptLabel, 'Usage: chromux run <session> --script <host>/<name> [--timeout MS] [--receipt PATH] [--schema PATH]');
+    const scriptFile = resolveScriptPath(ref);
+    if (!scriptFile) {
+      console.error(`No script "${ref.label}". List scripts: chromux script ${ref.host}`);
+      process.exit(1);
+    }
+    receiptPath = takeFlagValue(args, '--receipt', { required: 'a path' });
+    timeoutMs = takeTimeoutFlag(args);
+    session = args[0];
+    if (!session) { console.error('Usage: chromux run <session> --script <host>/<name> [--timeout MS] [--receipt PATH] [--schema PATH]'); process.exit(1); }
+    code = fs.readFileSync(scriptFile, 'utf8');
+    codeSource = { kind: 'script', label: ref.label, path: scriptFile };
+  } else if (args.includes('--page-file')) {
     receiptPath = takeFlagValue(args, '--receipt', { required: 'a path' });
     const p = takeFlagValue(args, '--page-file', { required: 'a path' });
     const pageCode = fs.readFileSync(p, 'utf8');
@@ -3125,20 +3374,124 @@ async function cmdRun(args, sock) {
   }
   const httpTimeout = (timeoutMs ? timeoutMs : 30000) + 5000;
   const startedAt = Date.now();
+  const writeReceipt = (result, error) => {
+    if (!receiptPath) return;
+    const receipt = buildRunReceipt({ session, codeSource, timeoutMs, startedAt, endedAt: Date.now(), result, error });
+    writeSafeJsonArtifact(receiptPath, receipt, 'run receipt');
+  };
+  let result;
   try {
-    const result = await cliReq('POST', '/run', { session, code, timeoutMs }, sock, httpTimeout);
-    if (receiptPath) {
-      const receipt = buildRunReceipt({ session, codeSource, timeoutMs, startedAt, endedAt: Date.now(), result, error: null });
-      writeSafeJsonArtifact(receiptPath, receipt, 'run receipt');
-    }
-    return result;
+    result = await cliReq('POST', '/run', { session, code, timeoutMs }, sock, httpTimeout);
   } catch (error) {
-    if (receiptPath) {
-      const receipt = buildRunReceipt({ session, codeSource, timeoutMs, startedAt, endedAt: Date.now(), result: null, error });
-      writeSafeJsonArtifact(receiptPath, receipt, 'run receipt');
-    }
+    writeReceipt(null, error);
+    decorateScriptReplayError(error, codeSource);
     throw error;
   }
+  const schemaErrors = schemaPath ? validateAgainstSchemaFile(result, schemaPath) : [];
+  if (schemaErrors.length) {
+    const error = new Error(schemaMismatchMessage(schemaPath, schemaErrors, result));
+    writeReceipt(null, error);
+    decorateScriptReplayError(error, codeSource);
+    throw error;
+  }
+  writeReceipt(result, null);
+  return result;
+}
+
+// When a saved-script replay fails, point the calling agent back at the
+// script so it can repair and re-save it — the agent is the self-healing LLM.
+function decorateScriptReplayError(error, codeSource) {
+  if (codeSource?.kind !== 'script') return;
+  error.message += `\nscript: ${codeSource.label} (${codeSource.path})`
+    + `\nhint: saved-script replay failed — snapshot the page to see its current state, fix the flow, then update it: chromux script save ${codeSource.label} --file <fixed.js>`;
+}
+
+// ---- Zero-dependency JSON Schema subset validator (run --schema) ----
+//
+// Supports the practical subset agents need for extraction contracts:
+// type (incl. arrays of types), enum, const, required, properties,
+// additionalProperties:false, items, minItems/maxItems, minLength/maxLength,
+// pattern, minimum/maximum. Unknown keywords are ignored.
+
+function jsonTypeOf(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+function validateJsonSchema(value, schema, at = '$', errors = []) {
+  if (schema === true || schema == null || typeof schema !== 'object') return errors;
+  const fail = message => errors.push({ path: at, message });
+  const actual = jsonTypeOf(value);
+
+  if (schema.type) {
+    const types = [].concat(schema.type);
+    const matches = types.some(t => t === 'integer'
+      ? (actual === 'number' && Number.isInteger(value))
+      : t === actual);
+    if (!matches) {
+      fail(`expected type ${types.join('|')}, got ${actual}`);
+      return errors;
+    }
+  }
+  if (schema.enum && !schema.enum.some(option => JSON.stringify(option) === JSON.stringify(value))) {
+    fail(`expected one of ${JSON.stringify(schema.enum)}, got ${JSON.stringify(value)}`);
+  }
+  if (schema.const !== undefined && JSON.stringify(schema.const) !== JSON.stringify(value)) {
+    fail(`expected const ${JSON.stringify(schema.const)}, got ${JSON.stringify(value)}`);
+  }
+  if (actual === 'string') {
+    if (Number.isFinite(schema.minLength) && value.length < schema.minLength) fail(`string shorter than minLength ${schema.minLength}`);
+    if (Number.isFinite(schema.maxLength) && value.length > schema.maxLength) fail(`string longer than maxLength ${schema.maxLength}`);
+    if (schema.pattern && !(new RegExp(schema.pattern)).test(value)) fail(`string does not match pattern ${schema.pattern}`);
+  }
+  if (actual === 'number') {
+    if (Number.isFinite(schema.minimum) && value < schema.minimum) fail(`number below minimum ${schema.minimum}`);
+    if (Number.isFinite(schema.maximum) && value > schema.maximum) fail(`number above maximum ${schema.maximum}`);
+  }
+  if (actual === 'array') {
+    if (Number.isFinite(schema.minItems) && value.length < schema.minItems) fail(`array shorter than minItems ${schema.minItems}`);
+    if (Number.isFinite(schema.maxItems) && value.length > schema.maxItems) fail(`array longer than maxItems ${schema.maxItems}`);
+    if (schema.items) {
+      value.forEach((item, i) => validateJsonSchema(item, schema.items, `${at}[${i}]`, errors));
+    }
+  }
+  if (actual === 'object') {
+    for (const key of schema.required || []) {
+      if (!(key in value)) fail(`missing required property "${key}"`);
+    }
+    if (schema.properties) {
+      for (const [key, childSchema] of Object.entries(schema.properties)) {
+        if (key in value) validateJsonSchema(value[key], childSchema, `${at}.${key}`, errors);
+      }
+    }
+    if (schema.additionalProperties === false) {
+      const known = new Set(Object.keys(schema.properties || {}));
+      for (const key of Object.keys(value)) {
+        if (!known.has(key)) fail(`unexpected additional property "${key}"`);
+      }
+    }
+  }
+  return errors;
+}
+
+function validateAgainstSchemaFile(result, schemaPath) {
+  let schema;
+  try {
+    schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+  } catch (err) {
+    console.error(`Cannot read schema ${schemaPath}: ${err.message}`);
+    process.exit(1);
+  }
+  return validateJsonSchema(result, schema);
+}
+
+function schemaMismatchMessage(schemaPath, schemaErrors, result) {
+  const preview = JSON.stringify(result);
+  const clipped = preview && preview.length > 2000 ? `${preview.slice(0, 2000)}…` : preview;
+  return `Result does not match schema ${schemaPath}:\n`
+    + schemaErrors.map(e => `- ${e.path}: ${e.message}`).join('\n')
+    + `\nresult: ${clipped}`;
 }
 
 function getBatchArg(args, flag, fallback = null) {
@@ -3213,7 +3566,10 @@ function classifyBatchFailure(err) {
   const lower = message.toLowerCase();
   let failureKind = 'unknown';
   let retryable = false;
-  if (/timeout|timed out|handler timeout/.test(lower)) {
+  if (/does not match schema/.test(lower)) {
+    failureKind = 'schema_mismatch';
+    retryable = false;
+  } else if (/timeout|timed out|handler timeout/.test(lower)) {
     failureKind = 'timeout';
     retryable = true;
   } else if (/resource guard/.test(lower)) {
@@ -3612,7 +3968,7 @@ function sanitizeActivityArgs(cmd, args) {
   if (cmd === 'fill') return copy.map((arg, i) => i >= 2 ? '[redacted-text]' : arg);
   if (cmd === 'type') return copy.map((arg, i) => i >= 1 ? '[redacted-text]' : arg);
   if (cmd === 'run' || cmd === 'eval') {
-    const passthroughFlags = new Set(['--file', '--page-file', '--timeout', '--receipt']);
+    const passthroughFlags = new Set(['--file', '--page-file', '--timeout', '--receipt', '--script', '--schema']);
     return copy.map((arg, i) => {
       if (i <= 0) return arg;
       if (arg === '-' || arg === '--no-iife' || passthroughFlags.has(arg) || passthroughFlags.has(copy[i - 1])) return arg;
@@ -3708,6 +4064,7 @@ async function runCli(cmd, args) {
     return r;
   }
   if (cmd === 'note') return cmdNote(args);
+  if (cmd === 'script') return cmdScript(args);
   if (cmd === 'pause') {
     const profileName = args[0] || getProfile();
     return runLoggedProfileCommand(cmd, args, profileName, () => cmdPause(profileName));
@@ -3753,7 +4110,10 @@ async function runCli(cmd, args) {
       },
       snapshot:   () => {
         const filter = getArgValue(args, '--filter') || (args.includes('--interactive') ? 'interactive' : null);
-        const q = filter ? `?filter=${encodeURIComponent(filter)}` : '';
+        const params = new URLSearchParams();
+        if (filter) params.set('filter', filter);
+        if (args.includes('--diff')) params.set('diff', '1');
+        const q = params.size ? `?${params}` : '';
         return cliReq('GET', `/snapshot/${args[0]}${q}`, null, sock);
       },
       cdp:        () => cmdCdp(args, sock),
@@ -4297,6 +4657,8 @@ The core surface:
   chromux open --background <s> <u>  Explicitly create a background tab
   chromux run <session> -            Multi-step async JS with cdp/js/page helpers
   chromux run <session> --page-file F  Run a JS file directly in the page (no shell escaping)
+  chromux run <session> --script <host>/<name>  Replay a saved action script (no model calls)
+  chromux run <session> ... --schema s.json     Validate the run result against a JSON schema
   chromux run <session> --receipt p  Write a redacted local run receipt
   chromux batch --file urls.txt      Crawl URLs through a worker-tab pool
   chromux batch --file urls.txt --retries N --host-backoff-ms MS
@@ -4318,8 +4680,9 @@ Lifecycle:
   chromux list                       List active sessions
 
 Convenience shortcuts:
-  chromux snapshot <session>         Accessibility tree with @ref
+  chromux snapshot <session>         Accessibility tree with @ref (refs stay stable per document)
   chromux snapshot <s> --interactive Only interactive elements (smaller payload)
+  chromux snapshot <s> --diff        Only lines added/removed since the previous snapshot
   chromux click <session> @<ref>     Click by ref number
   chromux click <session> "selector" Click by CSS selector
   chromux click <session> --xy X Y   Click by viewport coordinates
@@ -4345,6 +4708,16 @@ Site knowledge:
   chromux note <host> --add "text"   Append a durable site note (surfaced on next open)
   Notes live in ~/.chromux/skills/<host>/*.md and are attached to open results
   for that host and its subdomains.
+
+Saved action scripts (observe once, replay deterministically):
+  chromux script                     List saved replay scripts by host
+  chromux script <host>              List scripts for a host (includes parent domains)
+  chromux script show <host>/<name>  Print a saved script
+  chromux script save <host>/<name> --file f.js   Save/update a replay script (stdin: -)
+  chromux script rm <host>/<name>   Remove a saved script
+  Scripts are plain run scripts in ~/.chromux/scripts/<host>/<name>.js; open
+  responses list them for the page's host, and failed replays point back at
+  the script so the calling agent can repair and re-save it.
 
 Runner snippets:
   snippets/_builtin/page-extract.js      Structured page metadata extraction
@@ -4378,6 +4751,7 @@ Paths:
   ~/.chromux/profiles/<name>/        Chrome user-data-dir per profile
   ~/.chromux/profiles/<name>/.state   Profile state with Chrome CDP port and daemonPort
   ~/.chromux/run/<name>.lock          Daemon startup lock (transient)
+  ~/.chromux/scripts/<host>/          Saved replay scripts per host
   ~/.chromux/activity/events.jsonl    Local full-URL activity event log
   ~/.chromux/activity/config.json     Activity retention config
   ~/.chromux/activity/aggregates.json Command aggregate counters`;

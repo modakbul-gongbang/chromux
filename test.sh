@@ -410,6 +410,26 @@ else
 fi
 rm -f /tmp/chromux-hidden-out-$$.txt /tmp/chromux-zero-out-$$.txt
 
+# --- Test 5c.2: snapshot --diff and stable refs ---
+echo ""
+echo "--- Test 5c.2: snapshot --diff and stable refs ---"
+DIFF_HTML='<title>DiffPage</title><button id="a">Alpha</button><button id="b">Beta</button>'
+DIFF_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$DIFF_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-diff "$DIFF_URL" 2>/dev/null > /dev/null
+DIFF_FIRST=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-diff --diff 2>/dev/null)
+check "first --diff falls back to full snapshot" "no previous snapshot" "$DIFF_FIRST"
+check "first --diff still lists elements" '@1 button "Alpha"' "$DIFF_FIRST"
+CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-diff "const g=document.createElement('button');g.textContent='Gamma';document.body.appendChild(g);document.getElementById('a').remove();" 2>/dev/null > /dev/null
+DIFF_OUT=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-diff --diff 2>/dev/null)
+check "diff marks added element with new ref" '+ @3 button "Gamma"' "$DIFF_OUT"
+check "diff marks removed element" '\- @1 button "Alpha"' "$DIFF_OUT"
+check "diff omits unchanged lines" "1 unchanged omitted" "$DIFF_OUT"
+DIFF_QUIET=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-diff --diff 2>/dev/null)
+check "diff reports no changes when page is stable" "no changes since previous snapshot" "$DIFF_QUIET"
+DIFF_FULL=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-diff 2>/dev/null)
+check "surviving element keeps its ref across snapshots" '@2 button "Beta"' "$DIFF_FULL"
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-diff 2>/dev/null > /dev/null
+
 # --- Test 5c.3: press and waits ---
 echo ""
 echo "--- Test 5c.3: Press and wait shortcuts ---"
@@ -452,6 +472,47 @@ else
   check "wait-for-selector timeout names selector" "#missing" "$WAIT_SELECTOR_OUT"
 fi
 rm -f /tmp/chromux-wait-text-out-$$.txt /tmp/chromux-wait-selector-out-$$.txt
+
+# --- Test 5c.4: saved action scripts and schema validation ---
+echo ""
+echo "--- Test 5c.4: Saved action scripts and schema validation ---"
+SCRIPT_NAME="test-extract-$$"
+SCRIPT_FILE="/tmp/chromux-script-$$.js"
+cat > "$SCRIPT_FILE" <<'EOF'
+return await page('({title: document.title, url: location.href})');
+EOF
+SAVE_OUT=$(node "$CT" script save "example.com/$SCRIPT_NAME" --file "$SCRIPT_FILE" 2>&1)
+check "script save reports script path" "scripts/example.com" "$SAVE_OUT"
+LIST_OUT=$(node "$CT" script example.com 2>&1)
+check "script host listing shows saved script" "$SCRIPT_NAME" "$LIST_OUT"
+SUB_LIST_OUT=$(node "$CT" script sub.example.com 2>&1)
+check "script listing walks parent domains" "$SCRIPT_NAME" "$SUB_LIST_OUT"
+SHOW_OUT=$(node "$CT" script show "example.com/$SCRIPT_NAME" 2>&1)
+check "script show prints saved code" "location.href" "$SHOW_OUT"
+OPEN_SCRIPT=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-script https://example.com 2>/dev/null)
+check "open surfaces saved scripts for the host" "$SCRIPT_NAME" "$OPEN_SCRIPT"
+check "open includes a replay command" "chromux run tab-script --script example.com/$SCRIPT_NAME" "$OPEN_SCRIPT"
+RUN_SCRIPT=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-script --script "example.com/$SCRIPT_NAME" 2>/dev/null)
+check "script replay returns page data" "example.com" "$RUN_SCRIPT"
+SCHEMA_FILE="/tmp/chromux-schema-$$.json"
+printf '{"type":"object","required":["title","url"],"properties":{"title":{"type":"string","minLength":1},"url":{"type":"string","pattern":"^https://"}}}' > "$SCHEMA_FILE"
+RUN_SCHEMA_OK=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-script --script "example.com/$SCRIPT_NAME" --schema "$SCHEMA_FILE" 2>/dev/null)
+check "schema-validated replay prints result" "example.com" "$RUN_SCHEMA_OK"
+BAD_SCHEMA_FILE="/tmp/chromux-bad-schema-$$.json"
+printf '{"type":"object","required":["missingField"],"properties":{"title":{"type":"number"}}}' > "$BAD_SCHEMA_FILE"
+if CHROMUX_PROFILE=$PROFILE node "$CT" run tab-script --script "example.com/$SCRIPT_NAME" --schema "$BAD_SCHEMA_FILE" >/tmp/chromux-schema-out-$$.txt 2>&1; then
+  echo "  ✗ schema mismatch unexpectedly succeeded"
+  FAIL=$((FAIL+1))
+else
+  SCHEMA_OUT=$(cat /tmp/chromux-schema-out-$$.txt)
+  check "schema mismatch names missing property" "missingField" "$SCHEMA_OUT"
+  check "schema mismatch names wrong type path" '\$.title' "$SCHEMA_OUT"
+  check "failed replay points back at the script" "chromux script save example.com/$SCRIPT_NAME" "$SCHEMA_OUT"
+fi
+RM_OUT=$(node "$CT" script rm "example.com/$SCRIPT_NAME" 2>&1)
+check "script rm removes saved script" '"removed": true' "$RM_OUT"
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-script 2>/dev/null > /dev/null
+rm -f "$SCRIPT_FILE" "$SCHEMA_FILE" "$BAD_SCHEMA_FILE" /tmp/chromux-schema-out-$$.txt
 
 # --- Test 5d: watch and quiet aliases ---
 echo ""

@@ -61,6 +61,14 @@ uses the same `chromux` command surface.
 - After close, review any `knowledgeHint`. Update
   `~/.chromux/skills/<host>/*.md` when this run revealed durable public site
   behavior or stale/wrong notes.
+- When a derived flow (selectors, waits, extraction) worked and is likely to
+  be repeated, save it as a replay script:
+  `chromux script save <host>/<name> --file flow.js`. Future runs on that host
+  see it in the `open` response and replay it with
+  `chromux run <session> --script <host>/<name>` instead of re-deriving the
+  flow. If a replay fails, fix the script against a fresh snapshot and save it
+  again. For structured extraction, pair the script with `--schema` so results
+  that drift from the expected shape fail loudly.
 
 ## 1. Resolve CLI And Inventory Profiles
 

@@ -132,8 +132,10 @@ Key events to track:
 
 ### P0 — sharpen the core (weeks)
 
-1. **`snapshot --diff`** (G-2): daemon remembers the last snapshot per
-   session; emit added/removed/changed lines only, with stable refs.
+1. **`snapshot --diff`** (G-2) — shipped in 0.13.0: refs are now stable within
+   a document (elements keep their `@ref` across re-snapshots; navigation
+   resets), and `snapshot --diff` emits only added/removed lines per session
+   with an omitted-unchanged summary.
 2. **Publish token benchmarks** (G-4): extend `benchmarks/` to record
    snapshot byte/token sizes on fixture pages; add a README table comparing
    chromux vs playwright-mcp snapshot output for identical pages.
@@ -163,12 +165,16 @@ Key events to track:
 
 ### P2 — moats (quarter)
 
-9. **Action scripts with replay + multi-candidate selectors** (G-3):
-   `chromux script save <name>` / `run --script <name>`; store resolved
-   selectors with fallbacks (role+name, text, CSS) under `~/.chromux/skills/`
-   next to site notes. Agent discovers once, replays deterministically,
-   repairs on structured failure. This is Stagehand's cache + browser-use's
-   Workflow Use, minus the bundled LLM.
+9. **Action scripts with replay** (G-3) — core shipped in 0.13.0:
+   `chromux script save|show|rm <host>/<name>` stores plain `run` scripts
+   under `~/.chromux/scripts/<host>/`, `run --script <host>/<name>` replays
+   them with zero model calls, `open` responses surface them per host (parent
+   domains included), and failed replays emit a repair hint pointing at the
+   script (the calling agent is the self-healing layer). Schema contracts via
+   `run --schema` (zero-dependency JSON-schema subset validator) shipped in
+   the same release — Stagehand's cache + extract contract, minus the bundled
+   LLM. Remaining follow-up: multi-candidate selector fallbacks inside saved
+   scripts.
 10. **Site-notes ecosystem** (strength 5): `chromux note --export/--import`
     (shareable non-secret host notes), auto-suggested note drafts from
     activity-log failure clusters (reminder already exists).
