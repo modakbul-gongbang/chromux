@@ -258,6 +258,19 @@ return await page('({url:location.href,title:document.title})');
 JS
 ```
 
+`waitFor` also accepts an **array of fallback candidates** for selector and
+text waits — the first candidate that matches wins and is reported back as
+`matched`, so saved scripts can carry several locator strategies and survive a
+single site change:
+
+```bash
+chromux run s - <<'JS'
+const found = await waitFor(['#search', 'input[name="q"]', '[role="searchbox"]'], { kind: 'selector', timeoutMs: 5000 });
+await js(`document.querySelector(${JSON.stringify(found.matched)}).value = 'chromux'`);
+return found;
+JS
+```
+
 Use `--receipt` when a browser operation should leave replay/debug evidence:
 
 ```bash
@@ -383,6 +396,38 @@ interactive snapshot, screenshot, click/fill/wait style interaction, and
 `batch` p50/p95 timings.
 Use it before and after automation changes when performance or scheduler
 behavior matters.
+
+### Token Footprint
+
+Agents pay for every byte they read back, so observation payload size is a
+first-class metric. The deterministic token benchmark measures the
+agent-visible stdout of common observation commands on local fixture pages
+(bytes are exact; tokens are estimated as chars/4):
+
+```bash
+CHROMUX_HOME="$(mktemp -d /tmp/chromux-tokens-XXXXXX)" \
+  node benchmarks/chromux-token-benchmark.mjs --out /tmp/chromux-tokens.json
+```
+
+Representative run (Chromium 141, deterministic fixtures; the feed page has
+200 stories with ~600 interactive elements):
+
+| command | article page | form page | 200-item feed |
+|---|---|---|---|
+| full page HTML (`run` outerHTML) | ~785 tok | ~118 tok | ~20,387 tok |
+| `snapshot` (full) | ~769 tok | ~63 tok | ~13,410 tok |
+| `snapshot --interactive` | ~36 tok | ~38 tok | ~7,154 tok |
+| `snapshot --diff` after one action | ~37 tok | ~39 tok | **~47 tok** |
+| structured extract (`run` + shaped `page(...)`) | ~27 tok | ~27 tok | ~28 tok |
+
+The workflow the skills teach — inspect structure with `--interactive`, verify
+each action with `--diff`, extract with a shaped `page(...)` result (optionally
+enforced by `--schema`) — keeps per-step observation payloads roughly constant
+even on large pages, instead of re-reading the whole tree every step. For
+context, published third-party comparisons report ~114K tokens per task
+through Playwright MCP versus ~27K through its CLI, and page snapshots in the
+hundreds of tokens for ref-based CLIs; run the benchmark on your own pages to
+compare like for like.
 
 ## Architecture
 
@@ -539,6 +584,9 @@ chromux run s --script news.ycombinator.com/top-links
   re-deriving them.
 - Host matching walks parent domains like site notes: a script saved under
   `naver.com` also surfaces and resolves on `search.naver.com`.
+- Record fallback locators inside scripts with `waitFor([...candidates])` —
+  the wait resolves to whichever candidate matches (`matched`), so one site
+  change does not break the replay.
 - When a replay fails, the error names the script path and ends with a repair
   hint — the calling agent snapshots the page, fixes the flow, and
   `chromux script save`s it again. The agent is the self-healing layer; the
@@ -553,9 +601,10 @@ chromux run s --script news.ycombinator.com/top-links
 ## Site Knowledge
 
 chromux surfaces durable, non-secret site notes from
-`~/.chromux/skills/<host>/*.md` in `open` responses. Host matching walks up
-parent domains, so notes saved under `naver.com` also surface on
-`search.naver.com` pages.
+`~/.chromux/skills/<host>/*.md` in `open` responses (the `hints` field), and
+`close` responses point at the host's note directory via `knowledgeHint`. Host
+matching walks up parent domains, so notes saved under `naver.com` also
+surface on `search.naver.com` pages.
 
 The `note` command is the write side of that loop:
 

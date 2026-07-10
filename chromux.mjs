@@ -1730,6 +1730,32 @@ function selectorVisibleExpression(selector) {
   })(${JSON.stringify(String(selector))})`;
 }
 
+// First candidate that matches wins: selectors must resolve to a visible
+// element, texts must be present in the page. This lets saved scripts carry
+// fallback locators so a single site change does not break a replay.
+function firstMatchExpression(kind, candidates) {
+  const list = JSON.stringify(candidates.map(String));
+  if (kind === 'text') {
+    return `((cands) => {
+      if (!document.body) return null;
+      const text = document.body.innerText;
+      for (const c of cands) { if (text.includes(c)) return c; }
+      return null;
+    })(${list})`;
+  }
+  return `((cands) => {
+    for (const c of cands) {
+      let el = null;
+      try { el = document.querySelector(c); } catch { continue; }
+      if (!el) continue;
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none') return c;
+    }
+    return null;
+  })(${list})`;
+}
+
 async function pressKey(cdp, key) {
   const def = KEY_DEFS[key];
   if (!def) throw httpErr(400, `Unsupported key "${key}". Supported keys: ${Object.keys(KEY_DEFS).join(', ')}`);
@@ -2036,10 +2062,21 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         options.text != null ? 'text'
           : options.selector != null ? 'selector'
             : options.expression != null ? 'expression'
-              : typeof condition === 'string' ? 'selector'
+              : (typeof condition === 'string' || Array.isArray(condition)) ? 'selector'
                 : 'expression'
       );
       const value = options.text ?? options.selector ?? options.expression ?? condition;
+      // Selector/text waits accept an array of fallback candidates; the first
+      // one that matches wins and is reported back as `matched`.
+      const candidates = (kind === 'selector' || kind === 'text') && Array.isArray(value)
+        ? value.map(String).filter(Boolean)
+        : null;
+      if (candidates && !candidates.length) {
+        throw new Error(`waitFor ${kind} requires at least one candidate`);
+      }
+      const describeValue = () => kind === 'expression'
+        ? '[expression]'
+        : (candidates ? candidates.join(' | ') : String(value));
       const deadline = Date.now() + timeout;
       let lastError = null;
       let lastValue = null;
@@ -2049,15 +2086,20 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
             await sleep(Math.min(timeout, Number(options.ms) || 300));
             return { kind, timeoutMs: timeout };
           }
-          const expression = kind === 'text'
-            ? textIncludesExpression(value)
-            : kind === 'selector'
-              ? selectorVisibleExpression(value)
-              : String(value);
+          const expression = candidates
+            ? firstMatchExpression(kind, candidates)
+            : kind === 'text'
+              ? textIncludesExpression(value)
+              : kind === 'selector'
+                ? selectorVisibleExpression(value)
+                : String(value);
           lastValue = await evalJs(expression, Math.min(timeout + 1000, 30000));
-          if (lastValue === true || (kind === 'expression' && options.truthy !== false && Boolean(lastValue))) {
+          const matched = candidates && typeof lastValue === 'string' ? lastValue : null;
+          if (matched || lastValue === true || (!candidates && kind === 'expression' && options.truthy !== false && Boolean(lastValue))) {
             const state = await currentPageState();
-            return { kind, value: kind === 'expression' ? '[expression]' : String(value), timeoutMs: timeout, ...state };
+            const proof = { kind, value: describeValue(), timeoutMs: timeout, ...state };
+            if (candidates) proof.matched = matched;
+            return proof;
           }
         } catch (err) {
           lastError = err.message;
@@ -2065,7 +2107,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         await sleep(pollMs);
       }
       const state = await currentPageState();
-      throw new Error(`waitFor ${kind} failed after ${timeout}ms: ${kind === 'expression' ? '[expression]' : String(value)} url=${state.url || ''} title=${state.title || ''} last=${JSON.stringify(redactReceiptValue(lastValue, 'lastValue'))}${lastError ? ` error=${lastError}` : ''}`);
+      throw new Error(`waitFor ${kind} failed after ${timeout}ms: ${describeValue()} url=${state.url || ''} title=${state.title || ''} last=${JSON.stringify(redactReceiptValue(lastValue, 'lastValue'))}${lastError ? ` error=${lastError}` : ''}`);
     };
     const assertPage = async (expression, options = {}) => {
       const state = await waitFor(expression, { ...options, kind: 'expression', timeoutMs: options.timeoutMs || 1 });
@@ -2113,7 +2155,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         type: 'mouseReleased', x, y, button, clickCount,
       });
       await sleep(100);
-      return { clicked: { xy: [x, y], button, clicks: clickCount } };
+      return { clicked: { xy: [x, y], button, clicks: clickCount }, next: `chromux snapshot ${session} --diff` };
     }
     if (!selector) throw httpErr(400, 'selector or xy required');
     const sel = refToSelector(selector);
@@ -2168,7 +2210,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       });
     }
     await sleep(500);
-    return { clicked: selector };
+    return { clicked: selector, next: `chromux snapshot ${session} --diff` };
   }
 
   if (routePath === '/fill' && method === 'POST') {
@@ -2203,7 +2245,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       returnByValue: true, awaitPromise: false,
     });
     if (r.exceptionDetails) throw httpErr(400, r.exceptionDetails.exception?.description || 'fill failed');
-    return { filled: selector, text };
+    return { filled: selector, text, next: `chromux snapshot ${session} --diff` };
   }
 
   if (routePath === '/type' && method === 'POST') {
@@ -2213,7 +2255,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     touchSession(s);
     await s.cdp.send('Page.bringToFront', {});
     await s.cdp.send('Input.insertText', { text });
-    return { typed: text };
+    return { typed: text, next: `chromux snapshot ${session} --diff` };
   }
 
   if (routePath === '/press' && method === 'POST') {
@@ -2222,7 +2264,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const s = getSession(sessions, session);
     touchSession(s);
     await pressKey(s.cdp, key);
-    return { pressed: key };
+    return { pressed: key, next: `chromux snapshot ${session} --diff` };
   }
 
   if ((routePath === '/wait-for-text' || routePath === '/wait-for-selector') && method === 'POST') {
@@ -4611,7 +4653,7 @@ function readBody(req) {
 }
 // Convert the most common Playwright/Puppeteer muscle-memory mistakes inside
 // `run` scripts into an immediate pointer at the actual helper surface.
-const RUN_HELPER_HINT = "chromux run executes in the runner context with helpers cdp(method, params), js(pageCode), page(expr), sleep(ms), waitLoad(). Use js('...') to run code inside the page.";
+const RUN_HELPER_HINT = "chromux run executes in the runner context with helpers cdp(method, params), js(pageCode), page(expr), sleep(ms), waitLoad(), waitFor(selectorOrTextOrExpression | [fallback, candidates], opts), assertPage(expr). Use js('...') to run code inside the page.";
 function decorateRunError(err) {
   const msg = String(err?.message || '');
   if (msg.includes(RUN_HELPER_HINT)) return;
@@ -4655,7 +4697,8 @@ const HELP = `chromux — tmux for Chrome tabs
 The core surface:
   chromux open <session> <url>       Create or navigate a tab
   chromux open --background <s> <u>  Explicitly create a background tab
-  chromux run <session> -            Multi-step async JS with cdp/js/page helpers
+  chromux run <session> -            Multi-step async JS with cdp/js/page/waitFor/assertPage helpers
+                                     (waitFor accepts [fallback, candidates] for selector/text waits)
   chromux run <session> --page-file F  Run a JS file directly in the page (no shell escaping)
   chromux run <session> --script <host>/<name>  Replay a saved action script (no model calls)
   chromux run <session> ... --schema s.json     Validate the run result against a JSON schema

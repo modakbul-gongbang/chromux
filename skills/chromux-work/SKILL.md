@@ -41,7 +41,9 @@ uses the same `chromux` command surface.
   checked-in per-site extractors when a task needs structured records.
 - For UI work, do not treat `open` or an action response as proof. Use
   `snapshot`, `wait-for-text`, `wait-for-selector`, `run`, or `screenshot` to
-  prove the resulting state.
+  prove the resulting state. After an in-page action, `snapshot --diff` is the
+  cheapest proof: it prints only what changed since your previous snapshot
+  (action responses include it as the `next` command).
 - Minimize round-trips: bundle a known multi-step sequence (navigate, click,
   fill, wait, read back) into a single `chromux run` call instead of issuing
   many separate `click`/`fill`/`snapshot` commands. Each separate command is a

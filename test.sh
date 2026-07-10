@@ -302,6 +302,7 @@ CLICK_URL='data:text/html,%3Cbutton%20style%3D%22position%3Aabsolute%3Bleft%3A0%
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-click "$CLICK_URL" 2>/dev/null > /dev/null
 XY_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-click --xy 40 40 2>/dev/null)
 check "click --xy reports success" '"xy"' "$XY_CLICK"
+check "click response suggests snapshot --diff" "snapshot tab-click --diff" "$XY_CLICK"
 CLICK_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-click "document.title" 2>/dev/null)
 check "click --xy changed page state" "clicked" "$CLICK_TITLE"
 if CHROMUX_PROFILE=$PROFILE node "$CT" click tab-click --xy 999999 999999 >/tmp/chromux-xy-out-$$.txt 2>&1; then
@@ -326,7 +327,8 @@ CHROMUX_PROFILE=$PROFILE node "$CT" type tab-input "Browser Test" 2>/dev/null > 
 TYPE_STATE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "document.getElementById('name').value" 2>/dev/null)
 check "click then type updates focused input" "Browser Test" "$TYPE_STATE"
 CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "window.inputCount=0;window.changeCount=0" 2>/dev/null > /dev/null
-CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-input @1 "Filled Value" 2>/dev/null > /dev/null
+FILL_RESPONSE=$(CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-input @1 "Filled Value" 2>/dev/null)
+check "fill response suggests snapshot --diff" "snapshot tab-input --diff" "$FILL_RESPONSE"
 FILL_STATE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "JSON.stringify({value:document.getElementById('name').value,input:window.inputCount,change:window.changeCount})" 2>/dev/null)
 check "fill sets input value" "Filled Value" "$FILL_STATE"
 FILL_CHANGE_OK=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "window.changeCount > 0" 2>/dev/null)
@@ -457,6 +459,19 @@ WAIT_TEXT=$(CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-text tab-press "Ready T
 check "wait-for-text reports success" "Ready Text" "$WAIT_TEXT"
 WAIT_SELECTOR=$(CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-selector tab-press "#ready" 2000 2>/dev/null)
 check "wait-for-selector reports success" "#ready" "$WAIT_SELECTOR"
+RUN_FALLBACK=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-press - <<'JS' 2>/dev/null
+return await waitFor(['#missing-primary', '#ready', '#also-missing'], { kind: 'selector', timeoutMs: 3000 });
+JS
+)
+check "waitFor fallback resolves the matching candidate" '"matched": "#ready"' "$RUN_FALLBACK"
+if CHROMUX_PROFILE=$PROFILE node "$CT" run tab-press "return await waitFor(['#nope-a', '#nope-b'], { kind: 'selector', timeoutMs: 300 })" >/tmp/chromux-fallback-out-$$.txt 2>&1; then
+  echo "  ✗ waitFor fallback with no matching candidate unexpectedly succeeded"
+  FAIL=$((FAIL+1))
+else
+  FALLBACK_OUT=$(cat /tmp/chromux-fallback-out-$$.txt)
+  check "waitFor fallback failure lists all candidates" "#nope-a | #nope-b" "$FALLBACK_OUT"
+fi
+rm -f /tmp/chromux-fallback-out-$$.txt
 if CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-text tab-press "Never Appears" 300 >/tmp/chromux-wait-text-out-$$.txt 2>&1; then
   echo "  ✗ wait-for-text missing text unexpectedly succeeded"
   FAIL=$((FAIL+1))

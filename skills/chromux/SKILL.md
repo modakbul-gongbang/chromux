@@ -21,10 +21,10 @@ Chrome Stable. On Windows, use PowerShell or cmd; Chrome Stable is auto-detected
 from normal Program Files or LocalAppData installs unless `chromePath` is set.
 
 For setup, installation, or connection problems, read the repo's `install.md`.
-For multi-step browser work orchestration, use the Browser Work Orchestration
-reference in this skill (`references/browser-work-orchestration-full.md`; the
-shorter `references/browser-work-orchestration.md` is a quick version). For the
-current command surface, run `chromux help`; it is the source of truth.
+For multi-step browser work orchestration (profile selection, recon, parallel
+subagents, cleanup, domain notes), use the `chromux-work` skill
+(`skills/chromux-work/SKILL.md`). For the current command surface, run
+`chromux help`; it is the source of truth.
 
 ## First Rule
 
@@ -78,15 +78,20 @@ Run `chromux help` for exact syntax. The day-to-day mental model is:
   only what changed since the previous snapshot of the session.
 - `click`, `fill`, `type`, `press`, `wait-for-text`, and `wait-for-selector`
   are convenience shortcuts for visible interaction and observable UI state.
-  For a known multi-step sequence, prefer a single `run` call over many separate
-  shortcut commands — it collapses several agent round-trips into one.
+  Their responses include a `next` field pointing at `snapshot --diff` —
+  follow it to verify the action's effect for a few dozen tokens instead of a
+  full tree. For a known multi-step sequence, prefer a single `run` call over
+  many separate shortcut commands — it collapses several agent round-trips
+  into one.
 - `type` inserts literal text into the focused field. Use `press` for special
   keys: Enter, Tab, Escape, Backspace, Delete, the arrow keys, Home, End,
   PageUp, and PageDown (arrow keys drive dropdowns and autocomplete lists).
 - `run` executes multi-step async JavaScript with `cdp`, `js`, `sleep`,
   `waitLoad`, `page(expr?)`, `waitFor(...)`, and `assertPage(...)` helpers.
-  Use `run --receipt PATH` when a flow needs redacted local timing and replay
-  evidence.
+  `waitFor` accepts an array of fallback selector/text candidates — the first
+  match wins and is returned as `matched` — so scripts survive single site
+  changes. Use `run --receipt PATH` when a flow needs redacted local timing
+  and replay evidence.
 - Once a flow works, save it: `chromux script save <host>/<name> --file f.js`,
   then replay with `run <session> --script <host>/<name>` — zero model calls.
   `open` responses list saved scripts for the page's host. If a replay fails,

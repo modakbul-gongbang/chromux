@@ -136,9 +136,12 @@ Key events to track:
    a document (elements keep their `@ref` across re-snapshots; navigation
    resets), and `snapshot --diff` emits only added/removed lines per session
    with an omitted-unchanged summary.
-2. **Publish token benchmarks** (G-4): extend `benchmarks/` to record
-   snapshot byte/token sizes on fixture pages; add a README table comparing
-   chromux vs playwright-mcp snapshot output for identical pages.
+2. **Publish token benchmarks** (G-4) — shipped in 0.14.0:
+   `benchmarks/chromux-token-benchmark.mjs` measures agent-visible payloads
+   (full HTML vs snapshot vs `--interactive` vs `--diff` vs shaped extract) on
+   deterministic fixtures; README "Token Footprint" section publishes a
+   representative table (200-item feed: ~20.4K tokens full HTML → ~47 tokens
+   `--diff`) with pointers to third-party MCP-vs-CLI numbers.
 3. **First-class login/profile onboarding docs** (G-1): a "Front-load
    authentication" quickstart — `chromux launch work` headed, user logs in
    once, agents reuse forever; optionally an assisted `chromux clone-profile`
@@ -173,8 +176,11 @@ Key events to track:
    script (the calling agent is the self-healing layer). Schema contracts via
    `run --schema` (zero-dependency JSON-schema subset validator) shipped in
    the same release — Stagehand's cache + extract contract, minus the bundled
-   LLM. Remaining follow-up: multi-candidate selector fallbacks inside saved
-   scripts.
+   LLM. The multi-candidate follow-up shipped in 0.14.0: `waitFor` accepts an
+   array of fallback selector/text candidates (first match wins, reported as
+   `matched`), so saved scripts carry several locator strategies. Action
+   responses (`click`/`fill`/`type`/`press`) now also include a `next` hint
+   pointing at `snapshot --diff`.
 10. **Site-notes ecosystem** (strength 5): `chromux note --export/--import`
     (shareable non-secret host notes), auto-suggested note drafts from
     activity-log failure clusters (reminder already exists).
