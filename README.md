@@ -23,10 +23,11 @@ chromux snapshot inbox --diff                   # …verify what changed for ~47
   log in once, run unattended forever, on macOS, Linux, native Windows, WSL,
   servers, and CI.
 - **Agents read hundreds of times less.** Observation payloads are the
-  product: on a measured 200-story feed page, full HTML is ~20,400 tokens,
+  product: on a measured 200-story feed page, full HTML is ~22,400 tokens,
   `snapshot --interactive` is ~7,200 — and verifying an action with
-  `snapshot --diff` is **~47 tokens**. Reproduce it yourself with the
-  checked-in token benchmark (table below).
+  `snapshot --diff` is **~45 tokens**, where re-snapshotting costs
+  agent-browser ~10.9K and playwright-cli ~28.4K on the same page. Reproduce
+  it yourself with the checked-in benchmarks (tables below).
 - **Flows become assets, not costs.** Derive a working flow once, freeze it
   with `chromux script save`, and every later run replays it with **zero
   model calls** — `open` even tells the next agent the script exists. When a
@@ -46,14 +47,30 @@ chromux snapshot inbox --diff                   # …verify what changed for ~47
 
 ## How it compares
 
-| | Playwright/Puppeteer | agent-browser `--cdp` | chromux |
+Measured head-to-head (2026-07, one fixed model — `claude-opus-4-8` — doing
+identical browser missions with each CLI, each tool introduced by its own
+official skill; full methodology and tables in
+[docs/benchmark-2026-07.md](docs/benchmark-2026-07.md)):
+
+| | @playwright/cli 0.1.17 | agent-browser 0.31.1 | chromux |
 |---|---|---|---|
-| Browser | Bundled Chromium | Real Chrome | Real Chrome |
-| Bot detection | Often caught | Avoided | Avoided |
-| Tab isolation | Yes | **No** (sessions share tab) | **Yes** |
-| Parallel agents | Yes | **Broken** | **Yes** |
-| Dependencies | 100s of MB | playwright-core | **None** |
-| Profile management | No | No | **Yes** |
+| Browser | Bundled Chromium | Chrome / Chrome for Testing | **Real Chrome, real profiles** |
+| Agent task success (8 tasks x reps) | 100% | 95% | **100%** |
+| Google under bot check | passed | **50% fail, 146s/310K-token reps** | passed, no friction |
+| Verify one action on a 200-story page | ~28.4K tokens | ~10.9K tokens | **~37 tokens** (`snapshot --diff`) |
+| Full snapshot of that page | ~28.3K (no interactive filter) | ~25.6K | **~14.3K / 7.2K interactive** |
+| Warm command latency | slowest (nav p50 883ms) | **fastest (48-95ms)** | 163-218ms |
+| Parallel sessions | yes | yes | yes, plus per-profile daemons + `batch` pools |
+| Dependencies | playwright + Chromium download | Rust binary via npm | **none (one file, Node ≥ 22)** |
+| Logged-in real profiles | no | via `--profile` handoff | **first-class, persistent** |
+
+Honest summary: with a frontier model driving, all three CLIs complete
+neutral tasks reliably — playwright-cli was the fastest and cheapest
+generalist on this task set. chromux's edge is structural, not generic:
+real-Chrome sessions sail through bot-gated surfaces where
+automation-flagged browsers burn tokens or fail, and incremental observation
+(`--diff`, shaped extraction) keeps long sessions on large pages hundreds of
+times cheaper per step.
 
 Design principles, sharpened against the 2026 agent-browser landscape (see
 `docs/competitive-analysis-2026-07.md` in the repo):
@@ -468,25 +485,43 @@ CHROMUX_HOME="$(mktemp -d /tmp/chromux-tokens-XXXXXX)" \
   node benchmarks/chromux-token-benchmark.mjs --out /tmp/chromux-tokens.json
 ```
 
-Representative run (Chromium 141, deterministic fixtures; the feed page has
+Representative run (real Chrome, deterministic fixtures; the feed page has
 200 stories with ~600 interactive elements):
 
 | command | article page | form page | 200-item feed |
 |---|---|---|---|
-| full page HTML (`run` outerHTML) | ~785 tok | ~118 tok | ~20,387 tok |
-| `snapshot` (full) | ~769 tok | ~63 tok | ~13,410 tok |
-| `snapshot --interactive` | ~36 tok | ~38 tok | ~7,154 tok |
-| `snapshot --diff` after one action | ~37 tok | ~39 tok | **~47 tok** |
-| structured extract (`run` + shaped `page(...)`) | ~27 tok | ~27 tok | ~28 tok |
+| full page HTML (`run` outerHTML) | ~790 tok | ~326 tok | ~22,430 tok |
+| `snapshot` (full) | ~775 tok | ~67 tok | ~14,252 tok |
+| `snapshot --interactive` | ~41 tok | ~38 tok | ~7,153 tok |
+| `snapshot --diff` after one action | ~36 tok | ~39 tok | **~45 tok** |
+| structured extract (`run` + shaped `page(...)`) | ~25 tok | ~27 tok | ~27 tok |
 
 The workflow the skills teach — inspect structure with `--interactive`, verify
 each action with `--diff`, extract with a shaped `page(...)` result (optionally
 enforced by `--schema`) — keeps per-step observation payloads roughly constant
-even on large pages, instead of re-reading the whole tree every step. For
-context, published third-party comparisons report ~114K tokens per task
-through Playwright MCP versus ~27K through its CLI, and page snapshots in the
-hundreds of tokens for ref-based CLIs; run the benchmark on your own pages to
-compare like for like.
+even on large pages, instead of re-reading the whole tree every step.
+
+### Cross-Tool Benchmarks
+
+Two checked-in harnesses compare chromux, vercel-labs/agent-browser, and
+@playwright/cli under identical conditions (results summarized in
+[How it compares](#how-it-compares); full methodology, tables, and fairness
+rules in [docs/benchmark-2026-07.md](docs/benchmark-2026-07.md)):
+
+```bash
+# Agent-in-the-loop: one fixed model does identical browser missions with each
+# CLI; measures wall time, tokens, turns, and machine-graded success.
+# Requires an authenticated `claude` CLI. ~60 Opus sessions per full run.
+node benchmarks/agent-compare-benchmark.mjs --out /tmp/agent-compare.json
+node benchmarks/agent-compare-benchmark.mjs --smoke   # cheap harness check
+
+# Deterministic (no LLM): payload bytes + warm latency for equivalent
+# observation commands, plus a parallel-session isolation probe.
+node benchmarks/compare-benchmark.mjs --out /tmp/compare.json
+```
+
+Competitor CLIs are installed at their latest versions into a temp prefix at
+run start; nothing is added to chromux's runtime dependencies.
 
 ## Architecture
 

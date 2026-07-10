@@ -11,11 +11,11 @@
 // full HTML vs full snapshot vs interactive snapshot vs post-action diff vs
 // schema-shaped extraction.
 
-import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { startFixtureServer } from './fixtures.mjs';
 
 const MODULE_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CHROMUX = path.join(MODULE_DIR, 'chromux.mjs');
@@ -27,49 +27,6 @@ function argValue(name, fallback = null) {
 
 function estimateTokens(text) {
   return Math.ceil(String(text).length / 4);
-}
-
-function fixtureHtml(route) {
-  if (route.startsWith('/form')) {
-    return `<!doctype html><title>Token Fixture Form</title>
-      <main>
-        <h1>Checkout</h1>
-        <form>
-          <input id="email" aria-label="Email" placeholder="you@example.com">
-          <input id="coupon" aria-label="Coupon">
-          <select id="country" aria-label="Country"><option>KR</option><option>US</option></select>
-          <button id="submit">Place order</button>
-        </form>
-        <p id="status">Waiting</p>
-      </main>`;
-  }
-  if (route.startsWith('/feed')) {
-    const items = Array.from({ length: 200 }, (_, i) => `
-      <article>
-        <h2><a href="/story/${i}">Story headline number ${i} with some descriptive words</a></h2>
-        <p>Teaser paragraph for story ${i}. ${'Filler sentence for realistic text density. '.repeat(3)}</p>
-        <div><button data-id="${i}">Upvote</button> <a href="/story/${i}#comments">comments</a></div>
-      </article>`).join('\n');
-    return `<!doctype html><title>Token Fixture Feed</title><main><h1>Feed</h1>${items}</main>`;
-  }
-  return `<!doctype html><title>Token Fixture Article</title>
-    <main>
-      <h1>Article</h1>
-      <nav><a href="/">Home</a> <a href="/feed">Feed</a> <a href="/form">Form</a></nav>
-      ${'<p>Body paragraph with enough words to resemble a real article page.</p>'.repeat(40)}
-      <button id="more">Read more</button>
-    </main>`;
-}
-
-function startFixtureServer() {
-  const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(fixtureHtml(req.url || '/'));
-  });
-  return new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => resolve(server));
-  });
 }
 
 function runChromux(args, timeoutMs = 90_000) {
@@ -109,8 +66,7 @@ async function main() {
     process.exit(1);
   }
   const outPath = argValue('--out');
-  const server = await startFixtureServer();
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const { server, baseUrl: base } = await startFixtureServer();
   const profile = `tokens-${Date.now().toString(36)}`;
   process.env.CHROMUX_PROFILE = profile;
   const rows = [];

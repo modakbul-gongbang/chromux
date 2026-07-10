@@ -86,6 +86,10 @@ Run `chromux help` for exact syntax. The day-to-day mental model is:
 - `type` inserts literal text into the focused field. Use `press` for special
   keys: Enter, Tab, Escape, Backspace, Delete, the arrow keys, Home, End,
   PageUp, and PageDown (arrow keys drive dropdowns and autocomplete lists).
+- Never `type` into a native `<select>` — set it in one `run` call and fire
+  `change`:
+  `chromux run <s> "await js(\"const el=document.querySelector('#country'); el.value='US'; el.dispatchEvent(new Event('change',{bubbles:true}))\")"`
+  then verify with `snapshot --diff`.
 - `run` executes multi-step async JavaScript with `cdp`, `js`, `sleep`,
   `waitLoad`, `page(expr?)`, `waitFor(...)`, and `assertPage(...)` helpers.
   `waitFor` accepts an array of fallback selector/text candidates — the first

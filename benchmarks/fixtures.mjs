@@ -1,0 +1,216 @@
+// Shared deterministic fixture server for the chromux benchmark suite.
+//
+// Every page is generated from pure functions of the route (no randomness),
+// so payload sizes, expected answers, and task outcomes are reproducible
+// across runs and machines. The server also records form submissions and
+// per-request user agents so harnesses can machine-grade task success and
+// flag non-browser access (e.g. an agent curling the page instead of using
+// the browser CLI under test).
+
+import http from 'node:http';
+
+export function fnv1a(text) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+export function orderCode(email, coupon, country) {
+  return `ORD-${fnv1a(`${email}|${coupon}|${country}`).toUpperCase()}`;
+}
+
+export function navCode() {
+  return `NAV-${fnv1a('start>hop1>hop2>finish').toUpperCase()}`;
+}
+
+export function stepValue(step) {
+  return `V${step}-${fnv1a(`step-${step}`).toUpperCase().slice(0, 6)}`;
+}
+
+export function feedStory(i) {
+  const points = ((i * 137) + 29) % 1000;
+  return {
+    index: i,
+    title: `Story headline number ${i} with some descriptive words`,
+    points,
+  };
+}
+
+export function feedStats(count = 200, threshold = 700) {
+  const stories = Array.from({ length: count }, (_, i) => feedStory(i));
+  const above = stories.filter(s => s.points > threshold);
+  const top = stories.reduce((a, b) => (b.points > a.points ? b : a));
+  return { countAboveThreshold: above.length, threshold, topTitle: top.title, topPoints: top.points };
+}
+
+function articleHtml() {
+  return `<!doctype html><title>Fixture Article</title>
+    <main>
+      <h1>Article</h1>
+      <nav><a href="/">Home</a> <a href="/feed">Feed</a> <a href="/form">Form</a> <a href="/start">Tour</a></nav>
+      ${'<p>Body paragraph with enough words to resemble a real article page.</p>'.repeat(40)}
+      <button id="more">Read more</button>
+    </main>`;
+}
+
+function formHtml() {
+  return `<!doctype html><title>Fixture Checkout</title>
+    <main>
+      <h1>Checkout</h1>
+      <form id="checkout">
+        <input id="email" aria-label="Email" placeholder="you@example.com">
+        <input id="coupon" aria-label="Coupon">
+        <select id="country" aria-label="Country"><option>KR</option><option>US</option><option>JP</option></select>
+        <button id="submit" type="submit">Place order</button>
+      </form>
+      <p id="status">Waiting</p>
+    </main>
+    <script>
+      document.getElementById('checkout').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const payload = {
+          email: document.getElementById('email').value,
+          coupon: document.getElementById('coupon').value,
+          country: document.getElementById('country').value,
+        };
+        document.getElementById('status').textContent = 'Placing order...';
+        const res = await fetch('/api/order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json();
+        setTimeout(() => {
+          document.getElementById('status').textContent = 'Order confirmed: ' + body.code;
+        }, 150);
+      });
+    </script>`;
+}
+
+function feedHtml(count = 200) {
+  const items = Array.from({ length: count }, (_, i) => {
+    const story = feedStory(i);
+    return `
+      <article>
+        <h2><a href="/story/${i}">${story.title}</a></h2>
+        <p class="points">${story.points} points</p>
+        <p>Teaser paragraph for story ${i}. ${'Filler sentence for realistic text density. '.repeat(3)}</p>
+        <div><button data-id="${i}">Upvote</button> <a href="/story/${i}#comments">comments</a></div>
+      </article>`;
+  }).join('\n');
+  return `<!doctype html><title>Fixture Feed</title><main><h1>Feed</h1>${items}</main>`;
+}
+
+function hopHtml(route) {
+  if (route === '/start') {
+    return `<!doctype html><title>Tour Start</title>
+      <main><h1>Tour: step 1 of 4</h1><p>Follow the Continue links to the end.</p>
+      <a id="continue" href="/hop/1">Continue</a></main>`;
+  }
+  if (route === '/hop/1') {
+    return `<!doctype html><title>Tour Hop 1</title>
+      <main><h1>Tour: step 2 of 4</h1><a href="/start">Back</a> <a id="continue" href="/hop/2">Continue</a></main>`;
+  }
+  if (route === '/hop/2') {
+    return `<!doctype html><title>Tour Hop 2</title>
+      <main><h1>Tour: step 3 of 4</h1><a href="/hop/1">Back</a> <a id="continue" href="/finish">Continue</a></main>`;
+  }
+  return `<!doctype html><title>Tour Finish</title>
+    <main><h1>Tour complete</h1><p>Your completion code is <strong id="code">${navCode()}</strong>.</p></main>`;
+}
+
+function stepsHtml() {
+  const values = JSON.stringify({ 1: stepValue(1), 2: stepValue(2), 3: stepValue(3) });
+  return `<!doctype html><title>Fixture Steps</title>
+    <main>
+      <h1>Sequential steps</h1>
+      <p>Click each step button in order. Each reveals its value shortly after the click,
+      and the next button is enabled only after the previous value appears.</p>
+      <button id="step1">Step 1</button> <span id="result1"></span><br>
+      <button id="step2" disabled>Step 2</button> <span id="result2"></span><br>
+      <button id="step3" disabled>Step 3</button> <span id="result3"></span>
+    </main>
+    <script>
+      const values = ${values};
+      for (const step of [1, 2, 3]) {
+        document.getElementById('step' + step).addEventListener('click', () => {
+          setTimeout(() => {
+            document.getElementById('result' + step).textContent = values[step];
+            if (step < 3) document.getElementById('step' + (step + 1)).disabled = false;
+          }, 120);
+        });
+      }
+    </script>`;
+}
+
+function storyHtml(route) {
+  const index = Number(route.split('/').pop()) || 0;
+  const story = feedStory(index);
+  return `<!doctype html><title>${story.title}</title>
+    <main><h1>${story.title}</h1><p class="points">${story.points} points</p>
+    <p>${'Story body sentence. '.repeat(20)}</p></main>`;
+}
+
+export function fixtureHtml(route) {
+  if (route.startsWith('/form')) return formHtml();
+  if (route.startsWith('/feed')) return feedHtml();
+  if (route.startsWith('/steps')) return stepsHtml();
+  if (route.startsWith('/story/')) return storyHtml(route);
+  if (route === '/start' || route.startsWith('/hop/') || route === '/finish') return hopHtml(route);
+  return articleHtml();
+}
+
+export function startFixtureServer() {
+  const state = { orders: [], accessLog: [] };
+  const server = http.createServer((req, res) => {
+    const route = (req.url || '/').split('?')[0];
+    state.accessLog.push({
+      route,
+      method: req.method,
+      userAgent: req.headers['user-agent'] || '',
+      at: Date.now(),
+    });
+    if (req.method === 'POST' && route === '/api/order') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        let payload = {};
+        try { payload = JSON.parse(body); } catch {}
+        const code = orderCode(payload.email || '', payload.coupon || '', payload.country || '');
+        state.orders.push({ ...payload, code, at: Date.now() });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, code }));
+      });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(fixtureHtml(route));
+  });
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      resolve({ server, state, baseUrl: `http://127.0.0.1:${server.address().port}` });
+    });
+  });
+}
+
+// Close a fixture server even when a still-open browser tab holds keep-alive
+// connections to it (plain server.close() would wait on those forever).
+export function closeFixtureServer(server) {
+  return new Promise((resolve) => {
+    server.closeAllConnections?.();
+    server.close(() => resolve());
+    setTimeout(resolve, 3000).unref();
+  });
+}
+
+// True when any page request looks like it came from a non-browser client
+// (curl, wget, node fetch, python, etc.) — used to flag cheating in graded runs.
+export function nonBrowserAccess(state) {
+  return state.accessLog.filter(entry =>
+    entry.route !== '/favicon.ico' &&
+    !/Mozilla\//.test(entry.userAgent));
+}
