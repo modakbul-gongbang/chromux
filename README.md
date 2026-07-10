@@ -727,10 +727,11 @@ chromux app --port 9341 --open
 ```
 
 The app lists known profiles, selected profile state, daemon/session counts when
-available, active-first profile sorting, search/status filters, bulk profile
-selection/deletion, raw command events, Task-first timeline groups, fallback
-session windows, and site knowledge note paths under
-`~/.chromux/skills/<host>/*.md`. V1 does not read Chrome History.
+available, per-profile disk usage (plus the total across profiles), active-first
+profile sorting, search/status filters, bulk profile selection/deletion, raw
+command events, Task-first timeline groups, fallback session windows, and site
+knowledge note paths under `~/.chromux/skills/<host>/*.md`. V1 does not read
+Chrome History.
 
 On macOS, use the GitHub Release asset when you want a real menu bar app instead
 of a browser tab. The release zip contains `chromux.app`; unzip it, move it to

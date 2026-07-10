@@ -167,9 +167,10 @@ chromux app --port 9341 --open
 ```
 
 It reads local profile state and activity files under `~/.chromux/activity/`.
-It sorts active profiles first, filters profiles by name/status, and can
-bulk-delete selected local profile directories. The app does not require
-Electron, Playwright, Puppeteer, Python, an account, or an external service.
+It sorts active profiles first, shows per-profile disk usage, filters profiles
+by name/status, and can bulk-delete selected local profile directories. The
+app does not require Electron, Playwright, Puppeteer, Python, an account, or
+an external service.
 
 On macOS, install the menu bar app to `/Applications` when you want a
 double-clickable app that Spotlight and Launchpad can find. From a repo

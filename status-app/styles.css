@@ -328,6 +328,10 @@ label,
   gap: var(--space-xs);
   align-items: center;
   min-height: 52px;
+  /* Rows live in a scrolling column flexbox; without this, flex shrink
+     squeezes rows to min-height and two-line content overflows into the
+     next row. */
+  flex-shrink: 0;
 }
 
 .profile-item:hover {

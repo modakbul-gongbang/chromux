@@ -84,11 +84,12 @@ from a checkout when you want terminal or agent usage.
 - Starts `chromux app --host 127.0.0.1 --port 0`.
 - Opens the local dashboard in a native WebKit window with dark chrome
   (window background and titlebar match the dashboard canvas color).
-- Shows currently active profiles in the `cx` menu when it opens; clicking an
-  active profile entry opens the dashboard window.
-- Supports active-first sorting, search, status filtering, bulk profile
-  selection, and deletion through the dashboard. Bulk actions appear only
-  while at least one profile is selected.
+- Shows currently active profiles in the `cx` menu when it opens, including
+  each profile's disk usage; clicking an active profile entry opens the
+  dashboard window.
+- Supports active-first sorting, search, status filtering, per-profile disk
+  usage, bulk profile selection, and deletion through the dashboard. Bulk
+  actions appear only while at least one profile is selected.
 - Provides menu items for opening the dashboard, opening the URL in a browser,
   restarting the local server, and quitting.
 - Provides a "Launch at Login" toggle (macOS 13+ `SMAppService`) so the menu

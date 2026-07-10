@@ -38,6 +38,19 @@ function fmtShortTime(value) {
   }
 }
 
+function fmtBytes(value) {
+  if (!Number.isFinite(value) || value < 0) return '-';
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unit = -1;
+  do {
+    size /= 1024;
+    unit += 1;
+  } while (size >= 1024 && unit < units.length - 1);
+  return `${size >= 100 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+}
+
 function text(value) {
   if (value === null || value === undefined || value === '') return '-';
   return String(value);
@@ -163,6 +176,7 @@ function renderProfiles() {
   const selectedCount = state.selectedProfiles.size;
   const visibleSelectedCount = profiles.filter(profile => state.selectedProfiles.has(profile.name)).length;
   $('#profileCount').textContent = allProfiles.length;
+  $('#profileDiskTotal').textContent = fmtBytes(allProfiles.reduce((sum, profile) => sum + (profile.diskUsageBytes || 0), 0));
   $('#eventCount').textContent = state.data?.activity?.totalEvents || 0;
   $('#homePath').textContent = state.data?.chromuxHome || '';
   $('#profileSearch').value = state.profileSearch;
@@ -190,7 +204,7 @@ function renderProfiles() {
       </label>
       <button class="profile-main" data-profile="${escapeHtml(profile.name)}">
         <span class="profile-name">${escapeHtml(profile.name)}</span>
-        <span class="profile-meta">${escapeHtml(profile.daemon?.status)} daemon / ${escapeHtml(profile.activeTabs)} tabs</span>
+        <span class="profile-meta">${escapeHtml(profile.daemon?.status)} daemon / ${escapeHtml(profile.activeTabs)} tabs / ${escapeHtml(fmtBytes(profile.diskUsageBytes))}</span>
       </button>
       ${statusPill(profile.status)}
     </div>
@@ -243,6 +257,7 @@ function renderProfileDetail() {
     ['Launch mode', profile?.launchMode],
     ['Active tabs', profile?.activeTabs],
     ['Paused', profile?.paused ? 'yes' : 'no'],
+    ['Disk usage', fmtBytes(profile?.diskUsageBytes)],
     ['User data dir', profile?.userDataDir],
     ['Reason', profile?.reason],
   ]);

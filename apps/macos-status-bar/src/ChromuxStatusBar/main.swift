@@ -12,6 +12,7 @@ struct ProfileState: Decodable {
     let status: String
     let port: Int?
     let activeTabs: Int?
+    let diskUsageBytes: Int64?
     let daemon: DaemonState?
 
     var isActive: Bool {
@@ -20,10 +21,14 @@ struct ProfileState: Decodable {
 
     var menuTitle: String {
         let tabText = activeTabs.map { "\($0) tab\($0 == 1 ? "" : "s")" } ?? "tabs unknown"
-        if let port {
-            return "\(name) - \(status), \(tabText), :\(port)"
+        var parts = [tabText]
+        if let diskUsageBytes {
+            parts.append(ByteCountFormatter.string(fromByteCount: diskUsageBytes, countStyle: .file))
         }
-        return "\(name) - \(status), \(tabText)"
+        if let port {
+            parts.append(":\(port)")
+        }
+        return "\(name) - \(status), \(parts.joined(separator: ", "))"
     }
 }
 
