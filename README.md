@@ -1,12 +1,51 @@
 # chromux
 
-tmux for Chrome tabs — zero-dependency parallel Chrome tab controller via raw CDP.
+> **tmux for Chrome tabs.** Turn the Chrome you already use — logins, cookies, history and all — into a fleet of parallel, agent-driveable browser sessions. Raw CDP, zero dependencies, zero model calls to replay.
 
-## Why
+[![npm](https://img.shields.io/npm/v/@team-attention/chromux)](https://www.npmjs.com/package/@team-attention/chromux)
+![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
+![dependencies](https://img.shields.io/badge/runtime_deps-0-blue)
+![license](https://img.shields.io/badge/license-MIT-black)
 
-AI agents need to browse the web in parallel using the user's **real Chrome** (with logins preserved, no bot detection). Existing tools either bundle their own Chromium (Playwright/Puppeteer) or can't isolate tabs properly (agent-browser `--cdp --session`).
+```bash
+npm i -g @team-attention/chromux
 
-chromux solves this by talking to Chrome's DevTools Protocol directly using only Node.js built-ins — no Playwright, no Puppeteer, no npm dependencies.
+chromux open inbox https://mail.example.com     # your real Chrome — already logged in
+chromux snapshot inbox --interactive            # page structure with @refs, ~36 tokens
+chromux click inbox @3                          # act on a ref…
+chromux snapshot inbox --diff                   # …verify what changed for ~47 tokens
+```
+
+## Why people get hooked
+
+- **Your logins already work.** No cloud browser to re-authenticate, no
+  extension bridge to babysit, no bundled Chromium with a bot-shaped
+  fingerprint. chromux drives real, persistent Chrome profiles over raw CDP —
+  log in once, run unattended forever, on macOS, Linux, native Windows, WSL,
+  servers, and CI.
+- **Agents read hundreds of times less.** Observation payloads are the
+  product: on a measured 200-story feed page, full HTML is ~20,400 tokens,
+  `snapshot --interactive` is ~7,200 — and verifying an action with
+  `snapshot --diff` is **~47 tokens**. Reproduce it yourself with the
+  checked-in token benchmark (table below).
+- **Flows become assets, not costs.** Derive a working flow once, freeze it
+  with `chromux script save`, and every later run replays it with **zero
+  model calls** — `open` even tells the next agent the script exists. When a
+  site changes, the failed replay hands your agent the script path and a
+  repair hint: fix once, replay forever. Extraction results can be held to a
+  JSON-schema contract with `--schema`, so drift fails loudly instead of
+  silently corrupting your pipeline.
+- **Parallel by design.** One daemon per profile, N independent tab sessions:
+  ten agents can browse concurrently in the same logged-in profile without
+  stepping on each other. `batch` pools workers over URL queues with retries
+  and per-host backoff; `pause`/`resume` is the one-command kill switch for a
+  whole wave.
+- **Zero dependencies. Zero LLM. Zero cloud.** One file on Node.js ≥ 22
+  built-ins. chromux is the deterministic hand; your coding agent is the
+  brain — no per-step token bills, no vendor lock-in, no data leaving your
+  machine.
+
+## How it compares
 
 | | Playwright/Puppeteer | agent-browser `--cdp` | chromux |
 |---|---|---|---|
