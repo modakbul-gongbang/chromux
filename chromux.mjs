@@ -1923,18 +1923,21 @@ async function markListenerClickables(s, force = false) {
     const objectId = arr.result?.objectId;
     if (!objectId) return;
     const props = await s.cdp.send('Runtime.getProperties', { objectId, ownProperties: true }, 5000);
-    for (const prop of props.result || []) {
-      if (!/^\d+$/.test(prop.name) || !prop.value?.objectId) continue;
-      try {
-        const ls = await s.cdp.send('DOMDebugger.getEventListeners', { objectId: prop.value.objectId, depth: 0 }, 1000);
-        if ((ls.listeners || []).some(l => l.type === 'click' || l.type === 'mousedown' || l.type === 'pointerdown')) {
-          await s.cdp.send('Runtime.callFunctionOn', {
-            objectId: prop.value.objectId,
-            functionDeclaration: 'function(){ this.setAttribute("data-ct-listener","1"); }',
-          }, 1000);
-        }
-      } catch {}
-    }
+    // Queries are independent and CDP multiplexes over one socket, so run
+    // them concurrently: worst case drops from candidates x 1s to ~2s.
+    await Promise.all((props.result || [])
+      .filter(prop => /^\d+$/.test(prop.name) && prop.value?.objectId)
+      .map(async (prop) => {
+        try {
+          const ls = await s.cdp.send('DOMDebugger.getEventListeners', { objectId: prop.value.objectId, depth: 0 }, 1000);
+          if ((ls.listeners || []).some(l => l.type === 'click' || l.type === 'mousedown' || l.type === 'pointerdown')) {
+            await s.cdp.send('Runtime.callFunctionOn', {
+              objectId: prop.value.objectId,
+              functionDeclaration: 'function(){ this.setAttribute("data-ct-listener","1"); }',
+            }, 1000);
+          }
+        } catch {}
+      }));
     await s.cdp.send('Runtime.evaluate', {
       expression: 'delete window.__ctListenerCandidates', returnByValue: true,
     }, 1000).catch(() => {});
@@ -1947,9 +1950,9 @@ async function markListenerClickables(s, force = false) {
 // baseline writers (verify itself, open-time priming, snapshot advance) from
 // ever drifting in shape.
 // Tradeoff, deliberate: the per-candidate CDP listener re-scan
-// (markListenerClickables force=true) is skipped on this path. It cost up to
-// 400 serial getEventListeners round-trips per capture (and verify captures
-// up to three times per action). The cost: on standard-rich pages where
+// (markListenerClickables force=true) is skipped on this path. It costs up to
+// 400 getEventListeners round-trips per capture (concurrent, but still real
+// CDP traffic, and verify captures up to three times per action). The cost: on standard-rich pages where
 // open/snapshot never stamped data-ct-listener, an element revealed by an
 // action whose only click affordance is a JS listener (no cursor style, no
 // onclick) appears in the diff as text without a clickable @ref; take a
@@ -2273,7 +2276,18 @@ async function startDaemon(profileName, port, daemonPort) {
   // download control (Browser.setDownloadBehavior) are browser-domain
   // features that per-tab connections never see.
   const browserState = { client: null, popups: [], downloads: new Map(), downloadPath: null };
-  async function connectBrowserClient() {
+  // Concurrent callers (downloads, popup adoption) must share one in-flight
+  // connection attempt instead of each opening a redundant browser socket.
+  let browserConnectPromise = null;
+  function connectBrowserClient() {
+    if (browserState.client) return Promise.resolve();
+    if (!browserConnectPromise) {
+      browserConnectPromise = connectBrowserClientOnce()
+        .finally(() => { browserConnectPromise = null; });
+    }
+    return browserConnectPromise;
+  }
+  async function connectBrowserClientOnce() {
     try {
       const version = await cdpFetch(port, '/json/version');
       if (!version.webSocketDebuggerUrl) return;

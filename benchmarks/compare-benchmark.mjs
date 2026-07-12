@@ -219,21 +219,26 @@ async function measureLatency(tool, baseUrl, reps) {
 async function probeParallelIsolation(tool, baseUrl) {
   const urlA = `${baseUrl}/form`;
   const urlB = `${baseUrl}/steps`;
-  const openA = await tool.open('cmp-par-a', urlA);
-  const openB = await tool.open('cmp-par-b', urlB);
-  if (!openA.ok || !openB.ok) return { ok: false, detail: 'session open failed' };
-  const backA = await tool.currentUrl('cmp-par-a');
-  const backB = await tool.currentUrl('cmp-par-b');
-  await tool.close('cmp-par-a');
-  await tool.close('cmp-par-b');
-  const aIsolated = backA.stdout.includes('/form');
-  const bIsolated = backB.stdout.includes('/steps');
-  return {
-    ok: aIsolated && bIsolated,
-    detail: aIsolated && bIsolated
-      ? 'two sessions kept independent pages'
-      : `session A reported ${backA.stdout.trim().slice(0, 80)}; session B reported ${backB.stdout.trim().slice(0, 80)}`,
-  };
+  try {
+    const openA = await tool.open('cmp-par-a', urlA);
+    const openB = await tool.open('cmp-par-b', urlB);
+    if (!openA.ok || !openB.ok) return { ok: false, detail: 'session open failed' };
+    const backA = await tool.currentUrl('cmp-par-a');
+    const backB = await tool.currentUrl('cmp-par-b');
+    const aIsolated = backA.stdout.includes('/form');
+    const bIsolated = backB.stdout.includes('/steps');
+    return {
+      ok: aIsolated && bIsolated,
+      detail: aIsolated && bIsolated
+        ? 'two sessions kept independent pages'
+        : `session A reported ${backA.stdout.trim().slice(0, 80)}; session B reported ${backB.stdout.trim().slice(0, 80)}`,
+    };
+  } finally {
+    // Close both even when an open failed or a probe step threw; a leaked
+    // session would skew the latency numbers measured right after this probe.
+    await tool.close('cmp-par-a').catch(() => {});
+    await tool.close('cmp-par-b').catch(() => {});
+  }
 }
 
 async function main() {

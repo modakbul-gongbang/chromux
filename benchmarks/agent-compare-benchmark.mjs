@@ -469,9 +469,16 @@ async function runAgentSession({ tool, task, rep, model, maxTurns, timeoutMs, sh
   let fixture = null;
   if (task.kind === 'local') fixture = await startFixtureServer();
   if (task.kind === 'miniwob') fixture = await startMiniwobServer(miniwobRoot);
-  if (task.before) await task.before(context);
-
-  const prompt = missionPrompt(tool, task.mission(fixture ? fixture.baseUrl : null));
+  // The fixture-closing finally below only starts after the session runs; a
+  // throw from task setup here must not leak the fixture server.
+  let prompt;
+  try {
+    if (task.before) await task.before(context);
+    prompt = missionPrompt(tool, task.mission(fixture ? fixture.baseUrl : null));
+  } catch (err) {
+    if (fixture) await closeFixtureServer(fixture.server);
+    throw err;
+  }
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (key.startsWith('CHROMUX_') || key.startsWith('AGENT_BROWSER_') || key === 'CLAUDE_SESSION_ID') delete env[key];
