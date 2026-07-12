@@ -75,14 +75,16 @@ snippets replace multi-turn form choreography, and `--grep`/`--diff` keep
 large-page reads targeted. playwright-cli remains faster on some individual
 external tasks; agent-browser has the best raw command latency but degrades
 hardest under bot detection. On two unmodified [MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus)
-tasks (email-inbox, book-flight — added as untuned third-party ground truth)
-all three tools pass every rep but **playwright-cli is fastest**: MiniWoB's
-label-free clickable-`div` micro-UIs defeat accessibility-tree observation,
-which is a real chromux gap now on the roadmap. The v1 run (chromux 0.14.1)
-had playwright-cli winning overall; the improvements that flipped v2, the
-tuning-loop disclosure, the MiniWoB++ tables, and a Sonnet 5 cross-model
-check (same picture: chromux leads outside MiniWoB, the Google bot-check
-split persists and widens) are documented in
+tasks (email-inbox, book-flight — third-party ground truth graded by the
+benchmark's own reward code) the first run exposed a real chromux gap:
+label-free clickable-`div` micro-UIs defeated accessibility-tree
+observation and playwright-cli won both tasks. The 0.17.0 perception
+upgrade (behavior-based clickable detection incl. a CDP listener scan,
+occlusion-probe overlay surfacing, actions verifying by default, live state
+in snapshot lines) flipped both in a fresh same-day three-tool run —
+email-inbox 36.4s/178K vs playwright-cli 59.3s/348K — with fixture-page
+payloads held byte-identical by a checked-in budget guard. Full history,
+loop disclosure, and a Sonnet 5 cross-model check are in
 [docs/benchmark-2026-07.md](docs/benchmark-2026-07.md).
 
 Design principles, sharpened against the 2026 agent-browser landscape (see
@@ -404,7 +406,8 @@ chromux cdp s Runtime.evaluate '{"expression":"navigator.userAgent","returnByVal
 | `snapshot <session> --interactive` | Only interactive elements (smaller payload) |
 | `snapshot <session> --diff` | Only lines added/removed since the previous snapshot of this session |
 | `snapshot <session> --grep "pattern"` | Only lines matching a case-insensitive regex (literal fallback), plus their ancestor lines for context |
-| `click <session> @<ref>` | Click element by ref |
+| `snapshot <session> --clickable` | Force behavior-based clickable detection (`cursor:pointer`/`onclick` divs get `@refs`); auto-enabled on pages with almost no standard interactive elements |
+| `click <session> @<ref>` | Click element by ref. Actions verify by default: the response's `changed` field carries the post-action diff (`--verify MS` tunes the settle wait, `--no-verify` skips; also on `fill`/`type`/`press`; crawl mode skips automatically) |
 | `click <session> "selector"` | Click by CSS selector |
 | `click <session> --xy X Y` | Click validated viewport coordinates via CDP mouse events |
 | `fill <session> @<ref> "text"` | Fill input field (a native `<select>` matches an option by value or label and fires `change`) |

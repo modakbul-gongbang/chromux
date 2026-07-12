@@ -85,10 +85,13 @@ return out;
 JS
 ```
 
-**Verify an action — `snapshot --diff`.** After a click/fill/press, the
-response's `next` field points at `snapshot <s> --diff`: it prints only lines
-added/removed since your previous snapshot — usually a few dozen tokens instead
-of a full tree. Navigation resets refs; in-page changes keep them stable.
+**Actions verify themselves.** `click`/`fill`/`type`/`press` responses carry a
+`changed` field: the post-action diff (new elements, confirmations, revealed
+text). Read it instead of taking another snapshot — it is the proof of what
+the action did. `--verify MS` tunes the settle wait (default 300ms; raise it
+for slow UIs), `--no-verify` skips it. For manual checks,
+`snapshot <s> --diff` prints only lines added/removed since your previous
+snapshot. Navigation resets refs; in-page changes keep them stable.
 
 ## Core Workflow
 
@@ -98,14 +101,19 @@ of a full tree. Navigation resets refs; in-page changes keep them stable.
    taking a separate snapshot. Otherwise follow the `next` snapshot command
    before guessing selectors.
 2. `chromux snapshot exp-ab12` — accessibility tree with stable `@ref` handles.
-   `--interactive` returns only actionable elements; `--grep` filters by pattern.
+   `--interactive` returns only actionable elements; `--grep` filters by
+   pattern. Lines show live state: input values, selected option, `[checkbox
+   checked]`, `(disabled)`. Pages built from bare clickable `div`s (no roles
+   or labels) are detected automatically and marked `clickable` with `@refs`;
+   force this with `--clickable`.
 3. Act by ref: `click exp-ab12 @<N>`, `fill exp-ab12 @<N> "text"`,
    `type exp-ab12 "text"` (focused field), `press exp-ab12 Enter` (also Tab,
    Escape, Backspace, Delete, arrows, Home, End, PageUp, PageDown — arrows
    drive dropdowns). `fill` on a native `<select>` matches an option by value
    or label and fires `change`; never `type` into a select. Custom dropdowns
    (divs styled as comboboxes) are not `<select>` — use `click` + arrow keys.
-4. Verify: `snapshot exp-ab12 --diff`, or `wait-for-text exp-ab12 "Saved"` /
+4. Verify: read the `changed` diff in the action's own response; for slower
+   UIs use `--verify 1000`, or `wait-for-text exp-ab12 "Saved"` /
    `wait-for-selector exp-ab12 ".toast"` for readiness.
 5. `chromux close exp-ab12` when done — batch it with your last command
    (`chromux run … && chromux close exp-ab12`) so cleanup does not cost an

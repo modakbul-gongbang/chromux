@@ -302,7 +302,7 @@ CLICK_URL='data:text/html,%3Cbutton%20style%3D%22position%3Aabsolute%3Bleft%3A0%
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-click "$CLICK_URL" 2>/dev/null > /dev/null
 XY_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-click --xy 40 40 2>/dev/null)
 check "click --xy reports success" '"xy"' "$XY_CLICK"
-check "click response suggests snapshot --diff" "snapshot tab-click --diff" "$XY_CLICK"
+check "click response verifies by default" '"changed"' "$XY_CLICK"
 CLICK_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-click "document.title" 2>/dev/null)
 check "click --xy changed page state" "clicked" "$CLICK_TITLE"
 if CHROMUX_PROFILE=$PROFILE node "$CT" click tab-click --xy 999999 999999 >/tmp/chromux-xy-out-$$.txt 2>&1; then
@@ -328,7 +328,7 @@ TYPE_STATE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "document.getEle
 check "click then type updates focused input" "Browser Test" "$TYPE_STATE"
 CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "window.inputCount=0;window.changeCount=0" 2>/dev/null > /dev/null
 FILL_RESPONSE=$(CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-input @1 "Filled Value" 2>/dev/null)
-check "fill response suggests snapshot --diff" "snapshot tab-input --diff" "$FILL_RESPONSE"
+check "fill response verifies by default" '"changed"' "$FILL_RESPONSE"
 FILL_STATE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "JSON.stringify({value:document.getElementById('name').value,input:window.inputCount,change:window.changeCount})" 2>/dev/null)
 check "fill sets input value" "Filled Value" "$FILL_STATE"
 FILL_CHANGE_OK=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-input "window.changeCount > 0" 2>/dev/null)
@@ -415,6 +415,36 @@ FORM_FLOW_OUT=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-select --file "$(dir
 check "form-flow fills multiple fields" '"submitted": true' "$FORM_FLOW_OUT"
 check "form-flow handles native select" '"value": "US"' "$FORM_FLOW_OUT"
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-select 2>/dev/null > /dev/null
+
+# --- Test 5c.1d: clickable detection, state suffixes, --verify ---
+echo ""
+echo "--- Test 5c.1d: clickable detection, state suffixes, --verify ---"
+CLICKABLE_HTML='<title>DivApp</title><style>.row{cursor:pointer}</style><div class="row" id="r1">Open item one</div><div class="row" id="r2">Open item two</div><p id="log">idle</p><script>document.querySelectorAll(".row").forEach(function(r){r.addEventListener("click",function(){document.getElementById("log").textContent="opened "+r.id})})</script>'
+CLICKABLE_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$CLICKABLE_HTML")"
+CLICKABLE_OPEN=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-ckd "$CLICKABLE_URL" 2>/dev/null)
+check "low-signal page inlines clickable divs on open" 'clickable \\"Open item one\\"' "$CLICKABLE_OPEN"
+CLICKABLE_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-ckd 2>/dev/null)
+check "auto clickable detection assigns refs" '@1 clickable "Open item one"' "$CLICKABLE_SNAP"
+VERIFY_OUT=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-ckd @1 --verify 2>/dev/null)
+check "click --verify returns changed diff" '"changed"' "$VERIFY_OUT"
+check "click --verify diff shows the effect" "opened r1" "$VERIFY_OUT"
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-ckd 2>/dev/null > /dev/null
+
+STATE_HTML='<title>StatePage</title><input type="checkbox" id="cb" aria-label="Agree" checked><select id="sel" aria-label="Plan"><option value="a">Basic</option><option value="b" selected>Pro</option></select><button id="btn" disabled>Go</button><a href="/x">x</a><a href="/y">y</a><a href="/z">z</a>'
+STATE_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$STATE_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-state "$STATE_URL" 2>/dev/null > /dev/null
+STATE_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-state 2>/dev/null)
+check "snapshot shows checkbox checked state" "[checkbox checked]" "$STATE_SNAP"
+check "snapshot shows selected option value" '= "Pro"' "$STATE_SNAP"
+check "snapshot shows disabled state" "(disabled)" "$STATE_SNAP"
+if echo "$STATE_SNAP" | grep -q "clickable"; then
+  echo "  ✗ clickable detection fired on a standard-element page"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ clickable detection stays off on standard pages"
+  PASS=$((PASS+1))
+fi
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-state 2>/dev/null > /dev/null
 
 # --- Test 5c.2: click target validation ---
 echo ""

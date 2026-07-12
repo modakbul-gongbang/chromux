@@ -1401,8 +1401,55 @@ async function closeInitialTabs(port) {
 // Adding JS patches via Page.addScriptToEvaluateOnNewDocument is ITSELF detectable.
 // The best stealth is minimizing CDP footprint — remove calls, don't add patches.
 
-const SNAPSHOT_JS = `((FILTER) => {
+const SNAPSHOT_JS = `((FILTER, CLICKABLE) => {
   const INTERACTIVE_ONLY = FILTER === 'interactive';
+  // Behavior-based clickable detection ('auto' | 'on' | 'off'). Many SPAs and
+  // micro-UIs build their controls from bare divs with click handlers — no
+  // roles, no semantic tags — which makes an accessibility snapshot blind.
+  // 'auto' turns detection on only when the page has almost no standard
+  // interactive elements, so ordinary pages pay zero extra payload.
+  const standardCount = [...document.querySelectorAll(
+    'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"]')]
+    .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length;
+  const CLICK_ON = CLICKABLE === 'on' || (CLICKABLE !== 'off' && standardCount < 3);
+  const CLICK_CAP = 50;
+  let clickCount = 0;
+  function isClickableBoundary(el, style) {
+    if (el.hasAttribute('onclick')) return true;
+    // data-ct-listener is stamped by the daemon via CDP getEventListeners on
+    // low-signal pages: it marks elements with real click handlers that have
+    // no styling affordance at all (common in benchmark UIs and React apps).
+    if (el.hasAttribute('data-ct-listener')) return true;
+    if (style.cursor !== 'pointer') return false;
+    const parent = el.parentElement;
+    if (!parent || parent === document.body) return true;
+    try { return getComputedStyle(parent).cursor !== 'pointer'; } catch { return true; }
+  }
+  // Occlusion probe: if one element sits on top of most of the page's
+  // standard controls (sync covers, cookie walls, modals, loading scrims),
+  // it is the thing the agent must deal with first — surface it prominently
+  // even on pages where clickable detection stays off.
+  let OCCLUDER = null;
+  (() => {
+    const standardEls = [...document.querySelectorAll('a[href],button,input,select,textarea')].slice(0, 10);
+    if (!standardEls.length) return;
+    const hits = new Map();
+    let sampled = 0;
+    for (const el of standardEls) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) continue;
+      sampled++;
+      const top = document.elementFromPoint(
+        Math.min(r.left + r.width / 2, window.innerWidth - 1),
+        Math.min(r.top + r.height / 2, window.innerHeight - 1));
+      if (top && top !== el && !el.contains(top) && !top.contains(el)) {
+        hits.set(top, (hits.get(top) || 0) + 1);
+      }
+    }
+    for (const [el, count] of hits) {
+      if (count >= Math.max(2, Math.ceil(sampled * 0.6))) { OCCLUDER = el; break; }
+    }
+  })();
   // Refs are stable within a document: an element keeps its data-ct-ref across
   // re-snapshots, and new elements continue from the persisted counter. A
   // navigation replaces the document, so refs naturally reset to @1.
@@ -1429,36 +1476,51 @@ const SNAPSHOT_JS = `((FILTER) => {
     if (el.getAttribute('tabindex') !== null && el.getAttribute('tabindex') !== '-1') return true;
     return false;
   }
-  function getLabel(el) {
+  function getLabel(el, clickable) {
     const tag = el.tagName.toLowerCase();
     const aria = el.getAttribute('aria-label');
     if (aria) return aria;
     // Never leak typed secrets into snapshot text.
     if (tag === 'input' && el.type === 'password') return el.placeholder || '';
     if (tag === 'input' || tag === 'textarea') return el.value || el.placeholder || '';
+    if (tag === 'select') return el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].textContent.trim() : '';
     if (tag === 'img') return el.alt || '';
     let text = '';
     for (const n of el.childNodes) { if (n.nodeType === 3) text += n.textContent; }
     text = text.trim();
-    // Links/buttons often wrap their text in spans; fall back to rendered
-    // innerText so snapshot lines stay identifiable without a follow-up js().
-    if (!text && (tag === 'a' || tag === 'button')) {
+    // Links/buttons (and behaviorally-clickable containers) often wrap their
+    // text in child elements; fall back to rendered innerText so snapshot
+    // lines stay identifiable without a follow-up js().
+    if (!text && (tag === 'a' || tag === 'button' || clickable)) {
       text = (el.innerText || '').trim().split('\\n').map(s => s.trim()).filter(Boolean).join(' / ');
     }
     return text.substring(0, 100);
   }
   function walk(el, depth) {
     if (!el || el.nodeType !== 1) return '';
+    let style;
     try {
-      const s = getComputedStyle(el);
-      if (s.display === 'none' || s.visibility === 'hidden' || el.hidden) return '';
+      style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || el.hidden) return '';
     } catch { return ''; }
     if (el.getAttribute('aria-hidden') === 'true') return '';
     const tag = el.tagName.toLowerCase();
     if (['script','style','noscript','br','hr','svg','path'].includes(tag)) return '';
     const role = getRole(el);
-    const interactive = isInteractive(el);
-    const label = getLabel(el);
+    let interactive = isInteractive(el);
+    let clickable = false;
+    let overlay = false;
+    if (!interactive && el === OCCLUDER) {
+      interactive = true;
+      clickable = true;
+      overlay = true;
+    }
+    if (!interactive && CLICK_ON && clickCount < CLICK_CAP && isClickableBoundary(el, style)) {
+      interactive = true;
+      clickable = true;
+      clickCount++;
+    }
+    const label = getLabel(el, clickable);
     const has = role || interactive || label;
     const keep = INTERACTIVE_ONLY ? interactive : has;
     const cd = keep ? depth + 1 : depth;
@@ -1478,9 +1540,26 @@ const SNAPSHOT_JS = `((FILTER) => {
       }
       line += '@' + ref + ' ';
     }
-    line += role || tag;
+    line += overlay ? 'overlay (covers page; interact or dismiss first)'
+      : clickable ? (role ? role + ' (clickable)' : 'clickable') : (role || tag);
     if (label) line += ' "' + label.replace(/"/g, '\\\\"') + '"';
-    if (tag === 'input') line += ' [' + (el.type || 'text') + ']';
+    else if (clickable) {
+      // Icon-only clickables: developer-facing id/class names are the best
+      // available handle ("#close-email", ".star.clicked" — state included).
+      if (el.id) line += ' #' + el.id;
+      else if (typeof el.className === 'string' && el.className.trim()) {
+        line += ' ' + el.className.trim().split(/\\s+/).filter(c => c !== 'data-ct-listener').slice(0, 2).map(c => '.' + c).join('');
+      }
+    }
+    if (tag === 'input') {
+      const checkish = el.type === 'checkbox' || el.type === 'radio';
+      line += ' [' + (el.type || 'text') + (checkish && el.checked ? ' checked' : '') + ']';
+    }
+    if (tag === 'select' && el.selectedOptions && el.selectedOptions[0]) {
+      const sel = el.selectedOptions[0].textContent.trim().substring(0, 40);
+      if (sel && sel !== label) line += ' = "' + sel.replace(/"/g, '') + '"';
+    }
+    if (el.disabled) line += ' (disabled)';
     if (tag === 'a' && el.href) {
       const href = el.getAttribute('href');
       if (href && !href.startsWith('javascript:') && !href.startsWith('#'))
@@ -1583,6 +1662,115 @@ function renderSnapshotGrep(text, pattern) {
   const modeNote = mode === 'literal' ? '; matched literally' : '';
   const lines = [...keep].sort((a, b) => a - b).map((i) => body[i]);
   return `${title}\n${url}\n# grep ${JSON.stringify(pattern)}: ${matches} of ${body.length} lines matched (ancestor lines kept for context${modeNote}${capNote})\n\n${lines.join('\n')}\n`;
+}
+
+// Stamp data-ct-listener on elements that have real click handlers but no
+// styling affordance (no cursor, no role, no onclick attribute) — invisible
+// to both the a11y tree and CSS-based clickable detection. Uses CDP
+// DOMDebugger.getEventListeners per candidate, so it only runs on low-signal
+// pages (almost no standard interactive elements) that are small enough.
+async function markListenerClickables(s, force = false) {
+  try {
+    const scan = await s.cdp.send('Runtime.evaluate', {
+      expression: `(() => {
+        const standard = [...document.querySelectorAll(
+          'a[href],button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"]')]
+          .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length;
+        if (${force ? 'false' : 'standard >= 3'}) return null;
+        const els = [...document.querySelectorAll('div,span,li,td,img,i,b,p,label')].filter(el => {
+          if (el.hasAttribute('data-ct-listener')) return false;
+          const r = el.getBoundingClientRect();
+          return r.width >= 8 && r.height >= 8;
+        });
+        if (els.length > 400) return null;
+        window.__ctListenerCandidates = els;
+        return els.length;
+      })()`,
+      returnByValue: true,
+    }, 3000);
+    const count = scan.result?.value;
+    if (!count) return;
+    const arr = await s.cdp.send('Runtime.evaluate', {
+      expression: 'window.__ctListenerCandidates', returnByValue: false,
+    }, 3000);
+    const objectId = arr.result?.objectId;
+    if (!objectId) return;
+    const props = await s.cdp.send('Runtime.getProperties', { objectId, ownProperties: true }, 5000);
+    for (const prop of props.result || []) {
+      if (!/^\d+$/.test(prop.name) || !prop.value?.objectId) continue;
+      try {
+        const ls = await s.cdp.send('DOMDebugger.getEventListeners', { objectId: prop.value.objectId, depth: 0 }, 1000);
+        if ((ls.listeners || []).some(l => l.type === 'click' || l.type === 'mousedown' || l.type === 'pointerdown')) {
+          await s.cdp.send('Runtime.callFunctionOn', {
+            objectId: prop.value.objectId,
+            functionDeclaration: 'function(){ this.setAttribute("data-ct-listener","1"); }',
+          }, 1000);
+        }
+      } catch {}
+    }
+    await s.cdp.send('Runtime.evaluate', {
+      expression: 'delete window.__ctListenerCandidates', returnByValue: true,
+    }, 1000).catch(() => {});
+  } catch {}
+}
+
+// Act-and-verify in one round-trip: wait for the UI to settle, snapshot
+// (interactive filter, clickable auto-detection), diff against the session
+// baseline, and advance the baseline. Used by click/fill/type/press when the
+// caller passes `verify`.
+async function captureVerifyDiff(s, waitMs, actedSelector) {
+  const capture = async () => {
+    // Full filter + clickable always on: the verify output is a diff, so
+    // steady-state clickable noise cancels out between baseline and current —
+    // only what the action revealed (popups, menus, panels) survives.
+    await markListenerClickables(s, true);
+    const r = await s.cdp.send('Runtime.evaluate', {
+      expression: `(${SNAPSHOT_JS})(null, 'on')`,
+      returnByValue: true,
+    }, 5000);
+    const text = r.result?.value;
+    return typeof text === 'string' ? text : null;
+  };
+  await sleep(Math.min(Math.max(Number(waitMs) || 300, 0), 10000));
+  let text = await capture();
+  if (text == null) return null;
+  if (!s.snapshotBaselines) s.snapshotBaselines = {};
+  const previous = s.snapshotBaselines.verify;
+  if (previous != null) {
+    // Re-sample once when nothing happened yet, or when the only change is
+    // the acted element echoing its own new value — debounced UIs (searches,
+    // autocompletes, validations) land their real update a beat later.
+    const changedLines = renderSnapshotDiff(previous, text).split('\n')
+      .filter(line => line.startsWith('+ ') || line.startsWith('- '));
+    const refToken = actedSelector && /^@\d+$/.test(actedSelector) ? actedSelector + ' ' : null;
+    const selfEchoOnly = refToken && changedLines.length > 0
+      && changedLines.every(line => line.includes(refToken));
+    if (!changedLines.length || selfEchoOnly) {
+      await sleep(700);
+      const again = await capture();
+      if (again != null) text = again;
+    }
+  }
+  s.snapshotBaselines.verify = text;
+  if (previous == null && text.length > 2000) {
+    return '# verify: first observation of a large page; showing changes from the next action onward';
+  }
+  const diff = renderSnapshotDiff(previous, text);
+  if (typeof diff !== 'string') return diff;
+  // Verify answers "did my action do the small thing I expected". A huge
+  // diff means navigation or a churning dynamic page — summarize instead of
+  // making every action on such pages expensive to read.
+  const lines = diff.split('\n');
+  const changed = lines.filter(line => line.startsWith('+ ') || line.startsWith('- '));
+  if (changed.length > 40) {
+    return lines.slice(0, 3).join('\n')
+      + '\n' + changed.slice(0, 12).join('\n')
+      + `\n# verify: large update (${changed.length} changed lines — navigation or dynamic page); showing first 12, use snapshot for the rest`;
+  }
+  if (diff.length > 4000) {
+    return diff.slice(0, 4000) + '\n# verify: output truncated; take a full snapshot if needed';
+  }
+  return diff;
 }
 
 // ============================================================
@@ -1989,16 +2177,20 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
           // Small pages: ship the interactive snapshot inline so the first
           // observation rides along with navigation instead of costing the
           // agent another round-trip. Bounded so big pages stay summarized.
-          if (n > 0 && n <= 20) {
+          // n === 0 still runs: behaviorally-clickable detection ('auto')
+          // finds div-based controls that the standard count misses.
+          if (n <= 20) {
+            await markListenerClickables(s);
             const sr = await s.cdp.send('Runtime.evaluate', {
-              expression: `(${SNAPSHOT_JS})(${JSON.stringify('interactive')})`,
+              expression: `(${SNAPSHOT_JS})(${JSON.stringify('interactive')}, 'auto')`,
               returnByValue: true,
             }, 2000);
             const text = sr?.result?.value;
-            if (typeof text === 'string' && text.length <= 2000) {
+            const body = typeof text === 'string' ? text.split('\n').slice(2).join('\n').trim() : '';
+            if (body && text.length <= 2000) {
               if (!s.snapshotBaselines) s.snapshotBaselines = {};
               s.snapshotBaselines.interactive = text;
-              result.elements = text.split('\n').slice(2).join('\n').trim();
+              result.elements = body;
               result.next = `act on @refs, then verify: chromux snapshot ${session} --interactive --diff`;
             }
           }
@@ -2029,9 +2221,11 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const filter = u.searchParams.get('filter');
     const wantDiff = u.searchParams.get('diff') === '1';
     const grep = u.searchParams.get('grep');
+    const clickable = u.searchParams.get('clickable') === '1' ? 'on' : 'auto';
     const s = getSession(sessions, session);
     touchSession(s);
-    const expression = `(${SNAPSHOT_JS})(${JSON.stringify(filter)})`;
+    await markListenerClickables(s, clickable === 'on');
+    const expression = `(${SNAPSHOT_JS})(${JSON.stringify(filter)}, ${JSON.stringify(clickable)})`;
     const r = await s.cdp.send('Runtime.evaluate', { expression, returnByValue: true });
     const text = r.result.value;
     if (typeof text !== 'string') return text;
@@ -2218,6 +2412,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         type: 'mouseReleased', x, y, button, clickCount,
       });
       await sleep(100);
+      const xyVerifyMs = body.verify === false ? null
+        : (typeof body.verify === 'number' ? body.verify : (settings.mode === 'crawl' ? null : 300));
+      if (xyVerifyMs != null) {
+        const changed = await captureVerifyDiff(s, xyVerifyMs);
+        if (changed != null) return { clicked: { xy: [x, y], button, clicks: clickCount }, changed };
+      }
       return { clicked: { xy: [x, y], button, clicks: clickCount }, next: `chromux snapshot ${session} --diff` };
     }
     if (!selector) throw httpErr(400, 'selector or xy required');
@@ -2273,6 +2473,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       });
     }
     await sleep(500);
+    const verifyMs = body.verify === false ? null
+      : (typeof body.verify === 'number' ? body.verify : (settings.mode === 'crawl' ? null : 300));
+    if (verifyMs != null) {
+      const changed = await captureVerifyDiff(s, verifyMs);
+      if (changed != null) return { clicked: selector, changed };
+    }
     return { clicked: selector, next: `chromux snapshot ${session} --diff` };
   }
 
@@ -2324,6 +2530,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       returnByValue: true, awaitPromise: false,
     });
     if (r.exceptionDetails) throw httpErr(400, r.exceptionDetails.exception?.description || 'fill failed');
+    const verifyMs = body.verify === false ? null
+      : (typeof body.verify === 'number' ? body.verify : (settings.mode === 'crawl' ? null : 300));
+    if (verifyMs != null) {
+      const changed = await captureVerifyDiff(s, verifyMs, selector);
+      if (changed != null) return { filled: selector, text, changed };
+    }
     return { filled: selector, text, next: `chromux snapshot ${session} --diff` };
   }
 
@@ -2334,6 +2546,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     touchSession(s);
     await s.cdp.send('Page.bringToFront', {});
     await s.cdp.send('Input.insertText', { text });
+    const verifyMs = body.verify === false ? null
+      : (typeof body.verify === 'number' ? body.verify : (settings.mode === 'crawl' ? null : 300));
+    if (verifyMs != null) {
+      const changed = await captureVerifyDiff(s, verifyMs);
+      if (changed != null) return { typed: text, changed };
+    }
     return { typed: text, next: `chromux snapshot ${session} --diff` };
   }
 
@@ -2343,6 +2561,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const s = getSession(sessions, session);
     touchSession(s);
     await pressKey(s.cdp, key);
+    const verifyMs = body.verify === false ? null
+      : (typeof body.verify === 'number' ? body.verify : (settings.mode === 'crawl' ? null : 300));
+    if (verifyMs != null) {
+      const changed = await captureVerifyDiff(s, verifyMs);
+      if (changed != null) return { pressed: key, changed };
+    }
     return { pressed: key, next: `chromux snapshot ${session} --diff` };
   }
 
@@ -3894,9 +4118,25 @@ async function cmdCdp(args, sock) {
   return cliReq('POST', '/cdp', { session, method: cdpMethod, params, timeoutMs }, sock, httpTimeout);
 }
 
+// click/fill/type/press verify their own effect by default: the response
+// carries the post-action diff, so acting and verifying is one round-trip.
+// `--verify MS` tunes the settle wait; `--no-verify` opts out entirely.
+// Returns undefined (daemon default), a number, or false (explicitly off).
+function takeVerifyFlag(args) {
+  const noIdx = args.indexOf('--no-verify');
+  if (noIdx !== -1) { args.splice(noIdx, 1); return false; }
+  const i = args.indexOf('--verify');
+  if (i === -1) return undefined;
+  const next = args[i + 1];
+  const ms = next != null && /^\d+$/.test(next) ? Number(next) : null;
+  args.splice(i, ms != null ? 2 : 1);
+  return ms ?? 300;
+}
+
 async function cmdClick(args, sock) {
+  const verify = takeVerifyFlag(args);
   const session = args[0];
-  if (!session) { console.error('Usage: chromux click <session> (@ref|selector|--xy X Y)'); process.exit(1); }
+  if (!session) { console.error('Usage: chromux click <session> (@ref|selector|--xy X Y) [--verify [MS]]'); process.exit(1); }
   const xyIdx = args.indexOf('--xy');
   if (xyIdx >= 0) {
     const x = Number(args[xyIdx + 1]);
@@ -3909,16 +4149,18 @@ async function cmdClick(args, sock) {
       xy: [x, y],
       button: buttonIdx >= 0 ? args[buttonIdx + 1] : 'left',
       clicks: clicksIdx >= 0 ? parseInt(args[clicksIdx + 1]) : 1,
+      verify,
     }, sock);
   }
-  return cliReq('POST', '/click', { session, selector: args[1] }, sock);
+  return cliReq('POST', '/click', { session, selector: args[1], verify }, sock);
 }
 
 async function cmdPress(args, sock) {
+  const verify = takeVerifyFlag(args);
   const session = args[0];
   const key = args[1];
-  if (!session || !key) { console.error(`Usage: chromux press <session> <${Object.keys(KEY_DEFS).join('|')}>`); process.exit(1); }
-  return cliReq('POST', '/press', { session, key }, sock);
+  if (!session || !key) { console.error(`Usage: chromux press <session> <${Object.keys(KEY_DEFS).join('|')}> [--verify [MS]]`); process.exit(1); }
+  return cliReq('POST', '/press', { session, key, verify }, sock);
 }
 
 async function cmdWaitFor(args, sock, kind) {
@@ -4268,6 +4510,7 @@ async function runCli(cmd, args) {
         if (filter) params.set('filter', filter);
         if (args.includes('--diff')) params.set('diff', '1');
         if (grep) params.set('grep', grep);
+        if (args.includes('--clickable')) params.set('clickable', '1');
         const q = params.size ? `?${params}` : '';
         return cliReq('GET', `/snapshot/${args[0]}${q}`, null, sock);
       },
@@ -4275,8 +4518,14 @@ async function runCli(cmd, args) {
       run:        () => cmdRun(args, sock),
       batch:      () => cmdBatch(args, sock),
       click:      () => cmdClick(args, sock),
-      fill:       () => cliReq('POST', '/fill', { session: args[0], selector: args[1], text: args[2] }, sock),
-      type:       () => cliReq('POST', '/type', { session: args[0], text: args[1] }, sock),
+      fill:       () => {
+        const verify = takeVerifyFlag(args);
+        return cliReq('POST', '/fill', { session: args[0], selector: args[1], text: args[2], verify }, sock);
+      },
+      type:       () => {
+        const verify = takeVerifyFlag(args);
+        return cliReq('POST', '/type', { session: args[0], text: args[1], verify }, sock);
+      },
       press:      () => cmdPress(args, sock),
       'wait-for-text': () => cmdWaitFor(args, sock, 'text'),
       'wait-for-selector': () => cmdWaitFor(args, sock, 'selector'),
@@ -4844,9 +5093,14 @@ Convenience shortcuts:
   chromux snapshot <s> --interactive Only interactive elements (smaller payload)
   chromux snapshot <s> --diff        Only lines added/removed since the previous snapshot
   chromux snapshot <s> --grep "pat"  Only lines matching a pattern (+ ancestors for context)
+  chromux snapshot <s> --clickable   Force behavior-based clickable detection (cursor/onclick
+                                     divs); auto-enabled when a page has no standard elements
   chromux click <session> @<ref>     Click by ref number
   chromux click <session> "selector" Click by CSS selector
   chromux click <session> --xy X Y   Click by viewport coordinates
+  click/fill/type/press verify by default: the response carries the post-action
+                                     diff ("changed"). --verify MS tunes the settle wait,
+                                     --no-verify skips it (crawl mode skips automatically)
   chromux fill <session> @<ref> "t"  Fill input field (native <select>: matches option value/label)
   chromux type <session> "text"      Insert text into focused field
   chromux press <session> Enter      Press Enter, Tab, Escape, Backspace, Delete,

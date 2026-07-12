@@ -223,35 +223,66 @@ Honest reading of the v2 numbers:
 
 ## External benchmark tasks: MiniWoB++ (Opus, 3 reps each)
 
-Same day, same harness, model `claude-opus-4-8`, 18 sessions, 18/18 passed,
-$8.13. MiniWoB++ checkout `a49a136a1782`.
+### First run (chromux 0.16.0, 2026-07-10) — playwright-cli won
 
-| task | chromux | agent-browser | playwright-cli |
+18 sessions, 18/18 passed, $8.13. MiniWoB++ checkout `a49a136a1782`.
+
+| task | chromux 0.16.0 | agent-browser | playwright-cli |
 |---|---|---|---|
 | miniwob-email-inbox | 100% · 154.0s · 16t · 362K | 100% · 64.0s · 12t · 312K | **100% · 49.9s · 10t · 211K** |
 | miniwob-book-flight | 100% · 110.4s · 15t · 328K | 100% · 109.4s · 22t · 570K | **100% · 75.3s · 15t · 329K** |
 
-Honest reading — **playwright-cli wins both MiniWoB++ tasks; chromux does
-not carry its fixture-suite dominance here**, and the mechanism is
-instructive:
+The mechanism was instructive: MiniWoB++ pages are dense 160px micro-UIs
+built from `div`s with bare click handlers — no roles, no labels, no
+anchors. chromux's accessibility snapshot (and therefore `--grep`, inline
+`open` elements, and `@ref` actions) saw almost none of it, and agents fell
+back to blind `querySelector` exploration. These tasks were added *after*
+the 0.16.0 improvements and never used for that version's tuning; the
+first-attempt loss was published as measured.
 
-- MiniWoB++ pages are dense 160px micro-UIs built from `div`s with bare
-  click handlers — no roles, no labels, no anchors. chromux's accessibility
-  snapshot (and therefore `--grep`, inline `open` elements, and `@ref`
-  actions) sees almost none of it: agents fall back to blind
-  `querySelector` exploration, which erases exactly the observation
-  advantage that wins the other tables. playwright-cli's DOM-shaped snapshot
-  degrades less on this page style.
-- Every tool passed every rep — with a frontier model, all three CLIs grind
-  through even hostile page structures; the difference is cost (2-5x the
-  tokens of the fixture tasks for everyone).
-- This is a real product gap, not a benchmark artifact: SPAs with
-  clickable-`div` UIs exist outside benchmarks. Detecting click-handler /
-  pointer-cursor elements in the snapshot is now a roadmap item
-  (competitive-analysis G-2 follow-up).
-- Fairness note: these tasks were added *after* the 0.16.0 improvements and
-  were never used for tuning; the numbers are first-attempt results for all
-  three tools, published as measured.
+### What that loss drove: chromux 0.17.0 perception upgrade
+
+Six targeted improve→measure loops on these two tasks (command traces →
+general-purpose fix → re-run; ~$2 per loop), producing only mechanisms that
+apply to real sites:
+
+- **Behavior-based clickable detection**: `cursor:pointer` boundaries,
+  `onclick` attributes, and a CDP `getEventListeners` scan for handlers with
+  no styling affordance at all. Auto-enabled only on pages with almost no
+  visible standard elements (`--clickable` forces it); icon-only targets are
+  labeled with their `#id`/`.class` (state classes like `.star.clicked`
+  included).
+- **Occlusion probe**: the element sitting on top of the page's standard
+  controls (sync covers, cookie walls, modals) is surfaced as
+  `overlay (covers page; interact or dismiss first)`.
+- **Actions verify by default**: `click`/`fill`/`type`/`press` responses
+  carry a `changed` diff (settle wait, re-sample when nothing or only the
+  acted element changed — debounced autocompletes land a beat late; large
+  diffs are summarized so churning dynamic pages stay cheap). `--no-verify`
+  opts out; crawl mode skips automatically.
+- **Live state in snapshot lines**: input values, selected option,
+  `[checkbox checked]`, `(disabled)`.
+- **Payload regression guard**: the token benchmark now fails if any
+  observation payload exceeds checked-in budgets — the fixture-page payloads
+  stayed byte-identical through all of the above (gating works).
+
+### Re-run (chromux 0.17.0, 2026-07-11, all three tools fresh) — flipped
+
+18 sessions, 18/18 passed, $7.07. Same harness, same seeds, same-day
+three-tool comparison.
+
+| task | chromux 0.17.0 | agent-browser | playwright-cli |
+|---|---|---|---|
+| miniwob-email-inbox | **100% · 36.4s · 9t · 178K** | 100% · 63.2s · 15t · 378K | 100% · 59.3s · 16t · 348K |
+| miniwob-book-flight | **100% · 56.2s · 13t · 277K** | 100% · 69.0s · 17t · 425K | 100% · 63.2s · 19t · 449K |
+
+chromux now leads both tasks on every metric (email-inbox: -39% time / -49%
+tokens vs playwright-cli in the same run). A 0.17.0 chromux-only re-run of
+all 12 tasks passed 32/32 with fixture tasks at parity or better vs 0.16.0
+(form-order 19.7s/74K, inventory 30.8s/97K); external live-site medians move
+±1 turn between days, which dominates their small deltas. MiniWoB++ episode
+rewards are still graded by the benchmark's own code; the improvement loop
+tuned chromux's perception, never the tasks or the grading.
 
 ## Cross-model check: Sonnet 5 (reduced reps)
 
@@ -291,8 +322,9 @@ Reading:
   on div-soup UIs, a weaker model needs many more blind probes. This flips
   the 12-task aggregate to playwright-cli (12.9min vs 13.6min); excluding
   the two MiniWoB tasks, chromux leads the Sonnet aggregate cleanly
-  (7.0min / 3.13M vs 9.1min / 4.25M). Both aggregates are published; the
-  clickable-`div` snapshot gap is the roadmap item that would close this.
+  (7.0min / 3.13M vs 9.1min / 4.25M). Both aggregates are published. (This
+  Sonnet run predates the 0.17.0 perception upgrade that flipped the Opus
+  MiniWoB results; the Sonnet suite has not been re-run since.)
 - Reduced reps (2/1) mean per-task medians are noisier than the Opus
   tables; treat this section as a directional cross-model check, not a
   precision ranking.

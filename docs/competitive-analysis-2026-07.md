@@ -148,10 +148,12 @@ Key events to track:
    with an omitted-unchanged summary. *Extended in 0.16.0*: `snapshot --grep`
    (targeted find with ancestor context) and `open` inlining small pages'
    interactive elements, both driven by the agent-in-the-loop benchmark.
-   *Open follow-up (from the MiniWoB++ runs)*: label-free clickable-`div`
-   UIs are invisible to the a11y snapshot — detect click-handler /
-   pointer-cursor elements (bounded, opt-in filter) so `@ref` actions and
-   `--grep` work on div-soup SPAs too.
+   *Follow-up shipped in 0.17.0*: behavior-based clickable detection
+   (pointer-cursor boundaries, onclick, CDP `getEventListeners` scan; gated
+   to low-signal pages, `--clickable` to force), occlusion-probe `overlay`
+   surfacing, live state in snapshot lines, and default act-and-verify
+   (`changed` diff on click/fill/type/press) — flipped both MiniWoB++ tasks
+   from a loss to a win with fixture payloads held byte-identical.
 2. **Publish token benchmarks** (G-4) — shipped in 0.14.0:
    `benchmarks/chromux-token-benchmark.mjs` measures agent-visible payloads
    (full HTML vs snapshot vs `--interactive` vs `--diff` vs shaped extract) on

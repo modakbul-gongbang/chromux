@@ -126,6 +126,35 @@ async function main() {
       console.error(`| ${page} | ${entry.label} | ${entry.bytes.toLocaleString('en-US')} | ${entry.estTokens.toLocaleString('en-US')} |`);
     }
   }
+
+  // Regression guard: observation payload size is a first-class metric, so
+  // exceeding these budgets fails the benchmark (and thereby ./test.sh).
+  // Budgets are ~10% above the published Token Footprint numbers — raise them
+  // only for a deliberate, documented trade-off.
+  const BUDGETS = {
+    'article:snapshot (full)': 900,
+    'article:snapshot --interactive': 60,
+    'form:snapshot (full)': 110,
+    'form:snapshot --interactive': 60,
+    'feed-200:snapshot (full)': 15700,
+    'feed-200:snapshot --interactive': 7900,
+    'feed-200:snapshot --diff after one action': 100,
+    'feed-200:snapshot --grep (find one item)': 150,
+  };
+  const over = [];
+  for (const [page, entries] of Object.entries(byPage)) {
+    for (const entry of entries) {
+      const budget = BUDGETS[`${page}:${entry.label}`];
+      if (budget != null && entry.estTokens > budget) {
+        over.push(`${page} / ${entry.label}: ~${entry.estTokens} tokens > budget ${budget}`);
+      }
+    }
+  }
+  if (over.length) {
+    console.error(`\nPayload budget exceeded:\n- ${over.join('\n- ')}`);
+    process.exit(1);
+  }
+  console.error('\nPayload budgets: all within limits.');
 }
 
 main().catch(err => {
