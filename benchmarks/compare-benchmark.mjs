@@ -68,7 +68,12 @@ function run(command, args, { env = process.env, timeoutMs = 120_000 } = {}) {
         durationMs: Date.now() - startedAt,
       });
     };
-    const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);
+    // SIGTERM first; if the process ignores it, SIGKILL so a hung CLI can
+    // never block the benchmark indefinitely.
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM');
+      setTimeout(() => { if (!settled) child.kill('SIGKILL'); }, 5000).unref();
+    }, timeoutMs);
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
     // Settle on 'exit', not 'close': a detached browser daemon can inherit
@@ -284,6 +289,7 @@ async function main() {
     await closeFixtureServer(server);
   }
 
+  fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
 

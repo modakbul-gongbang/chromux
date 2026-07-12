@@ -191,13 +191,17 @@ function buildTools(runRoot, toolsDir) {
 // Tasks
 
 async function hnTopStories(count = 6) {
-  const ids = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json();
-  const items = await Promise.all(ids.slice(0, count).map(async (id) => {
-    try {
-      return await (await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)).json();
-    } catch { return null; }
-  }));
-  return items.filter(Boolean).map(item => ({ title: item.title, score: item.score }));
+  // Grading ground truth; an HN API outage must fail the grade gracefully
+  // (empty candidate list), not crash the whole benchmark run.
+  try {
+    const ids = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json();
+    const items = await Promise.all(ids.slice(0, count).map(async (id) => {
+      try {
+        return await (await fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)).json();
+      } catch { return null; }
+    }));
+    return items.filter(Boolean).map(item => ({ title: item.title, score: item.score }));
+  } catch { return []; }
 }
 
 function buildTasks() {
@@ -297,6 +301,7 @@ function buildTasks() {
       async grade({ answer, context }) {
         const after = await hnTopStories();
         const candidates = [...(context.hnBefore || []), ...after];
+        if (!candidates.length) return { ok: false, reason: 'HN API unavailable for grading (not an agent failure)' };
         const reported = normalizeText(answer?.title);
         if (!reported) return { ok: false, reason: 'no title reported' };
         const match = candidates.some(c => normalizeText(c.title) === reported);
@@ -602,7 +607,8 @@ async function main() {
     let initOk = true;
     let initErr = '';
     for (const args of tool.initArgs) {
-      const res = await run(tool.bin, args, { env, timeoutMs: 300_000 });
+      // Absolute shim path: don't rely on spawn resolving through env.PATH.
+      const res = await run(path.join(shimDir, tool.bin), args, { env, timeoutMs: 300_000 });
       if (!res.ok) { initOk = false; initErr = (res.stderr || res.stdout).slice(0, 400); break; }
     }
     const version = await tool.version(env);
@@ -644,7 +650,7 @@ async function main() {
   } finally {
     for (const tool of active) {
       const env = { ...process.env, ...tool.env(), PATH: `${tool.shimDir}:${process.env.PATH}` };
-      for (const args of tool.teardownArgs) await run(tool.bin, args, { env, timeoutMs: 60_000 });
+      for (const args of tool.teardownArgs) await run(path.join(tool.shimDir, tool.bin), args, { env, timeoutMs: 60_000 });
     }
   }
 
@@ -662,6 +668,7 @@ async function main() {
     summary,
     results,
   };
+  fs.mkdirSync(path.dirname(path.resolve(outPath)), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify({ ...report, results: undefined }, null, 2));
   printTable(summary, tasks);
