@@ -11,6 +11,16 @@
 const cssOf = (sel) => /^@\d+$/.test(sel) ? `[data-ct-ref="${sel.slice(1)}"]` : sel;
 const steps = Array.isArray(args.steps) ? args.steps : null;
 if (!steps || !steps.length) throw new Error('wizard-flow requires --arg steps=[{fields, next, waitText|waitSelector}]');
+const KNOWN_STEP_KEYS = new Set(['fields', 'next', 'waitText', 'waitSelector']);
+for (const [index, step] of steps.entries()) {
+  const unknown = Object.keys(step || {}).filter(key => !KNOWN_STEP_KEYS.has(key));
+  if (unknown.length) throw new Error(`wizard-flow step ${index + 1} has unknown keys: ${unknown.join(', ')} (known: fields, next, waitText, waitSelector)`);
+  // "Per-step readiness proof" is the whole point: every advancing step must
+  // prove the wizard actually moved on.
+  if (index < steps.length - 1 && !step.waitText && !step.waitSelector) {
+    throw new Error(`wizard-flow step ${index + 1} advances but has no waitText/waitSelector readiness proof`);
+  }
+}
 const reportSelector = args.report || '';
 
 const fillOne = async (sel, val) => js(`((sel, txt) => {

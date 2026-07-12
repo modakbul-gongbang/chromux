@@ -109,9 +109,9 @@ snapshot. Navigation resets refs; in-page changes keep them stable.
    the automatic trigger fires on nearly-dead pages and on SPAs whose
    viewport mixes a standard nav with div-based controls. If a snapshot still
    looks emptier than the page (e.g. controls far below the fold), pass
-   `--clickable` explicitly. Note: value masking covers `type=password`
-   only — values typed into plain text fields (card numbers, tokens) appear
-   in snapshots as-is.
+   `--clickable` explicitly. Note: value masking covers `type=password` and
+   fields that look sensitive by autocomplete/name/id (card numbers, CVCs,
+   one-time codes, SSNs); values in other plain text fields appear as-is.
 3. Act by ref: `click exp-ab12 @<N>`, `fill exp-ab12 @<N> "text"`,
    `type exp-ab12 "text"` (focused field), `press exp-ab12 Enter` (also Tab,
    Escape, Backspace, Delete, arrows, Home, End, PageUp, PageDown — arrows

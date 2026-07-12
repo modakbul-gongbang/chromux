@@ -10,9 +10,19 @@ const maxRows = Math.min(Number(args.maxRows) || 200, 2000);
 return await js(`((sel, maxRows) => {
   const table = document.querySelector(sel);
   if (!table) throw new Error('No table matching: ' + sel);
-  const headers = [...table.querySelectorAll('thead th, thead td')].map(cell => cell.textContent.trim());
-  let bodyRows = [...table.querySelectorAll('tbody tr')];
-  if (!bodyRows.length) bodyRows = [...table.querySelectorAll('tr')].filter(tr => !tr.querySelector('th'));
-  const rows = bodyRows.slice(0, maxRows).map(tr => [...tr.querySelectorAll('td,th')].map(cell => cell.textContent.trim()));
-  return { headers, rowCount: bodyRows.length, truncated: bodyRows.length > maxRows, rows };
+  // Nested tables: keep only rows/cells belonging to THIS table, not inner ones.
+  const owns = (node) => node.closest('table') === table;
+  const headers = [...table.querySelectorAll('thead th, thead td')].filter(owns).map(cell => cell.textContent.trim());
+  let bodyRows = [...table.querySelectorAll('tbody tr')].filter(owns);
+  if (!bodyRows.length) bodyRows = [...table.querySelectorAll('tr')].filter(owns).filter(tr => !tr.querySelector('th'));
+  let hasColspan = false;
+  const rows = bodyRows.slice(0, maxRows).map(tr => [...tr.querySelectorAll('td,th')].filter(owns).map(cell => {
+    if (Number(cell.getAttribute('colspan')) > 1) hasColspan = true;
+    return cell.textContent.trim();
+  }));
+  const out = { headers, rowCount: bodyRows.length, truncated: bodyRows.length > maxRows, rows };
+  // colspans misalign cells against headers — say so instead of validating a
+  // wrong shape.
+  if (hasColspan) out.hasColspan = true;
+  return out;
 })(${JSON.stringify(tableSel)}, ${maxRows})`);

@@ -60,14 +60,26 @@ without login and are graded against live ground truth or stable facts.
 | sequential-steps | local | 3 sequential click-wait-verify cycles, report the 3 revealed values | exact match of all 3 values |
 | inventory-aggregate | local | aggregate across a 5-page inventory: top-priced SKU + count of items above a price threshold | exact match of SKU, price, and count (added in the v2 run) |
 | signup-challenge | local | submit a signup form, answer the server-generated verification question shown only after submit, report the account code | server must record a successful verification AND the reported code must match (added in the v2 run) |
+| shop-cookie-select | local | on a real-sized shop page (sticky header, dense nav, div-based product cards), dismiss the cookie consent dialog and select a named product | server-recorded selection of the right SKU AND the reported code must match (added post-v2 with the 2026-07 audit fixtures) |
+| slow-order | local | submit an order whose confirmation arrives after a silent ~1.5s server round-trip, report the code | server must record EXACTLY ONE submission (a double submit fails) AND the code must match (added post-v2) |
+| iframe-register | local | register through a form embedded in a same-origin iframe, report the code | server-recorded registration AND code match (added post-v2) |
 | miniwob-email-inbox | miniwob | unmodified MiniWoB++ `email-inbox` task (find an email, star/delete/reply/forward per instruction) | the task page's own reward function must report success, relayed to the harness by an injected hook (see below) |
 | miniwob-book-flight | miniwob | unmodified MiniWoB++ `book-flight` task (autocomplete airports, date picker, book the flight matching the criterion) | same reward-based grading |
+| miniwob-use-autocomplete | miniwob | unmodified MiniWoB++ `use-autocomplete` task | same reward-based grading (added post-v2) |
+| miniwob-login-user | miniwob | unmodified MiniWoB++ `login-user` task | same reward-based grading (added post-v2) |
+| miniwob-search-engine | miniwob | unmodified MiniWoB++ `search-engine` task (result may sit on a later page) | same reward-based grading (added post-v2) |
+| miniwob-click-checkboxes | miniwob | unmodified MiniWoB++ `click-checkboxes` task | same reward-based grading (added post-v2) |
 | hn-top-story | external | report title+points of the current #1 Hacker News story | reported title must appear in the official HN API top stories fetched at run time |
 | wikipedia-hop | external | from the Eiffel Tower article, navigate to Gustave Eiffel's page, report name + birth year | name contains "Eiffel", birth year 1832 |
+| wikipedia-extract | external | report the Burj Khalifa's architectural height in metres from its article | height rounds to 828 (added post-v2) |
 | google-search | external | search Google for "playwright github", report first organic result URL | URL contains github.com/microsoft/playwright (bot-detection failures count as failures — that is part of the signal) |
 | youtube-search | external | search YouTube, report title+channel of the top result for a fixed query | channel/title must identify the expected canonical video |
 
-The two `miniwob` tasks come from an established third-party benchmark,
+Tasks marked "added post-v2" exist in the harness but are not part of the
+published v1/v2 comparison tables below; they enter the numbers at the next
+full 3-tool same-run.
+
+The `miniwob` tasks come from an established third-party benchmark,
 [MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus) (MIT), to
 ground the suite in tasks this repo's authors did not design. The task pages
 are fetched at run start (checkout commit recorded in the report) and served
@@ -324,10 +336,29 @@ Reading:
   the two MiniWoB tasks, chromux leads the Sonnet aggregate cleanly
   (7.0min / 3.13M vs 9.1min / 4.25M). Both aggregates are published. (This
   Sonnet run predates the 0.17.0 perception upgrade that flipped the Opus
-  MiniWoB results; the Sonnet suite has not been re-run since.)
+  MiniWoB results; see the re-measurement below.)
 - Reduced reps (2/1) mean per-task medians are noisier than the Opus
   tables; treat this section as a directional cross-model check, not a
   precision ranking.
+
+### Sonnet MiniWoB re-measurement after the perception upgrades (0.18.0)
+
+2026-07-12, same harness, `claude-sonnet-5`, same-run chromux 0.18.0 vs
+`@playwright/cli` (latest at run time), the two MiniWoB tasks at 2 reps each
+(8 sessions, $2.32). One run, published as measured.
+
+| task | chromux 0.18.0 | playwright-cli |
+|---|---|---|
+| miniwob-email-inbox | **100% · 34.6s · 11t · 339K** | 100% · 54.8s · 16t · 493K |
+| miniwob-book-flight | **100% · 39.6s · 15t · 453K** | 100% · 58.0s · 19t · 637K |
+
+The pre-upgrade Sonnet numbers above (chromux 104.2s/1045K and 93.3s/907K)
+were the suite's worst cells; after the behavior-based clickable detection,
+occlusion probe, and act-and-verify upgrades, chromux leads both tasks on
+every metric on Sonnet as well — the prediction that perception upgrades
+help a weaker model more holds (email-inbox: -67% time, -68% tokens vs its
+own pre-upgrade result). The rest of the Sonnet table has not been re-run;
+agent-browser was not part of this re-measurement.
 
 ## Deterministic payload / latency results
 

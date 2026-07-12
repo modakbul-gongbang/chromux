@@ -483,8 +483,9 @@ updates input state through the native value setter and dispatches input/change
 events so common frontend frameworks observe the value.
 
 Known reach limits, stated so agents report instead of blind-retrying:
-snapshot value display masks `type=password` only; values in plain text
-fields appear as-is. Cross-origin iframes and closed shadow roots are not
+snapshot value display masks `type=password` inputs plus fields that look
+sensitive by autocomplete/name/id heuristics (`cc-number`, `one-time-code`,
+card/CVC/SSN/PIN patterns); values in other plain text fields appear as-is. Cross-origin iframes and closed shadow roots are not
 reachable (marked in snapshots where detectable). Clickable auto-detection
 evaluates the current viewport — controls far below the fold may need a
 scroll (or `--clickable`) before they get refs. Verify diffs skip the

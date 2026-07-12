@@ -16,8 +16,17 @@ const nextText = args.nextText || '';
 if (!nextSel && !nextText) throw new Error('paginate-collect requires --arg next=<selector> or --arg nextText=<label>');
 const maxPages = Math.min(Number(args.maxPages) || 5, 50);
 
+// Page signature = URL + first item's text: advancing is only trusted once
+// this CHANGES, so a slow page can never be silently re-collected as the
+// "next" page (duplicated data is worse than a loud stop).
+const pageSignature = () => js(`((itemSel) => {
+  const el = document.querySelector(itemSel);
+  return location.href + '|' + (el ? el.textContent.trim().slice(0, 80) : '');
+})(${JSON.stringify(itemSel)})`);
+
 const pages = [];
 const items = [];
+let stoppedEarly = null;
 for (let pageNo = 1; pageNo <= maxPages; pageNo++) {
   await waitFor(itemSel, { kind: 'selector', timeoutMs: 8000 });
   const collected = await js(`((itemSel, fields) => {
@@ -36,6 +45,7 @@ for (let pageNo = 1; pageNo <= maxPages; pageNo++) {
   items.push(...collected);
   pages.push({ page: pageNo, count: collected.length, url: await js('location.href') });
   if (pageNo === maxPages) break;
+  const signature = await pageSignature();
   const advanced = await js(`((nextSel, nextText) => {
     let next = nextSel ? document.querySelector(nextSel) : null;
     if (!next && nextText) {
@@ -47,6 +57,20 @@ for (let pageNo = 1; pageNo <= maxPages; pageNo++) {
     return true;
   })(${JSON.stringify(nextSel)}, ${JSON.stringify(nextText)})`);
   if (!advanced) break;
-  await waitFor(null, { kind: 'network-idle', timeoutMs: 8000, idleMs: 400 }).catch(() => sleep(800));
+  try {
+    const deadline = Date.now() + 8000;
+    let changed = false;
+    while (Date.now() <= deadline) {
+      if (await pageSignature().catch(() => null) !== signature) { changed = true; break; }
+      await sleep(200);
+    }
+    if (!changed) { stoppedEarly = `page did not change after clicking next on page ${pageNo}`; break; }
+  } catch {
+    // navigation in flight can make the probe throw; give it a beat
+    await sleep(800);
+  }
+  await waitFor(null, { kind: 'network-idle', timeoutMs: 8000, idleMs: 400 }).catch(() => sleep(400));
 }
-return { total: items.length, pages, items };
+const result = { total: items.length, pages, items };
+if (stoppedEarly) result.stoppedEarly = stoppedEarly;
+return result;

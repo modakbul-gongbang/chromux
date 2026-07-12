@@ -1639,12 +1639,21 @@ const SNAPSHOT_JS = `((FILTER, CLICKABLE) => {
     if (el.getAttribute('tabindex') !== null && el.getAttribute('tabindex') !== '-1') return true;
     return false;
   }
+  // Never leak typed secrets into snapshot text. Password inputs are always
+  // masked; card numbers, CVCs, OTPs, and national IDs usually arrive as
+  // type=text|tel, so mask by autocomplete/name/id heuristics too.
+  function isSensitiveInput(el) {
+    if (el.type === 'password') return true;
+    const hints = ((el.getAttribute('autocomplete') || '') + ' ' + (el.name || '') + ' ' + (el.id || '')).toLowerCase();
+    return /cc-number|cc-csc|cc-exp|card[-_ ]?(number|no)|cvv|cvc|one-time-code|\\botp\\b|verification[-_ ]?code|ssn|social[-_ ]?security|\\bpin\\b|passport|routing[-_ ]?number|iban/.test(hints);
+  }
   function getLabel(el, clickable) {
     const tag = el.tagName.toLowerCase();
     const aria = el.getAttribute('aria-label');
+    if (tag === 'input' && isSensitiveInput(el)) {
+      return aria || el.placeholder || '';
+    }
     if (aria) return aria;
-    // Never leak typed secrets into snapshot text.
-    if (tag === 'input' && el.type === 'password') return el.placeholder || '';
     if (tag === 'input' || tag === 'textarea') return el.value || el.placeholder || '';
     if (tag === 'select') return el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].textContent.trim() : '';
     if (tag === 'img') return el.alt || '';
@@ -1754,8 +1763,19 @@ const SNAPSHOT_JS = `((FILTER, CLICKABLE) => {
     return line + '\\n' + children;
   }
   // Cap the URL line: data:/blob: URLs can be tens of KB and would drown the
-  // snapshot (and every diff computed from it) in address noise.
-  const out = '# ' + document.title + '\\n# ' + location.href.substring(0, 300) + '\\n\\n' + walk(document.body, 0);
+  // snapshot (and every diff computed from it) in address noise. A short hash
+  // of the FULL URL keeps diff navigation detection exact for long URLs that
+  // share a 300-char prefix.
+  let urlLine = location.href;
+  if (urlLine.length > 300) {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < location.href.length; i++) {
+      hash ^= location.href.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    urlLine = urlLine.substring(0, 300) + '…#' + hash.toString(16);
+  }
+  const out = '# ' + document.title + '\\n# ' + urlLine + '\\n\\n' + walk(document.body, 0);
   document.documentElement.setAttribute('data-ct-ref-max', String(refMax));
   return out;
 })`;
@@ -1839,9 +1859,21 @@ function renderSnapshotGrep(text, pattern) {
   try { re = new RegExp(pattern, 'i'); } catch {}
   let mode = 'regex';
   let { keep, matches } = collect(re);
-  if (!matches && re.source !== literalRe.source) {
-    ({ keep, matches } = collect(literalRe));
-    if (matches) mode = 'literal';
+  let literalNote = '';
+  if (re.source !== literalRe.source) {
+    if (!matches) {
+      ({ keep, matches } = collect(literalRe));
+      if (matches) mode = 'literal';
+    } else {
+      // Silent-wrong guard: a pattern that is a valid regex can match the
+      // WRONG lines (e.g. "price (USD)" as a group) while the literal text
+      // matches different ones. When the literal reading finds more, say so
+      // loudly instead of letting the regex result masquerade as the answer.
+      const literal = collect(literalRe);
+      if (literal.matches > matches) {
+        literalNote = `; NOTE: read as literal text this matches ${literal.matches} lines (regex matched ${matches}) — escape regex metacharacters if you meant the literal string`;
+      }
+    }
   }
   if (!matches) {
     return `${title}\n${url}\n# grep ${JSON.stringify(pattern)}: 0 of ${body.length} lines matched (regex and literal); broaden the pattern or take a plain snapshot\n`;
@@ -1849,7 +1881,7 @@ function renderSnapshotGrep(text, pattern) {
   const capNote = matches > MAX_MATCHES ? `; first ${MAX_MATCHES} shown` : '';
   const modeNote = mode === 'literal' ? '; matched literally' : '';
   const lines = [...keep].sort((a, b) => a - b).map((i) => body[i]);
-  return `${title}\n${url}\n# grep ${JSON.stringify(pattern)}: ${matches} of ${body.length} lines matched (ancestor lines kept for context${modeNote}${capNote})\n\n${lines.join('\n')}\n`;
+  return `${title}\n${url}\n# grep ${JSON.stringify(pattern)}: ${matches} of ${body.length} lines matched (ancestor lines kept for context${modeNote}${capNote}${literalNote})\n\n${lines.join('\n')}\n`;
 }
 
 // Stamp data-ct-listener on elements that have real click handlers but no
@@ -2250,6 +2282,10 @@ function createGate(maxConcurrentOps) {
 function isGatedRoute(routePath) {
   if (routePath === '/health' || routePath === '/list' || routePath === '/stop') return false;
   if (routePath.startsWith('/session/')) return false;
+  // Read-only waits stay available while a profile is paused: the human
+  // handoff loop is pause -> user acts in the browser -> wait for the
+  // logged-in marker -> resume, so the wait itself must not be rejected.
+  if (routePath === '/wait-for-text' || routePath === '/wait-for-selector') return false;
   return true;
 }
 
@@ -2361,6 +2397,10 @@ const DEEP_QUERY_JS = `
     return text;
   }
 `;
+
+// Where autocomplete/dropdown suggestions usually render; shared by the
+// daemon fill --pick path (see also snippets/_builtin/search-and-pick.js).
+const PICK_CANDIDATE_SEL = '[role="option"],[role="menuitem"],li,[class*="suggest"] *,[class*="autocomplete"] *,[class*="option"]';
 
 // Shared page-side probe expressions for wait-for-text / wait-for-selector and
 // the run() waitFor helper, so all wait paths agree on what "visible" means.
@@ -2680,6 +2720,16 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     if (!s.snapshotBaselines) s.snapshotBaselines = {};
     const previous = s.snapshotBaselines[baselineKey];
     s.snapshotBaselines[baselineKey] = text;
+    // The agent has now OBSERVED this state — advance the verify baseline
+    // (its own capture shape) too, so the next action diffs against what the
+    // agent last saw instead of the open-time primer. Without this, an
+    // action that removes late-rendered UI (dismissing a cookie dialog that
+    // appeared after load) would falsely report "no visible change".
+    const vb = await s.cdp.send('Runtime.evaluate', {
+      expression: `(${SNAPSHOT_JS})(null, 'stable')`,
+      returnByValue: true,
+    }, 3000).catch(() => null);
+    if (typeof vb?.result?.value === 'string') s.snapshotBaselines.verify = vb.result.value;
     if (grep != null && grep !== '') return renderSnapshotGrep(text, grep);
     return wantDiff ? renderSnapshotDiff(previous, text) : text;
   }
@@ -2903,9 +2953,20 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       : `
         const needle = ${JSON.stringify(String(body.text))}.trim().toLowerCase();
         const matches = [];
-        const labelOf = (node) => ((node.getAttribute && node.getAttribute('aria-label')) || node.innerText || node.value || '').trim().replace(/\\s+/g, ' ');
+        let scanned = 0;
+        const labelOf = (node) => {
+          const aria = node.getAttribute && node.getAttribute('aria-label');
+          if (aria) return aria.trim().replace(/\\s+/g, ' ');
+          // input.value is a label only for button-shaped inputs; a text
+          // field whose TYPED value matches must not become a click target.
+          if (node.tagName === 'INPUT') {
+            return /^(button|submit|reset)$/.test(node.type) ? (node.value || '').trim() : (node.getAttribute('aria-label') || '');
+          }
+          return (node.innerText || '').trim().replace(/\\s+/g, ' ');
+        };
         const collect = (doc) => {
           for (const node of doc.querySelectorAll('a[href],button,input,select,textarea,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[onclick],[data-ct-listener]')) {
+            if (scanned++ >= 3000 || matches.length > 12) return;
             if (!deepVisible(node)) continue;
             const label = labelOf(node).toLowerCase();
             if (!label) continue;
@@ -2918,7 +2979,11 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         };
         collect(document);
         const exact = matches.filter(m => m.exact);
-        const pool = exact.length ? exact : matches;
+        // Substring matches on huge containers (an [onclick] card wrapper
+        // whose section text merely CONTAINS the needle) would center-click
+        // an arbitrary child — keep only tightly-labeled, innermost matches.
+        let pool = exact.length ? exact : matches.filter(m => m.label.length <= 100);
+        pool = pool.filter(m => !pool.some(o => o !== m && m.node.contains(o.node)));
         if (!pool.length) throw new Error('No clickable element with text ' + JSON.stringify(${JSON.stringify(String(body.text))}) + '; try snapshot --grep to locate it');
         if (pool.length > 1) {
           const list = pool.slice(0, 8).map(m => m.node.tagName.toLowerCase() + (m.node.id ? '#' + m.node.id : '') + ' "' + m.label.slice(0, 60) + '"').join('; ');
@@ -3001,7 +3066,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       })(${JSON.stringify(targetLabel)})`,
       returnByValue: true, awaitPromise: false,
     });
-    if (r.exceptionDetails) throw httpErr(400, r.exceptionDetails.exception?.description || 'click failed');
+    if (r.exceptionDetails) {
+      // First line only: page-side finder errors carry a JS stack that is
+      // noise in a CLI error message.
+      const desc = (r.exceptionDetails.exception?.description || 'click failed').split('\n')[0];
+      throw httpErr(400, desc);
+    }
     const point = r.result?.value;
     if (point) {
       const clickCount = Number.isFinite(Number(clicks)) ? Number(clicks) : 1;
@@ -3066,6 +3136,21 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       }
       return withDialogNote(s, actionStart, { filled: selector, files: names, next: `chromux snapshot ${session} --diff` });
     }
+    // --pick correctness: a suggestion must have APPEARED after typing. Mark
+    // the candidates already visible now so a static nav/list item whose text
+    // matches the pick can never win the race against the real popup.
+    if (body.pick != null && body.pick !== '') {
+      await s.cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          ${DEEP_QUERY_JS}
+          for (const el of document.querySelectorAll(${JSON.stringify(PICK_CANDIDATE_SEL)})) {
+            if (deepVisible(el)) el.setAttribute('data-ct-pick-seen', '1');
+          }
+          return true;
+        })()`,
+        returnByValue: true,
+      }, 3000).catch(() => {});
+    }
     const r = await s.cdp.send('Runtime.evaluate', {
       expression: `((sel, txt) => {
         ${DEEP_QUERY_JS}
@@ -3117,6 +3202,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     // After the value lands, wait for a suggestion matching `pick` to render
     // and click it (exact label match wins over prefix over substring).
     let picked = null;
+    let pickEffect = null;
     if (body.pick != null && body.pick !== '') {
       const pickExpression = `((needle, inputSel) => {
         ${DEEP_QUERY_JS}
@@ -3124,7 +3210,8 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         const labelOf = (el) => ((el.getAttribute && el.getAttribute('aria-label')) || el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
         const candidates = [];
         const input = deepQuery(inputSel);
-        for (const el of document.querySelectorAll('[role="option"],[role="menuitem"],li,[class*="suggest"] *,[class*="autocomplete"] *,[class*="option"]')) {
+        for (const el of document.querySelectorAll(${JSON.stringify(PICK_CANDIDATE_SEL)})) {
+          if (el.hasAttribute('data-ct-pick-seen')) continue;
           if (input && (el === input || el.contains(input) || input.contains(el))) continue;
           if (!deepVisible(el)) continue;
           const label = labelOf(el);
@@ -3134,31 +3221,65 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
           || candidates.find(c => c.label.toLowerCase().startsWith(lower))
           || candidates.find(c => c.label.toLowerCase().includes(lower));
         if (!match) return null;
+        match.el.setAttribute('data-ct-picked', '1');
         const view = match.el.ownerDocument.defaultView || window;
         for (const type of ['mouseover', 'mousedown', 'mouseup', 'click']) {
           match.el.dispatchEvent(new view.MouseEvent(type, { bubbles: true, cancelable: true, view }));
         }
         return match.label.slice(0, 120);
       })(${JSON.stringify(String(body.pick))}, ${JSON.stringify(sel)})`;
+      const cleanupPickMarks = () => s.cdp.send('Runtime.evaluate', {
+        expression: `(() => { for (const el of document.querySelectorAll('[data-ct-pick-seen],[data-ct-picked]')) { el.removeAttribute('data-ct-pick-seen'); el.removeAttribute('data-ct-picked'); } return true; })()`,
+        returnByValue: true,
+      }, 2000).catch(() => {});
       const pickDeadline = Date.now() + Math.min(Math.max(Number(body.pickTimeoutMs) || 3000, 500), 15000);
       while (Date.now() <= pickDeadline) {
         const pr = await s.cdp.send('Runtime.evaluate', { expression: pickExpression, returnByValue: true }, 5000);
-        if (pr.exceptionDetails) throw httpErr(400, pr.exceptionDetails.exception?.description || 'pick failed');
+        if (pr.exceptionDetails) {
+          await cleanupPickMarks();
+          throw httpErr(400, (pr.exceptionDetails.exception?.description || 'pick failed').split('\n')[0]);
+        }
         if (pr.result?.value) { picked = pr.result.value; break; }
         await sleep(150);
       }
-      if (!picked) throw httpErr(408, `No suggestion matching "${body.pick}" appeared after typing into ${selector}; the widget may need key events (click + type + arrows) instead`);
+      if (!picked) {
+        await cleanupPickMarks();
+        throw httpErr(408, `No suggestion matching "${body.pick}" appeared after typing into ${selector}; the widget may render suggestions outside recognized roles/classes (snapshot --diff to locate them) or need key events (click + type + arrows) instead`);
+      }
+      // JS-dispatched clicks are untrusted events some widgets ignore; report
+      // whether an actual effect was observed so a no-op pick cannot read as
+      // success.
+      await sleep(200);
+      const eff = await s.cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          ${DEEP_QUERY_JS}
+          const pickedEl = document.querySelector('[data-ct-picked]');
+          let effect = 'unconfirmed — the widget may ignore synthetic clicks';
+          if (!pickedEl || !deepVisible(pickedEl)) effect = 'suggestion-list closed';
+          const input = deepQuery(${JSON.stringify(sel)});
+          if (input && 'value' in input && input.value !== ${JSON.stringify(String(text ?? ''))}) effect = 'input value updated';
+          return effect;
+        })()`,
+        returnByValue: true,
+      }, 3000).catch(() => null);
+      pickEffect = eff?.result?.value || null;
+      await cleanupPickMarks();
     }
     const verifyMs = body.verify === false ? null
       : (typeof body.verify === 'number' ? body.verify : (settings.mode === 'crawl' ? null : 300));
+    const buildResult = (extra) => {
+      const result = { filled: selector, text, ...extra };
+      if (picked != null) {
+        result.picked = picked;
+        if (pickEffect) result.pickEffect = pickEffect;
+      }
+      return withDialogNote(s, actionStart, result);
+    };
     if (verifyMs != null) {
       const changed = await captureVerifyDiff(s, verifyMs, selector);
-      if (changed != null) return withDialogNote(s, actionStart, picked != null ? { filled: selector, text, picked, changed } : { filled: selector, text, changed });
+      if (changed != null) return buildResult({ changed });
     }
-    const result = picked != null
-      ? { filled: selector, text, picked, next: `chromux snapshot ${session} --diff` }
-      : { filled: selector, text, next: `chromux snapshot ${session} --diff` };
-    return withDialogNote(s, actionStart, result);
+    return buildResult({ next: `chromux snapshot ${session} --diff` });
   }
 
   if (routePath === '/type' && method === 'POST') {

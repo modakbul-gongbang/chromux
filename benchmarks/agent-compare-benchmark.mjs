@@ -332,6 +332,55 @@ function buildTasks() {
       },
     },
     {
+      id: 'miniwob-use-autocomplete',
+      kind: 'miniwob',
+      path: '/miniwob/use-autocomplete.html',
+      mission: base => `Open ${base}/miniwob/use-autocomplete.html — an unmodified task from the MiniWoB++ browser-agent benchmark. Click START, then follow the instruction shown in the yellow box exactly (it asks you to enter a term into an autocomplete field and pick the matching completion). The page grades you automatically and reports a reward. Work until the reward is positive; if an episode fails, a new one starts with a new instruction — read it and try again.\nANSWER JSON shape: {"instruction": "<the instruction you completed>"}`,
+      grade({ fixture }) {
+        if (!miniwobSucceeded(fixture.state, '/miniwob/use-autocomplete.html')) return { ok: false, reason: 'MiniWoB server recorded no positive-reward episode' };
+        return { ok: true };
+      },
+    },
+    {
+      id: 'miniwob-login-user',
+      kind: 'miniwob',
+      path: '/miniwob/login-user.html',
+      mission: base => `Open ${base}/miniwob/login-user.html — an unmodified task from the MiniWoB++ browser-agent benchmark. Click START, then follow the instruction shown in the yellow box exactly (it gives credentials to enter into a login form). The page grades you automatically and reports a reward. Work until the reward is positive; if an episode fails, a new one starts with a new instruction — read it and try again.\nANSWER JSON shape: {"instruction": "<the instruction you completed>"}`,
+      grade({ fixture }) {
+        if (!miniwobSucceeded(fixture.state, '/miniwob/login-user.html')) return { ok: false, reason: 'MiniWoB server recorded no positive-reward episode' };
+        return { ok: true };
+      },
+    },
+    {
+      id: 'miniwob-search-engine',
+      kind: 'miniwob',
+      path: '/miniwob/search-engine.html',
+      mission: base => `Open ${base}/miniwob/search-engine.html — an unmodified task from the MiniWoB++ browser-agent benchmark. Click START, then follow the instruction shown in the yellow box exactly (it asks you to search for a term and open a specific result, which may sit on a later results page). The page grades you automatically and reports a reward. Work until the reward is positive; if an episode fails, a new one starts with a new instruction — read it and try again.\nANSWER JSON shape: {"instruction": "<the instruction you completed>"}`,
+      grade({ fixture }) {
+        if (!miniwobSucceeded(fixture.state, '/miniwob/search-engine.html')) return { ok: false, reason: 'MiniWoB server recorded no positive-reward episode' };
+        return { ok: true };
+      },
+    },
+    {
+      id: 'miniwob-click-checkboxes',
+      kind: 'miniwob',
+      path: '/miniwob/click-checkboxes.html',
+      mission: base => `Open ${base}/miniwob/click-checkboxes.html — an unmodified task from the MiniWoB++ browser-agent benchmark. Click START, then follow the instruction shown in the yellow box exactly (it names the checkbox items to select before submitting). The page grades you automatically and reports a reward. Work until the reward is positive; if an episode fails, a new one starts with a new instruction — read it and try again.\nANSWER JSON shape: {"instruction": "<the instruction you completed>"}`,
+      grade({ fixture }) {
+        if (!miniwobSucceeded(fixture.state, '/miniwob/click-checkboxes.html')) return { ok: false, reason: 'MiniWoB server recorded no positive-reward episode' };
+        return { ok: true };
+      },
+    },
+    {
+      id: 'wikipedia-extract',
+      kind: 'external',
+      mission: () => `Open https://en.wikipedia.org/wiki/Burj_Khalifa and report the building's architectural height in metres as stated on the page.\nANSWER JSON shape: {"heightM": <number>}`,
+      grade({ answer }) {
+        if (Math.round(Number(answer?.heightM)) !== 828) return { ok: false, reason: `heightM ${answer?.heightM} != 828` };
+        return { ok: true };
+      },
+    },
+    {
       id: 'hn-top-story',
       kind: 'external',
       mission: () => `Open https://news.ycombinator.com and report the title and points of the story currently ranked #1.\nANSWER JSON shape: {"title": "<exact story title>", "points": <number>}`,

@@ -350,6 +350,28 @@ else
 fi
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-password 2>/dev/null > /dev/null
 
+# Sensitive non-password inputs (card numbers, OTPs) are usually type=text|tel;
+# mask them by autocomplete/name/id heuristics.
+# No aria-labels here on purpose: label-less inputs are the ones whose typed
+# value would otherwise appear in the snapshot.
+SENSITIVE_HTML='<input name="card_number" autocomplete="cc-number" placeholder="Card number"><input id="otp" type="tel" autocomplete="one-time-code" placeholder="Verification code"><input id="city" placeholder="City">'
+SENSITIVE_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$SENSITIVE_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-sensitive "$SENSITIVE_URL" 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-sensitive "[name=card_number]" "4111111111111111" 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-sensitive "#otp" "834920" 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-sensitive "#city" "Seoul" 2>/dev/null > /dev/null
+SENSITIVE_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-sensitive 2>/dev/null)
+check "sensitive inputs keep their labels" "Card number" "$SENSITIVE_SNAP"
+check "plain inputs still show typed values" "Seoul" "$SENSITIVE_SNAP"
+if echo "$SENSITIVE_SNAP" | grep -qE "4111111111111111|834920"; then
+  echo "  ✗ snapshot leaked a card number or OTP value"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ snapshot masks card number and OTP values"
+  PASS=$((PASS+1))
+fi
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-sensitive 2>/dev/null > /dev/null
+
 # --- Test 5c.1b: snapshot --interactive filter ---
 echo ""
 echo "--- Test 5c.1b: snapshot --interactive filter ---"
@@ -407,6 +429,15 @@ check "snapshot --grep reports zero matches" "0 of" "$GREP_NONE"
 GREP_LIT=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-select --grep "status (pending)" 2>/dev/null)
 check "snapshot --grep retries valid regex literally" "matched literally" "$GREP_LIT"
 check "snapshot --grep literal retry finds the line" "status (pending)" "$GREP_LIT"
+
+# Silent-wrong guard: a valid regex that matches SOME lines while the literal
+# reading matches MORE must say so instead of masquerading as the answer.
+GREPNOTE_HTML='<title>GrepNotePage</title><p>price (USD) 10</p><p>price (USD) 20</p><p>price USD 30</p>'
+GREPNOTE_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$GREPNOTE_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-grepnote "$GREPNOTE_URL" 2>/dev/null > /dev/null
+GREPNOTE_OUT=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-grepnote --grep "price (USD)" 2>/dev/null)
+check "grep warns when literal reading matches more lines" "read as literal text this matches 2 lines" "$GREPNOTE_OUT"
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-grepnote 2>/dev/null > /dev/null
 RUN_ARGS_OUT=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-select 'return { s: args.label, n: args.count, o: args.fields }' --arg label=hello --arg count=7 --arg fields='{"#email":"a@b.c"}' 2>/dev/null)
 check "run --arg passes string value" '"s": "hello"' "$RUN_ARGS_OUT"
 check "run --arg parses JSON number" '"n": 7' "$RUN_ARGS_OUT"
@@ -637,12 +668,18 @@ CHROMUX_PROFILE=$PROFILE node "$CT" close tab-gone 2>/dev/null > /dev/null
 # --- Test 5c.1h: autocomplete --pick, click --text, skill topics, verify priming ---
 echo ""
 echo "--- Test 5c.1h: autocomplete --pick, click --text, skill topics, verify priming ---"
-PICK_PAGE_HTML='<title>PickPage</title><input id="city" aria-label="City"><ul id="sug" hidden></ul><p id="chosen">none</p><a href="/x">x</a><a href="/y">y</a><a href="/z">z</a><script>const SUG={se:["Seattle (SEA)","Seoul (SEL)"],lo:["London (LHR)"]};const input=document.getElementById("city");input.addEventListener("input",()=>{const list=document.getElementById("sug");const opts=SUG[input.value.toLowerCase()]||[];setTimeout(()=>{list.innerHTML=opts.map(o=>`<li role="option">${o}</li>`).join("");list.hidden=!opts.length;},200);});document.getElementById("sug").addEventListener("click",(e)=>{const li=e.target.closest("li");if(!li)return;input.value=li.textContent;document.getElementById("chosen").textContent="chose "+li.textContent;document.getElementById("sug").hidden=true;});</script>'
+# The static nav <li> "Seoul Guide" is a trap: it is visible BEFORE typing and
+# substring-matches the pick text, so only appeared-after-typing candidate
+# filtering picks the real suggestion.
+PICK_PAGE_HTML='<title>PickPage</title><nav><ul><li><a href="/guide">Seoul Guide</a></li><li><a href="/deals">Deals</a></li></ul></nav><input id="city" aria-label="City"><ul id="sug" hidden></ul><p id="chosen">none</p><a href="/x">x</a><a href="/y">y</a><a href="/z">z</a><script>const SUG={se:["Seattle (SEA)","Seoul (SEL)"],lo:["London (LHR)"]};const input=document.getElementById("city");input.addEventListener("input",()=>{const list=document.getElementById("sug");const opts=SUG[input.value.toLowerCase()]||[];setTimeout(()=>{list.innerHTML=opts.map(o=>`<li role="option">${o}</li>`).join("");list.hidden=!opts.length;},200);});document.getElementById("sug").addEventListener("click",(e)=>{const li=e.target.closest("li");if(!li)return;input.value=li.textContent;document.getElementById("chosen").textContent="chose "+li.textContent;document.getElementById("sug").hidden=true;});</script>'
 PICK_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$PICK_PAGE_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-pick "$PICK_URL" 2>/dev/null > /dev/null
 PICK_OUT=$(CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-pick "#city" "se" --pick "Seoul (SEL)" 2>/dev/null)
 check "fill --pick chooses the matching suggestion" '"picked": "Seoul (SEL)"' "$PICK_OUT"
 check "fill --pick effect visible in verify diff" "chose Seoul (SEL)" "$PICK_OUT"
+PICK_TRAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-pick "#city" "se" --pick "Seoul" 2>/dev/null)
+check "fill --pick ignores pre-existing nav items matching the text" '"picked": "Seoul (SEL)"' "$PICK_TRAP"
+check "fill --pick reports its observed effect" '"pickEffect"' "$PICK_TRAP"
 if CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-pick "#city" "zz" --pick "Nowhere" >/tmp/chromux-pick-miss-$$.txt 2>&1; then
   echo "  ✗ fill --pick with no matching suggestion unexpectedly succeeded"
   FAIL=$((FAIL+1))
@@ -653,7 +690,9 @@ fi
 rm -f /tmp/chromux-pick-miss-$$.txt
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-pick 2>/dev/null > /dev/null
 
-TEXTCLICK_HTML='<title>TextClickPage</title><button id="sv">Save draft</button><button>Delete</button><button>Delete</button><a href="/x">x</a><a href="/y">y</a><script>document.getElementById("sv").addEventListener("click",function(){document.title=this.textContent.trim()});</script>'
+# The [onclick] wrapper is a trap: its innerText CONTAINS "Save draft" but is a
+# huge section — substring matches must prefer the tightly-labeled inner control.
+TEXTCLICK_HTML='<title>TextClickPage</title><div onclick="document.title=&quot;wrapper clicked&quot;"><p>A long descriptive section about drafts and saving and much more prose that makes this container label huge and unclickworthy as a unit.</p><button id="sv">Save draft</button></div><button>Delete</button><button>Delete</button><a href="/x">x</a><a href="/y">y</a><script>document.getElementById("sv").addEventListener("click",function(e){e.stopPropagation();document.title=this.textContent.trim()});</script>'
 TEXTCLICK_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$TEXTCLICK_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-textclick "$TEXTCLICK_URL" 2>/dev/null > /dev/null
 TEXT_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-textclick --text "Save draft" 2>/dev/null)
@@ -669,6 +708,24 @@ else
 fi
 rm -f /tmp/chromux-text-amb-$$.txt
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-textclick 2>/dev/null > /dev/null
+
+# Human handoff loop (skill recovery): waits must survive a paused profile.
+HANDOFF_HTML='<title>HandoffPage</title><div id="pending">Waiting for login...</div><a href="/x">x</a><a href="/y">y</a><a href="/z">z</a><script>setTimeout(()=>{const d=document.createElement("div");d.id="authed";d.textContent="Welcome back";document.body.appendChild(d)},600);</script>'
+HANDOFF_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$HANDOFF_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-handoff "$HANDOFF_URL" 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" pause 2>/dev/null > /dev/null
+HANDOFF_WAIT=$(CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-selector tab-handoff "#authed" 5000 2>/dev/null)
+check "wait-for-selector works while profile is paused" "foundSelector" "$HANDOFF_WAIT"
+if CHROMUX_PROFILE=$PROFILE node "$CT" click tab-handoff "#authed" >/tmp/chromux-paused-click-$$.txt 2>&1; then
+  echo "  ✗ click unexpectedly succeeded while paused"
+  FAIL=$((FAIL+1))
+else
+  PAUSED_CLICK=$(cat /tmp/chromux-paused-click-$$.txt)
+  check "actions stay blocked while paused" "paused" "$PAUSED_CLICK"
+fi
+rm -f /tmp/chromux-paused-click-$$.txt
+CHROMUX_PROFILE=$PROFILE node "$CT" resume 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-handoff 2>/dev/null > /dev/null
 
 SKILL_LIST=$(node "$CT" skill 2>/dev/null)
 check "skill lists topics" '"forms"' "$SKILL_LIST"

@@ -47,10 +47,10 @@ Credential walls are user-owned. The formal handoff loop — the profile is a
 real persistent Chrome profile, so one human login persists across sessions:
 
 ```bash
-# 1. Hard-stop agent work so nothing races the human
-CHROMUX_PROFILE=<p> chromux pause
-# 2. Put the blocked page in front of the user (profile must be HEADED)
+# 1. Put the blocked page in front of the user (profile must be HEADED)
 CHROMUX_PROFILE=<p> chromux open --foreground handoff-<slug> <login-url>
+# 2. Hard-stop agent actions so nothing races the human (waits stay allowed)
+CHROMUX_PROFILE=<p> chromux pause
 # 3. Tell the user what to do and that you will not touch credentials
 # 4. Wait for a signal only a logged-in page shows
 CHROMUX_PROFILE=<p> chromux wait-for-selector handoff-<slug> "<authed-only-selector>" 300000

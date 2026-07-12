@@ -16,6 +16,16 @@ const readyText = args.readyText || '';
 const reportSelector = args.report ? cssOf(args.report) : '';
 
 await waitFor(inputSel, { kind: 'selector', timeoutMs: 8000 });
+// Same appeared-after-typing guard as the daemon's fill --pick (keep the two
+// in sync): mark candidates visible BEFORE typing so a static nav/list item
+// matching the pick text can never win the race against the real popup.
+await js(`(() => {
+  for (const el of document.querySelectorAll('[role="option"],[role="menuitem"],li,[class*="suggest"] *,[class*="autocomplete"] *,[class*="option"]')) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) el.setAttribute('data-ct-pick-seen', '1');
+  }
+  return true;
+})()`);
 await js(`((sel, txt) => {
   const el = document.querySelector(sel);
   if (!el) throw new Error('Missing search input: ' + sel);
@@ -43,6 +53,7 @@ while (Date.now() <= deadline && picked == null) {
     };
     const candidates = [];
     for (const el of document.querySelectorAll('[role="option"],[role="menuitem"],li,[class*="suggest"] *,[class*="autocomplete"] *,[class*="option"]')) {
+      if (el.hasAttribute('data-ct-pick-seen')) continue;
       if (input && (el === input || el.contains(input) || input.contains(el))) continue;
       if (!visible(el)) continue;
       const label = labelOf(el);
@@ -59,6 +70,7 @@ while (Date.now() <= deadline && picked == null) {
   })(${JSON.stringify(pick)}, ${JSON.stringify(inputSel)})`);
   if (picked == null) await sleep(150);
 }
+await js(`(() => { for (const el of document.querySelectorAll('[data-ct-pick-seen]')) el.removeAttribute('data-ct-pick-seen'); return true; })()`);
 if (picked == null) throw new Error(`No suggestion matching "${pick}" appeared after typing "${query}"`);
 
 let submitted = null;
