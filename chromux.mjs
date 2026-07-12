@@ -2058,6 +2058,93 @@ function resolveVerifyMs(body, settings) {
   return settings.mode === 'crawl' ? null : 300;
 }
 
+// ---- fill --pick: the type-then-choose autocomplete pattern ----
+// Correctness invariant: only suggestions that APPEAR after typing count.
+// markPreFillPickCandidates stamps everything visible beforehand;
+// pickSuggestion polls for an unstamped match, chooses it, probes for an
+// observable effect, and always removes its marks on every exit path.
+
+function markPreFillPickCandidates(s) {
+  return s.cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      ${DEEP_QUERY_JS}
+      for (const el of document.querySelectorAll(${JSON.stringify(PICK_CANDIDATE_SEL)})) {
+        if (deepVisible(el)) el.setAttribute('data-ct-pick-seen', '1');
+      }
+      return true;
+    })()`,
+    returnByValue: true,
+  }, 3000).catch(() => {});
+}
+
+function cleanupPickMarks(s) {
+  return s.cdp.send('Runtime.evaluate', {
+    expression: `(() => { for (const el of document.querySelectorAll('[data-ct-pick-seen],[data-ct-picked]')) { el.removeAttribute('data-ct-pick-seen'); el.removeAttribute('data-ct-picked'); } return true; })()`,
+    returnByValue: true,
+  }, 2000).catch(() => {});
+}
+
+async function pickSuggestion(s, sel, selector, text, body) {
+  const pickExpression = `((needle, inputSel) => {
+    ${DEEP_QUERY_JS}
+    const lower = String(needle).trim().toLowerCase();
+    const labelOf = (el) => ((el.getAttribute && el.getAttribute('aria-label')) || el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
+    const candidates = [];
+    const input = deepQuery(inputSel);
+    for (const el of document.querySelectorAll(${JSON.stringify(PICK_CANDIDATE_SEL)})) {
+      if (el.hasAttribute('data-ct-pick-seen')) continue;
+      if (input && (el === input || el.contains(input) || input.contains(el))) continue;
+      if (!deepVisible(el)) continue;
+      const label = labelOf(el);
+      if (label && label.length <= 200) candidates.push({ el, label });
+    }
+    const match = candidates.find(c => c.label.toLowerCase() === lower)
+      || candidates.find(c => c.label.toLowerCase().startsWith(lower))
+      || candidates.find(c => c.label.toLowerCase().includes(lower));
+    if (!match) return null;
+    match.el.setAttribute('data-ct-picked', '1');
+    const view = match.el.ownerDocument.defaultView || window;
+    for (const type of ['mouseover', 'mousedown', 'mouseup', 'click']) {
+      match.el.dispatchEvent(new view.MouseEvent(type, { bubbles: true, cancelable: true, view }));
+    }
+    return match.label.slice(0, 120);
+  })(${JSON.stringify(String(body.pick))}, ${JSON.stringify(sel)})`;
+  let picked = null;
+  const pickDeadline = Date.now() + Math.min(Math.max(Number(body.pickTimeoutMs) || 3000, 500), 15000);
+  while (Date.now() <= pickDeadline) {
+    const pr = await s.cdp.send('Runtime.evaluate', { expression: pickExpression, returnByValue: true }, 5000);
+    if (pr.exceptionDetails) {
+      await cleanupPickMarks(s);
+      throw httpErr(400, (pr.exceptionDetails.exception?.description || 'pick failed').split('\n')[0]);
+    }
+    if (pr.result?.value) { picked = pr.result.value; break; }
+    await sleep(150);
+  }
+  if (!picked) {
+    await cleanupPickMarks(s);
+    throw httpErr(408, `No suggestion matching "${body.pick}" appeared after typing into ${selector}; the widget may render suggestions outside recognized roles/classes (snapshot --diff to locate them) or need key events (click + type + arrows) instead`);
+  }
+  // JS-dispatched clicks are untrusted events some widgets ignore; report
+  // whether an actual effect was observed so a no-op pick cannot read as
+  // success.
+  await sleep(200);
+  const eff = await s.cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      ${DEEP_QUERY_JS}
+      const pickedEl = document.querySelector('[data-ct-picked]');
+      let effect = 'unconfirmed — the widget may ignore synthetic clicks';
+      if (!pickedEl || !deepVisible(pickedEl)) effect = 'suggestion-list closed';
+      const input = deepQuery(${JSON.stringify(sel)});
+      if (input && 'value' in input && input.value !== ${JSON.stringify(String(text ?? ''))}) effect = 'input value updated';
+      return effect;
+    })()`,
+    returnByValue: true,
+  }, 3000).catch(() => null);
+  const pickEffect = eff?.result?.value || null;
+  await cleanupPickMarks(s);
+  return { picked, pickEffect };
+}
+
 // Shared action epilogue for click/press: adopt any popup the action opened
 // and attach the dialog note. The action's start time is captured when the
 // finisher is created.
@@ -3150,25 +3237,11 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       }
       return withDialogNote(s, actionStart, { filled: selector, files: names, next: `chromux snapshot ${session} --diff` });
     }
+    const wantsPick = body.pick != null && body.pick !== '';
     // --pick correctness: a suggestion must have APPEARED after typing. Mark
     // the candidates already visible now so a static nav/list item whose text
     // matches the pick can never win the race against the real popup.
-    const cleanupPickMarks = () => s.cdp.send('Runtime.evaluate', {
-      expression: `(() => { for (const el of document.querySelectorAll('[data-ct-pick-seen],[data-ct-picked]')) { el.removeAttribute('data-ct-pick-seen'); el.removeAttribute('data-ct-picked'); } return true; })()`,
-      returnByValue: true,
-    }, 2000).catch(() => {});
-    if (body.pick != null && body.pick !== '') {
-      await s.cdp.send('Runtime.evaluate', {
-        expression: `(() => {
-          ${DEEP_QUERY_JS}
-          for (const el of document.querySelectorAll(${JSON.stringify(PICK_CANDIDATE_SEL)})) {
-            if (deepVisible(el)) el.setAttribute('data-ct-pick-seen', '1');
-          }
-          return true;
-        })()`,
-        returnByValue: true,
-      }, 3000).catch(() => {});
-    }
+    if (wantsPick) await markPreFillPickCandidates(s);
     const r = await s.cdp.send('Runtime.evaluate', {
       expression: `((sel, txt) => {
         ${DEEP_QUERY_JS}
@@ -3219,72 +3292,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       // A failed fill must not leave pick markers behind: stale
       // data-ct-pick-seen on reused suggestion nodes would break the NEXT
       // genuine pick on this page.
-      if (body.pick != null && body.pick !== '') await cleanupPickMarks();
+      if (wantsPick) await cleanupPickMarks(s);
       throw httpErr(400, (r.exceptionDetails.exception?.description || 'fill failed').split('\n')[0]);
     }
-    // --pick: the type-then-choose autocomplete pattern in one round-trip.
-    // After the value lands, wait for a suggestion matching `pick` to render
-    // and click it (exact label match wins over prefix over substring).
     let picked = null;
     let pickEffect = null;
-    if (body.pick != null && body.pick !== '') {
-      const pickExpression = `((needle, inputSel) => {
-        ${DEEP_QUERY_JS}
-        const lower = String(needle).trim().toLowerCase();
-        const labelOf = (el) => ((el.getAttribute && el.getAttribute('aria-label')) || el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ');
-        const candidates = [];
-        const input = deepQuery(inputSel);
-        for (const el of document.querySelectorAll(${JSON.stringify(PICK_CANDIDATE_SEL)})) {
-          if (el.hasAttribute('data-ct-pick-seen')) continue;
-          if (input && (el === input || el.contains(input) || input.contains(el))) continue;
-          if (!deepVisible(el)) continue;
-          const label = labelOf(el);
-          if (label && label.length <= 200) candidates.push({ el, label });
-        }
-        const match = candidates.find(c => c.label.toLowerCase() === lower)
-          || candidates.find(c => c.label.toLowerCase().startsWith(lower))
-          || candidates.find(c => c.label.toLowerCase().includes(lower));
-        if (!match) return null;
-        match.el.setAttribute('data-ct-picked', '1');
-        const view = match.el.ownerDocument.defaultView || window;
-        for (const type of ['mouseover', 'mousedown', 'mouseup', 'click']) {
-          match.el.dispatchEvent(new view.MouseEvent(type, { bubbles: true, cancelable: true, view }));
-        }
-        return match.label.slice(0, 120);
-      })(${JSON.stringify(String(body.pick))}, ${JSON.stringify(sel)})`;
-      const pickDeadline = Date.now() + Math.min(Math.max(Number(body.pickTimeoutMs) || 3000, 500), 15000);
-      while (Date.now() <= pickDeadline) {
-        const pr = await s.cdp.send('Runtime.evaluate', { expression: pickExpression, returnByValue: true }, 5000);
-        if (pr.exceptionDetails) {
-          await cleanupPickMarks();
-          throw httpErr(400, (pr.exceptionDetails.exception?.description || 'pick failed').split('\n')[0]);
-        }
-        if (pr.result?.value) { picked = pr.result.value; break; }
-        await sleep(150);
-      }
-      if (!picked) {
-        await cleanupPickMarks();
-        throw httpErr(408, `No suggestion matching "${body.pick}" appeared after typing into ${selector}; the widget may render suggestions outside recognized roles/classes (snapshot --diff to locate them) or need key events (click + type + arrows) instead`);
-      }
-      // JS-dispatched clicks are untrusted events some widgets ignore; report
-      // whether an actual effect was observed so a no-op pick cannot read as
-      // success.
-      await sleep(200);
-      const eff = await s.cdp.send('Runtime.evaluate', {
-        expression: `(() => {
-          ${DEEP_QUERY_JS}
-          const pickedEl = document.querySelector('[data-ct-picked]');
-          let effect = 'unconfirmed — the widget may ignore synthetic clicks';
-          if (!pickedEl || !deepVisible(pickedEl)) effect = 'suggestion-list closed';
-          const input = deepQuery(${JSON.stringify(sel)});
-          if (input && 'value' in input && input.value !== ${JSON.stringify(String(text ?? ''))}) effect = 'input value updated';
-          return effect;
-        })()`,
-        returnByValue: true,
-      }, 3000).catch(() => null);
-      pickEffect = eff?.result?.value || null;
-      await cleanupPickMarks();
-    }
+    if (wantsPick) ({ picked, pickEffect } = await pickSuggestion(s, sel, selector, text, body));
     const verifyMs = resolveVerifyMs(body, settings);
     const buildResult = (extra) => {
       const result = { filled: selector, text, ...extra };
