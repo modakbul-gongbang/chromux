@@ -73,19 +73,16 @@ for a model call at every step. Your agent deserves better. chromux hands it
 
 ## How it compares
 
-Measured head-to-head (2026-07, one fixed model — `claude-opus-4-8` — doing
-identical browser missions with each CLI, each tool introduced by its own
-official skill; full methodology and tables in
-[docs/benchmark-2026-07.md](docs/benchmark-2026-07.md)):
+Measured head-to-head (2026-07-13, one fixed model doing identical browser missions with each CLI, each tool introduced by its own official skill; full methodology and tables in [docs/benchmark-2026-07.md](docs/benchmark-2026-07.md)):
 
-| | @playwright/cli 0.1.17 | agent-browser 0.31.1 | chromux 0.16.0 |
+| | @playwright/cli 0.1.17 | agent-browser 0.31.1 | chromux 0.18.0 |
 |---|---|---|---|
 | Browser | Bundled Chromium | Chrome / Chrome for Testing | **Real Chrome, real profiles** |
-| Agent task success (10 tasks x reps) | 100% | 92% | **100%** |
-| Agent tokens, whole suite | 3.18M | 4.32M | **2.16M** (lowest on all 10 tasks) |
-| Agent wall time, whole suite | 14.4min | 23.0min | **13.0min** (fastest on 7/10 tasks) |
-| Agent cost, whole suite | $5.62 | $7.31 | **$4.68** |
-| Google under bot check | passed, but 72s / 11 turns / 248K tokens | **failed both reps (reCAPTCHA)** | **passed, 22.8s / 4 turns / 74K** |
+| Agent task success (20 tasks, 35 sessions) | 97% (34/35) | 94% (33/35) | **100% (35/35)** |
+| Agent tokens, whole suite | 5.34M | 5.21M | **4.24M** |
+| Agent wall time, whole suite | 26.4min | 20.3min | **18.2min** |
+| Agent cost, whole suite | $5.65 | $8.08 | **$4.72** |
+| Google under bot check | failed, 439.5s / 19 turns / 451K tokens | failed, 96.2s / 9 turns / 193K tokens | **passed, 27.1s / 8 turns / 137K** |
 | Verify one action on a 200-story page | ~28.4K tokens | ~10.9K tokens | **~37 tokens** (`snapshot --diff`) |
 | Find one item on that page | ~163 tokens (`find`) | ~10.9K (no find command) | **~59 tokens** (`snapshot --grep`) |
 | Warm command latency | slowest (nav p50 883ms) | **fastest (48-95ms)** | 163-218ms |
@@ -93,25 +90,11 @@ official skill; full methodology and tables in
 | Dependencies | playwright + Chromium download | Rust binary via npm | **none (one file, Node ≥ 22)** |
 | Logged-in real profiles | no | via `--profile` handoff | **first-class, persistent** |
 
-Honest summary: with a frontier model driving, all three CLIs complete
-neutral tasks reliably. On the v2 run chromux is the cheapest and fastest
-overall — the lowest token total on every task — because its first
-observation rides along with `open` on small pages, one-shot parametrized
-snippets replace multi-turn form choreography, and `--grep`/`--diff` keep
-large-page reads targeted. playwright-cli remains faster on some individual
-external tasks; agent-browser has the best raw command latency but degrades
-hardest under bot detection. On two unmodified [MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus)
-tasks (email-inbox, book-flight — third-party ground truth graded by the
-benchmark's own reward code) the first run exposed a real chromux gap:
-label-free clickable-`div` micro-UIs defeated accessibility-tree
-observation and playwright-cli won both tasks. The 0.17.0 perception
-upgrade (behavior-based clickable detection incl. a CDP listener scan,
-occlusion-probe overlay surfacing, actions verifying by default, live state
-in snapshot lines) flipped both in a fresh same-day three-tool run —
-email-inbox 36.4s/178K vs playwright-cli 59.3s/348K — with fixture-page
-payloads held byte-identical by a checked-in budget guard. Full history,
-loop disclosure, and a Sonnet 5 cross-model check are in
-[docs/benchmark-2026-07.md](docs/benchmark-2026-07.md).
+Honest summary: the current official comparison is one 20-task, three-tool run using the reduced 2/1 repetition profile.
+chromux was the only tool to pass all 35 sessions and had the lowest aggregate wall time, turns, tokens, and cost.
+All three tools passed every deterministic local and [MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus) session, while task-level speed remained mixed.
+The largest separation was Google: chromux completed the task in real Chrome while both competitor browsers failed to return the expected result.
+The historical v1/v2 tables, perception-upgrade loop disclosure, raw task cells, live-site caveats, and a Sonnet 5 cross-model check are in [docs/benchmark-2026-07.md](docs/benchmark-2026-07.md).
 
 Design principles, sharpened against the 2026 agent-browser landscape (see
 `docs/competitive-analysis-2026-07.md` in the repo):
@@ -604,8 +587,11 @@ rules in [docs/benchmark-2026-07.md](docs/benchmark-2026-07.md)):
 ```bash
 # Agent-in-the-loop: one fixed model does identical browser missions with each
 # CLI; measures wall time, tokens, turns, and machine-graded success.
-# Requires an authenticated `claude` CLI. ~78 Opus sessions (~$18) per full run.
-node benchmarks/agent-compare-benchmark.mjs --out /tmp/agent-compare.json
+# Requires an authenticated `claude` CLI. The published reduced profile is
+# 105 sessions and measured $18.45 on 2026-07-13.
+node benchmarks/agent-compare-benchmark.mjs \
+  --reps-local 2 --reps-external 1 \
+  --out /tmp/agent-compare.json
 node benchmarks/agent-compare-benchmark.mjs --smoke   # cheap harness check
 
 # Deterministic (no LLM): payload bytes + warm latency for equivalent

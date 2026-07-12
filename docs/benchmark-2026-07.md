@@ -60,24 +60,23 @@ without login and are graded against live ground truth or stable facts.
 | sequential-steps | local | 3 sequential click-wait-verify cycles, report the 3 revealed values | exact match of all 3 values |
 | inventory-aggregate | local | aggregate across a 5-page inventory: top-priced SKU + count of items above a price threshold | exact match of SKU, price, and count (added in the v2 run) |
 | signup-challenge | local | submit a signup form, answer the server-generated verification question shown only after submit, report the account code | server must record a successful verification AND the reported code must match (added in the v2 run) |
-| shop-cookie-select | local | on a real-sized shop page (sticky header, dense nav, div-based product cards), dismiss the cookie consent dialog and select a named product | server-recorded selection of the right SKU AND the reported code must match (added post-v2 with the 2026-07 audit fixtures) |
-| slow-order | local | submit an order whose confirmation arrives after a silent ~1.5s server round-trip, report the code | server must record EXACTLY ONE submission (a double submit fails) AND the code must match (added post-v2) |
-| iframe-register | local | register through a form embedded in a same-origin iframe, report the code | server-recorded registration AND code match (added post-v2) |
+| shop-cookie-select | local | on a real-sized shop page (sticky header, dense nav, div-based product cards), dismiss the cookie consent dialog and select a named product | server-recorded selection of the right SKU AND the reported code must match |
+| slow-order | local | submit an order whose confirmation arrives after a silent ~1.5s server round-trip, report the code | server must record EXACTLY ONE submission (a double submit fails) AND the code must match |
+| iframe-register | local | register through a form embedded in a same-origin iframe, report the code | server-recorded registration AND code match |
 | miniwob-email-inbox | miniwob | unmodified MiniWoB++ `email-inbox` task (find an email, star/delete/reply/forward per instruction) | the task page's own reward function must report success, relayed to the harness by an injected hook (see below) |
 | miniwob-book-flight | miniwob | unmodified MiniWoB++ `book-flight` task (autocomplete airports, date picker, book the flight matching the criterion) | same reward-based grading |
-| miniwob-use-autocomplete | miniwob | unmodified MiniWoB++ `use-autocomplete` task | same reward-based grading (added post-v2) |
-| miniwob-login-user | miniwob | unmodified MiniWoB++ `login-user` task | same reward-based grading (added post-v2) |
-| miniwob-search-engine | miniwob | unmodified MiniWoB++ `search-engine` task (result may sit on a later page) | same reward-based grading (added post-v2) |
-| miniwob-click-checkboxes | miniwob | unmodified MiniWoB++ `click-checkboxes` task | same reward-based grading (added post-v2) |
+| miniwob-use-autocomplete | miniwob | unmodified MiniWoB++ `use-autocomplete` task | same reward-based grading |
+| miniwob-login-user | miniwob | unmodified MiniWoB++ `login-user` task | same reward-based grading |
+| miniwob-search-engine | miniwob | unmodified MiniWoB++ `search-engine` task (result may sit on a later page) | same reward-based grading |
+| miniwob-click-checkboxes | miniwob | unmodified MiniWoB++ `click-checkboxes` task | same reward-based grading |
 | hn-top-story | external | report title+points of the current #1 Hacker News story | reported title must appear in the official HN API top stories fetched at run time |
 | wikipedia-hop | external | from the Eiffel Tower article, navigate to Gustave Eiffel's page, report name + birth year | name contains "Eiffel", birth year 1832 |
-| wikipedia-extract | external | report the Burj Khalifa's architectural height in metres from its article | height rounds to 828 (added post-v2) |
+| wikipedia-extract | external | report the Burj Khalifa's architectural height in metres from its article | height rounds to 828 |
 | google-search | external | search Google for "playwright github", report first organic result URL | URL contains github.com/microsoft/playwright (bot-detection failures count as failures — that is part of the signal) |
 | youtube-search | external | search YouTube, report title+channel of the top result for a fixed query | channel/title must identify the expected canonical video |
 
-Tasks marked "added post-v2" exist in the harness but are not part of the
-published v1/v2 comparison tables below; they enter the numbers at the next
-full 3-tool same-run.
+The v1 and v2 tables below preserve their original task subsets.
+The expanded 0.18.0 table covers all 20 tasks in one three-tool run, including the eight tasks added after v2.
 
 The `miniwob` tasks come from an established third-party benchmark,
 [MiniWoB++](https://github.com/Farama-Foundation/miniwob-plusplus) (MIT), to
@@ -90,16 +89,18 @@ local server so the harness can machine-grade success tool-neutrally.
 Success = the benchmark's own reward function reporting a positive raw
 reward.
 
-Repetitions: 3 per local task, 2 per external task, sequential (no
-concurrent sessions). The initial (v1) run used the first 4 local + 4
-external tasks (20 sessions per tool, 60 total); the v2 run uses the 10
-fixture/external tasks (26 sessions per tool, 78 total); the MiniWoB++ pair
-was run separately at 3 reps (18 sessions).
+The harness defaults to 3 repetitions per local/MiniWoB task and 2 per external task, sequential with no concurrent sessions.
+The initial v1 run used the first 4 local plus 4 external tasks, for 20 sessions per tool and 60 total.
+The v2 run used the 10 fixture/external tasks, for 26 sessions per tool and 78 total.
+The original MiniWoB++ pair was run separately at 3 repetitions, for 18 sessions.
+The expanded 0.18.0 run uses the documented reduced-cost profile of 2 repetitions per local/MiniWoB task and 1 per external task, for 35 sessions per tool and 105 total.
 
 ### Reproduction
 
 ```bash
-node benchmarks/agent-compare-benchmark.mjs --out /tmp/agent-compare.json
+node benchmarks/agent-compare-benchmark.mjs \
+  --reps-local 2 --reps-external 1 \
+  --out /tmp/agent-compare.json
 # cheap harness check without external tasks:
 node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001
 ```
@@ -352,13 +353,95 @@ Reading:
 | miniwob-email-inbox | **100% · 34.6s · 11t · 339K** | 100% · 54.8s · 16t · 493K |
 | miniwob-book-flight | **100% · 39.6s · 15t · 453K** | 100% · 58.0s · 19t · 637K |
 
-The pre-upgrade Sonnet numbers above (chromux 104.2s/1045K and 93.3s/907K)
-were the suite's worst cells; after the behavior-based clickable detection,
-occlusion probe, and act-and-verify upgrades, chromux leads both tasks on
-every metric on Sonnet as well — the prediction that perception upgrades
-help a weaker model more holds (email-inbox: -67% time, -68% tokens vs its
-own pre-upgrade result). The rest of the Sonnet table has not been re-run;
-agent-browser was not part of this re-measurement.
+The pre-upgrade Sonnet numbers above (chromux 104.2s/1045K and 93.3s/907K) were the suite's worst cells.
+After the behavior-based clickable detection, occlusion probe, and act-and-verify upgrades, chromux leads both tasks on every metric on Sonnet as well.
+The prediction that perception upgrades help a weaker model more holds: email-inbox used 67% less time and 68% fewer tokens than chromux's own pre-upgrade result.
+This focused two-task run is preserved as history; the full 12-task 0.18.0 rerun below supersedes it for current Sonnet comparisons.
+Agent-browser was not part of either 0.18.0 Sonnet re-measurement.
+
+### Full 12-task Sonnet re-measurement on 0.18.0
+
+Run of 2026-07-13, same harness, model `claude-sonnet-5`, same-run chromux 0.18.0 vs `@playwright/cli` 0.1.17, with 2 reps per local/MiniWoB task and 1 rep per external task.
+The run covered 40 sessions, passed 39/40, cost $5.15, and used MiniWoB++ checkout `352645c9ee1d`.
+Agent-browser was intentionally excluded from the approved required rerun, so no historical agent-browser cells are mixed into this table.
+Cells are success% · median wall time · median turns · median total tokens.
+
+| task | chromux 0.18.0 | playwright-cli 0.1.17 |
+|---|---|---|
+| form-order | **100% · 11.5s · 5t · 121K** | 100% · 15.5s · 5t · 135K |
+| feed-extract | 100% · 26.7s · 8t · 205K | **100% · 17.9s · 5t · 137K** |
+| nav-tour | 100% · 27.6s · 7t · 190K | 100% · 24.4s · 9t · 230K |
+| sequential-steps | **100% · 18.2s · 5t · 134K** | 100% · 25.9s · 10t · 273K |
+| inventory-aggregate | **100% · 19.7s · 6t · 153K** | 100% · 32.9s · 10t · 296K |
+| signup-challenge | 100% · 26.3s · 7t · 176K | 100% · 25.8s · 8t · 203K |
+| miniwob-email-inbox | **100% · 28.5s · 9t · 252K** | 100% · 48.1s · 16t · 468K |
+| miniwob-book-flight | **100% · 41.6s · 14t · 400K** | 100% · 61.2s · 20t · 601K |
+| hn-top-story | **100% · 15.9s · 4t · 106K** | 0% · 20.8s · 5t · 137K |
+| wikipedia-hop | 100% · 29.2s · 9t · 252K | **100% · 18.8s · 5t · 137K** |
+| google-search | **100% · 25.3s · 8t · 219K** | 100% · 96.0s · 19t · 632K |
+| youtube-search | 100% · 24.9s · 8t · 232K | **100% · 20.0s · 6t · 164K** |
+| **overall (12 tasks)** | **100% · 8.3min · 147t · 4.07M · $2.17** | 95% · 11.0min · 198t · 5.75M · $2.98 |
+| **overall excl. MiniWoB** | **100% · 5.9min · 101t · 2.77M · $1.56** | 94% · 7.3min · 127t · 3.62M · $1.96 |
+
+Reading:
+
+- **The 0.18.0 perception gains hold across the full Sonnet suite.**
+  chromux passed 20/20 sessions and reduced both MiniWoB tasks from the historical pre-upgrade cells while beating playwright-cli on time, turns, and tokens in the same run.
+- **The highest-turn chromux sessions were the two 14-turn book-flight runs.**
+  Their recorded command traces show the required start, autocomplete fields, date selection, search, result selection, and verification flow rather than repeated blind probing.
+- **The aggregate now favors chromux with and without MiniWoB.**
+  Across all 20 sessions per tool, chromux used 8.3 minutes, 147 turns, 4.07M tokens, and $2.17 versus playwright-cli at 11.0 minutes, 198 turns, 5.75M tokens, and $2.98.
+- **Task-level results remain mixed.**
+  playwright-cli was faster on feed extraction, Wikipedia navigation, and YouTube, while chromux had the clearest advantage on sequential interaction, inventory aggregation, MiniWoB, and Google.
+- **The one failure was live-site variance, published as measured.**
+  playwright-cli reported the visible Hacker News top story, but that title did not appear in the grading API's top-story samples around the run; the session was not retried or hand-corrected.
+- Reduced reps (2/1) make individual medians directional, but every published cell and aggregate above comes from this one run.
+
+## Expanded 20-task same-run results (chromux 0.18.0)
+
+Run of 2026-07-13, same harness, model `claude-opus-4-8`, with chromux 0.18.0, agent-browser 0.31.1, and `@playwright/cli` 0.1.17 in one sequential run.
+The reduced-cost profile used 2 repetitions per local/MiniWoB task and 1 per external task, for 35 sessions per tool and 105 total.
+The run passed 102/105 sessions, cost $18.45, and used MiniWoB++ checkout `352645c9ee1d`.
+No cells from the historical v1, v2, or focused MiniWoB runs are mixed into this table.
+Cells are success% · median wall time · median turns · median total tokens.
+
+| task | chromux 0.18.0 | agent-browser 0.31.1 | playwright-cli 0.1.17 |
+|---|---|---|---|
+| form-order | 100% · 19.5s · 5t · 76K | 100% · 13.9s · 5t · 96K | 100% · 20.4s · 5t · 83K |
+| feed-extract | 100% · 21.8s · 5t · 85K | 100% · 37.0s · 7t · 134K | 100% · 22.6s · 5t · 76K |
+| nav-tour | 100% · 25.2s · 6t · 93K | 100% · 30.0s · 7t · 128K | 100% · 31.8s · 9t · 144K |
+| sequential-steps | 100% · 23.6s · 6t · 101K | 100% · 38.1s · 7t · 139K | 100% · 40.9s · 10t · 174K |
+| inventory-aggregate | 100% · 43.2s · 8t · 142K | 100% · 23.5s · 4t · 78K | 100% · 28.7s · 5t · 78K |
+| signup-challenge | 100% · 31.7s · 7t · 119K | 100% · 23.9s · 6t · 118K | 100% · 32.8s · 8t · 137K |
+| shop-cookie-select | 100% · 31.6s · 7t · 118K | 100% · 21.5s · 5t · 104K | 100% · 22.9s · 6t · 111K |
+| slow-order | 100% · 19.6s · 5t · 75K | 100% · 23.9s · 6t · 117K | 100% · 24.6s · 5t · 83K |
+| iframe-register | 100% · 22.7s · 6t · 92K | 100% · 16.9s · 5t · 96K | 100% · 27.3s · 7t · 110K |
+| miniwob-email-inbox | 100% · 39.5s · 12t · 210K | 100% · 62.1s · 14t · 306K | 100% · 58.6s · 16t · 305K |
+| miniwob-book-flight | 100% · 59.1s · 12t · 219K | 100% · 65.3s · 16t · 358K | 100% · 80.7s · 19t · 377K |
+| miniwob-use-autocomplete | 100% · 29.6s · 8t · 129K | 100% · 61.6s · 12t · 243K | 100% · 39.0s · 10t · 177K |
+| miniwob-login-user | 100% · 33.5s · 7t · 112K | 100% · 32.5s · 8t · 150K | 100% · 30.0s · 8t · 129K |
+| miniwob-search-engine | 100% · 52.8s · 11t · 196K | 100% · 32.6s · 7t · 139K | 100% · 41.2s · 10t · 178K |
+| miniwob-click-checkboxes | 100% · 34.0s · 8t · 128K | 100% · 29.9s · 7t · 128K | 100% · 28.2s · 8t · 138K |
+| wikipedia-extract | 100% · 21.1s · 4t · 68K | 100% · 15.5s · 3t · 54K | 100% · 15.8s · 3t · 53K |
+| hn-top-story | 100% · 12.3s · 3t · 49K | 0% · 12.2s · 3t · 55K | 100% · 16.9s · 4t · 65K |
+| wikipedia-hop | 100% · 28.2s · 7t · 120K | 100% · 49.8s · 8t · 165K | 100% · 34.0s · 6t · 104K |
+| google-search | 100% · 27.1s · 8t · 137K | 0% · 96.2s · 9t · 193K | 0% · 439.5s · 19t · 451K |
+| youtube-search | 100% · 28.5s · 5t · 84K | 100% · 19.5s · 4t · 81K | 100% · 19.4s · 4t · 67K |
+| **overall (20 tasks)** | **100% · 18.2min · 245t · 4.24M · $4.72** | 94% · 20.3min · 254t · 5.21M · $8.08 | 97% · 26.4min · 292t · 5.34M · $5.65 |
+
+Reading:
+
+- **chromux was the only tool to pass every session and had the lowest aggregate wall time, turns, tokens, and cost.**
+  It passed 35/35 sessions versus agent-browser at 33/35 and playwright-cli at 34/35.
+- **All three tools passed every deterministic local and MiniWoB session.**
+  Task-level results were mixed: agent-browser led several compact form tasks and MiniWoB search-engine, while playwright-cli led MiniWoB login-user, click-checkboxes, and YouTube.
+- **Real Chrome remained the clearest external-site differentiator.**
+  chromux completed Google in 27.1 seconds; agent-browser returned no qualifying URL after 96.2 seconds, and playwright-cli returned none after 439.5 seconds.
+- **The Hacker News failure reflects live grading variance.**
+  agent-browser reported the visible top title, but it was absent from the grading API samples around the run, so the measured failure is retained without a retry.
+- **High-turn chromux traces were finite and explainable.**
+  The 12-turn email and book-flight sessions covered the required UI flows; one email text-selector miss recovered through an interactive snapshot, and one inventory regex escaping error recovered on the next command.
+- The reduced 2/1 repetition profile makes individual medians directional, especially on live sites, but every cell and aggregate comes from the same registered report.
 
 ## Deterministic payload / latency results
 

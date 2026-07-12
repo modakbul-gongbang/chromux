@@ -1,0 +1,4600 @@
+{
+  "schema": "hoyeon.prd-implement.state.v1",
+  "status": "complete",
+  "topicSlug": "benchmark-followup",
+  "projectRoot": "/Users/hoyeonlee/team-attention/chromux.worktrees/prd-benchmark-followup",
+  "prdPath": "agents/prd/benchmark-followup/prd.md",
+  "prdStatus": "ready",
+  "prdApproval": {
+    "source": "frontmatter",
+    "value": "approved",
+    "overrideNote": null,
+    "recordedAt": "2026-07-12T14:36:59.061Z"
+  },
+  "prdSnapshot": {
+    "path": "agents/prd/benchmark-followup/prd.md",
+    "sha256": "f6fd35999eb262234f744805ae224e20bf68b9e11e8698f53d06f49d859a4052",
+    "taskIds": [
+      "T1",
+      "T2",
+      "T3",
+      "T4",
+      "T5",
+      "T6",
+      "T7"
+    ],
+    "acceptanceCriteriaIds": [
+      "AC1",
+      "AC2",
+      "AC3",
+      "AC4",
+      "AC5",
+      "AC6",
+      "AC7",
+      "AC8"
+    ],
+    "requirementIds": [
+      "R1",
+      "R2",
+      "R3",
+      "R4",
+      "R5",
+      "R6",
+      "R7",
+      "R8"
+    ],
+    "verificationIds": [
+      "V1",
+      "V2",
+      "V3",
+      "V4",
+      "V5",
+      "V6",
+      "V7",
+      "V8"
+    ],
+    "testModeIds": [
+      "TM1",
+      "TM2",
+      "TM3",
+      "TM4",
+      "TM5"
+    ],
+    "decisionTraceHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "verificationContractHash": "6ab4fa01f48a99a9317180d6ecaf7bdf5e8c750665049a22ef88db904f3c5716"
+  },
+  "runDir": "agents/implement/benchmark-followup",
+  "delivery": {
+    "schema": "hoyeon.delivery.v1",
+    "mode": "pr",
+    "branch": "prd/benchmark-followup",
+    "baseBranch": "main",
+    "prTemplate": null,
+    "ci": {
+      "watch": true,
+      "maxFixAttempts": 2
+    },
+    "staging": {
+      "include": [],
+      "exclude": []
+    },
+    "worktree": {
+      "enabled": true,
+      "path": "/Users/hoyeonlee/team-attention/chromux.worktrees/prd-benchmark-followup",
+      "root": "/Users/hoyeonlee/team-attention/chromux.worktrees",
+      "link": [],
+      "copy": [],
+      "setup": [],
+      "current": true,
+      "skipped": true,
+      "preparation": null
+    },
+    "configPath": null,
+    "initializedAt": "2026-07-12T14:36:59.061Z"
+  },
+  "reviewProfile": {
+    "profile": "high-risk",
+    "source": "auto",
+    "reason": "risk keywords found in PRD structure, tasks, ACs, or verification"
+  },
+  "execution": {
+    "schema": "hoyeon.execution.v1",
+    "parallel": false
+  },
+  "intentTrace": {
+    "prdDecisionTraceHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "prdDecisionCount": 0,
+    "sourceDecisionCount": 0,
+    "decisionCount": 0,
+    "sources": [],
+    "decisions": []
+  },
+  "technicalStructure": "No major runtime architecture change is expected.\nThe existing zero-dependency CLI, raw CDP daemon, benchmark harnesses, and fixture servers remain the foundation.\n\nExpected structural changes are limited to benchmark and documentation surfaces:\n\n- `docs/benchmark-2026-07.md` will gain updated same-run result sections and lose stale \"not re-run\" wording.\n- README benchmark summary may change if the new official table materially changes headline claims.\n- `benchmarks/chromux-doc-check.mjs` may gain or update needles so README, benchmark docs, help, and skills do not drift.\n- `benchmarks/agent-compare-benchmark.mjs` may receive a small harness-only fix if current flags, report metadata, or task selection cannot express the approved runs.\n- No new browser action verb, no new runtime dependency, no external benchmark adapter, no DB, no auth, no production service, and no release pipeline change are expected.",
+  "implementationNotes": "- Do not publish any comparison table that mixes cells from different benchmark runs.\n- Do not tune chromux on external or third-party tasks during this PRD.\n- Do not change benchmark grading from machine grading to model judgment.\n- Do not add fixture literal answers to skills or benchmark guidance.\n- Do not implement WebGames, REAL, WebArena, coordinate-action, DPR, hover, drag, contenteditable, OOPIF, or canvas features in this PRD.\n- Do not add runtime npm dependencies.\n- Do not run `npm publish`, create a tag, create a release, or bump package version unless the user separately approves a release-intended change.\n- Do not include AI agent, model, or vendor names in branch, commit, or PR title.\n- Do not stage unrelated `.hoyeon/intake/chromux-memory-credential-search/`.\n- Do not use local-only `/Users/...`, `file://`, or unpushed artifact paths as the only PR body evidence.",
+  "createdAt": "2026-07-12T14:36:59.061Z",
+  "updatedAt": "2026-07-12T16:40:04.920Z",
+  "activeSessionId": "019f56ab-71f2-7602-8f00-a6f67d5a5bb7",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Reconcile current repo baseline, task list, harness flags, version, docs, and delivery config before measurement. Cov...",
+      "text": "Reconcile current repo baseline, task list, harness flags, version, docs, and delivery config before measurement. Covers R1, AC1.",
+      "requirements": [
+        "R1"
+      ],
+      "acceptanceCriteria": [
+        "AC1"
+      ],
+      "status": "complete",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:29:46.985Z",
+          "text": "Execution roll-up: N1 complete; ACs AC1 met; required Verification V1, V2, V5 passed."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "T2",
+      "title": "Run the approved Sonnet 5 12-task same-run and inspect report-level command traces for high-cost chromux sessions. Co...",
+      "text": "Run the approved Sonnet 5 12-task same-run and inspect report-level command traces for high-cost chromux sessions. Covers R2, AC2.",
+      "requirements": [
+        "R2"
+      ],
+      "acceptanceCriteria": [
+        "AC2"
+      ],
+      "status": "complete",
+      "evidence": [
+        {
+          "ts": "2026-07-12T15:07:18.675Z",
+          "text": "Execution roll-up: N2 complete; ACs AC2 met; required Verification V3, V5 passed."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "T3",
+      "title": "Update the Sonnet section and aggregates in `docs/benchmark-2026-07.md` using only the new same-run data. Covers R3, ...",
+      "text": "Update the Sonnet section and aggregates in `docs/benchmark-2026-07.md` using only the new same-run data. Covers R3, AC3.",
+      "requirements": [
+        "R3"
+      ],
+      "acceptanceCriteria": [
+        "AC3"
+      ],
+      "status": "complete",
+      "evidence": [
+        {
+          "ts": "2026-07-12T15:08:47.441Z",
+          "text": "Execution roll-up: N3 complete; ACs AC3 met; required Verification V3, V5 passed."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "T4",
+      "title": "Run the approved Opus 20-task 3-tool same-run or stop with a documented blocker before publishing any expanded offici...",
+      "text": "Run the approved Opus 20-task 3-tool same-run or stop with a documented blocker before publishing any expanded official table. Covers R4, AC4.",
+      "requirements": [
+        "R4"
+      ],
+      "acceptanceCriteria": [
+        "AC4"
+      ],
+      "status": "complete",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:20:36.004Z",
+          "text": "Execution roll-up: N4 complete; ACs AC4 met; required Verification V4, V5 passed."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "T5",
+      "title": "Update the official benchmark table and post-v2 task wording only from the expanded same-run report. Covers R5, AC5.",
+      "text": "Update the official benchmark table and post-v2 task wording only from the expanded same-run report. Covers R5, AC5.",
+      "requirements": [
+        "R5"
+      ],
+      "acceptanceCriteria": [
+        "AC5"
+      ],
+      "status": "complete",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:25:08.683Z",
+          "text": "Execution roll-up: N5 complete; ACs AC5 met; required Verification V4, V5 passed."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "T6",
+      "title": "Sync README, skills, and `benchmarks/chromux-doc-check.mjs` when benchmark claims or guidance changed, then run local...",
+      "text": "Sync README, skills, and `benchmarks/chromux-doc-check.mjs` when benchmark claims or guidance changed, then run local verification. Covers R6-R7, AC6-AC7.",
+      "requirements": [
+        "R6",
+        "R7"
+      ],
+      "acceptanceCriteria": [
+        "AC6",
+        "AC7"
+      ],
+      "status": "complete",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:30:09.058Z",
+          "text": "Execution roll-up: N6 complete; ACs AC6, AC7 met; required Verification V1, V2, V5, V6, V7 passed."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "T7",
+      "title": "Prepare PR delivery evidence with a clean diff and CI status, without publishing or staging unrelated artifacts. Cove...",
+      "text": "Prepare PR delivery evidence with a clean diff and CI status, without publishing or staging unrelated artifacts. Covers R8, AC8.",
+      "requirements": [
+        "R8"
+      ],
+      "acceptanceCriteria": [
+        "AC8"
+      ],
+      "status": "complete",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:33:48.577Z",
+          "text": "Execution roll-up: N7 complete; ACs AC8 met; required Verification V7 passed."
+        }
+      ],
+      "artifacts": []
+    }
+  ],
+  "acceptanceCriteria": [
+    {
+      "id": "AC1",
+      "title": "The implementation report lists the exact 20 current task IDs from `buildTasks` and identifies the 12 official v2 tas...",
+      "text": "The implementation report lists the exact 20 current task IDs from `buildTasks` and identifies the 12 official v2 tasks versus the 8 post-v2 tasks.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:29:46.984Z",
+          "text": "agents/implement/benchmark-followup/context-notes.md records the exact buildTasks() 20-task source of truth and explicitly separates the 12 official v2 IDs from the 8 post-v2 IDs for implementation reporting"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "AC2",
+      "title": "A Sonnet 5 report artifact exists for the approved 12-task same-run, and its per-session records include enough data ...",
+      "text": "A Sonnet 5 report artifact exists for the approved 12-task same-run, and its per-session records include enough data to inspect high-turn or high-token chromux sessions through their command traces.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T15:07:18.674Z",
+          "text": "V3 API artifact contains 40 Sonnet session records with tool/task/rep grading, versions, costs, tokens, turns, and redacted chromux command arrays; chromux high-turn traces were inspected."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "AC3",
+      "title": "The Sonnet section in `docs/benchmark-2026-07.md` no longer claims that the rest of the table has not been re-run whe...",
+      "text": "The Sonnet section in `docs/benchmark-2026-07.md` no longer claims that the rest of the table has not been re-run when the new report exists.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T15:08:47.441Z",
+          "text": "docs/benchmark-2026-07.md removes the stale full-table-not-rerun claim and adds a 0.18.0 Sonnet table sourced only from registered V3, while preserving older tables as history."
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "AC4",
+      "title": "An Opus report artifact exists for the approved 20-task 3-tool same-run, or implementation status is `Blocked` with a...",
+      "text": "An Opus report artifact exists for the approved 20-task 3-tool same-run, or implementation status is `Blocked` with a cost, auth, network, or live-site blocker before any mixed-run table is published.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:20:36.004Z",
+          "text": "Expanded Opus run completed at 18.45 USD below the approved 30 USD cap; V4 artifact records 105 sessions and exact same-run tool versions"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "AC5",
+      "title": "The official benchmark table includes post-v2 tasks only from the expanded same-run and does not mix historical cells...",
+      "text": "The official benchmark table includes post-v2 tasks only from the expanded same-run and does not mix historical cells into the new official comparison.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:25:08.682Z",
+          "text": "Official expanded section in docs/benchmark-2026-07.md contains all 20 current buildTasks IDs, exact V4 same-run cells, versions, reduced reps, cost, MiniWoB commit, trace audit, and live-site caveats"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "AC6",
+      "title": "README and `benchmarks/chromux-doc-check.mjs` are consistent with the final benchmark claims, and unchanged surfaces ...",
+      "text": "README and `benchmarks/chromux-doc-check.mjs` are consistent with the final benchmark claims, and unchanged surfaces are explicitly reported as intentionally unchanged.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:29:54.528Z",
+          "text": "README now uses the registered 20-task V4 headline, doc-check asserts README/benchmark/install claims, and context-notes explicitly records unchanged skills, Token Footprint, harness, and package version surfaces"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "AC7",
+      "title": "`node chromux.mjs help`, `bash ./test.sh`, `node benchmarks/chromux-doc-check.mjs`, and `npm pack --dry-run` pass aft...",
+      "text": "`node chromux.mjs help`, `bash ./test.sh`, `node benchmarks/chromux-doc-check.mjs`, and `npm pack --dry-run` pass after changes.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:29:59.067Z",
+          "text": "V1 help passed; V2 doc check passed; V6 ./test.sh passed 222/222 with registered browser log; V7 npm pack --dry-run passed with 41 allowlisted files"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "id": "AC8",
+      "title": "PR delivery evidence includes branch name, PR URL, changed file list, CI status, and confirmation that no unrelated `...",
+      "text": "PR delivery evidence includes branch name, PR URL, changed file list, CI status, and confirmation that no unrelated `.hoyeon` intake artifacts were included.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "met",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:33:43.438Z",
+          "text": "agents/implement/benchmark-followup/delivery-readiness.md records branch prd/benchmark-followup, current origin/main base, exact intended changed paths, PR template selection, CI-watch mode, and exclusion of unrelated .hoyeon intake. Per the approved receipt-first sequence, ho-ship supplies the PR URL and CI verdict after finalization before completion is reported."
+        }
+      ],
+      "artifacts": []
+    }
+  ],
+  "requirements": [
+    {
+      "id": "R1",
+      "title": "Baseline correctness. The executor must verify current repo state, task list, package version, harness flags, and doc...",
+      "text": "Baseline correctness. The executor must verify current repo state, task list, package version, harness flags, and documentation baseline before measurement.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    },
+    {
+      "id": "R2",
+      "title": "Sonnet rerun. The executor must run a Sonnet 5 12-task same-run comparison for chromux 0.18.0 and @playwright/cli, wi...",
+      "text": "Sonnet rerun. The executor must run a Sonnet 5 12-task same-run comparison for chromux 0.18.0 and @playwright/cli, with model, tools, versions, reps, sessions, cost, and raw report path recorded.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    },
+    {
+      "id": "R3",
+      "title": "Sonnet documentation. `docs/benchmark-2026-07.md` must preserve older Sonnet data as history and add the new 0.18.0 s...",
+      "text": "Sonnet documentation. `docs/benchmark-2026-07.md` must preserve older Sonnet data as history and add the new 0.18.0 same-run Sonnet table, including 12-task aggregate and MiniWoB-excluded aggregate.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    },
+    {
+      "id": "R4",
+      "title": "Expanded official run. The executor must run one approved Opus 20-task 3-tool same-run comparison that includes the o...",
+      "text": "Expanded official run. The executor must run one approved Opus 20-task 3-tool same-run comparison that includes the original 12 tasks plus the 8 post-v2 tasks from `buildTasks`.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    },
+    {
+      "id": "R5",
+      "title": "Expanded documentation. The post-v2 tasks must be removed from the \"added post-v2 but not official\" state only when t...",
+      "text": "Expanded documentation. The post-v2 tasks must be removed from the \"added post-v2 but not official\" state only when the expanded same-run report exists, and the official table must state run date, model, reps, versions, sessions, cost, and live-site caveats.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    },
+    {
+      "id": "R6",
+      "title": "README and drift checks. README, skills, and doc-check needles must be updated when benchmark claims or command guida...",
+      "text": "README and drift checks. README, skills, and doc-check needles must be updated when benchmark claims or command guidance change, and left untouched when the benchmark doc change does not affect those surfaces.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    },
+    {
+      "id": "R7",
+      "title": "Verification and package hygiene. The completed change must pass repo-required checks and must not publish, tag, rele...",
+      "text": "Verification and package hygiene. The completed change must pass repo-required checks and must not publish, tag, release, or include unrelated artifacts.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    },
+    {
+      "id": "R8",
+      "title": "Delivery. The completed implementation must be shippable through PR delivery, with branch, PR URL, diff scope, and CI...",
+      "text": "Delivery. The completed implementation must be shippable through PR delivery, with branch, PR URL, diff scope, and CI status reported.",
+      "requirements": [],
+      "acceptanceCriteria": [],
+      "status": "pending",
+      "evidence": [],
+      "artifacts": []
+    }
+  ],
+  "verification": [
+    {
+      "id": "V1",
+      "level": "General",
+      "title": "`node chromux.mjs help`",
+      "text": "Mode: build/static. Covers: R1, R6-R7, AC1, AC6-AC7, T1, T6. Check: `node chromux.mjs help`. Artifact: command-log. Pass: command exits 0 and public help remains the source of truth for current CLI syntax. Environment: local shell, Node 22 or newer. Required For Done: yes. Can Be Blocked: no. Safe Probe: local CLI only. Live Proof: command log. Side Effect: none. Sensitive Data Policy: no secrets.",
+      "status": "pass",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:25:17.744Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log (f909c0e9c6ea) - verify-run passed: node chromux.mjs help"
+        },
+        {
+          "ts": "2026-07-12T16:25:17.744Z",
+          "text": "Command passed with exit code 0: node chromux.mjs help. Log: agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "V1-command-log-2026-07-12T16-25-17-744Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log",
+          "description": "verify-run passed: node chromux.mjs help",
+          "createdAt": "2026-07-12T16:25:17.744Z",
+          "bytes": 9677,
+          "sha256": "f909c0e9c6ea7936760898e2a3d5391f293b5adb3984356b465dd9c3c478a10d",
+          "mimeHint": "text/plain",
+          "command": "node chromux.mjs help",
+          "contractCommand": "node chromux.mjs help",
+          "deviationId": null,
+          "exitCode": 0,
+          "startedAt": "2026-07-12T16:25:17.657Z",
+          "finishedAt": "2026-07-12T16:25:17.742Z"
+        }
+      ],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "build/static",
+        "covers": "R1, R6-R7, AC1, AC6-AC7, T1, T6",
+        "method": "`node chromux.mjs help`",
+        "artifact": "command-log",
+        "passCriteria": "command exits 0 and public help remains the source of truth for current CLI syntax",
+        "environment": "local shell, Node 22 or newer",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "local CLI only",
+        "liveProof": "command log",
+        "sideEffect": "none",
+        "sensitiveDataPolicy": "no secrets"
+      },
+      "testMode": "build/static"
+    },
+    {
+      "id": "V2",
+      "level": "General",
+      "title": "`node benchmarks/chromux-doc-check.mjs`",
+      "text": "Mode: automated behavior. Covers: R1, R6-R7, AC1, AC6-AC7, T1, T6. Check: `node benchmarks/chromux-doc-check.mjs`. Artifact: command-log. Pass: command exits 0 and doc needles prove README, help, benchmark docs, and skills stay synchronized. Environment: local shell. Required For Done: yes. Can Be Blocked: no. Safe Probe: local docs check only. Live Proof: command log. Side Effect: none. Sensitive Data Policy: no secrets.",
+      "status": "pass",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:25:21.955Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log (7be696aa81b3) - verify-run failed: node benchmarks/chromux-doc-check.mjs"
+        },
+        {
+          "ts": "2026-07-12T16:25:21.955Z",
+          "text": "Command failed with exit code 1: node benchmarks/chromux-doc-check.mjs. Log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log"
+        },
+        {
+          "ts": "2026-07-12T16:25:43.575Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log (aa4e15509ac6) - verify-run passed: node benchmarks/chromux-doc-check.mjs"
+        },
+        {
+          "ts": "2026-07-12T16:25:43.575Z",
+          "text": "Command passed with exit code 0: node benchmarks/chromux-doc-check.mjs. Log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "V2-command-log-2026-07-12T16-25-21-955Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log",
+          "description": "verify-run failed: node benchmarks/chromux-doc-check.mjs",
+          "createdAt": "2026-07-12T16:25:21.955Z",
+          "bytes": 1003,
+          "sha256": "7be696aa81b3e3cde95fd8c928ba1d520cb8f6073bcb1b1bfabe338dd9b6c935",
+          "mimeHint": "text/plain",
+          "command": "node benchmarks/chromux-doc-check.mjs",
+          "contractCommand": "node benchmarks/chromux-doc-check.mjs",
+          "deviationId": null,
+          "exitCode": 1,
+          "startedAt": "2026-07-12T16:25:21.814Z",
+          "finishedAt": "2026-07-12T16:25:21.953Z"
+        },
+        {
+          "artifactId": "V2-command-log-2026-07-12T16-25-43-575Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log",
+          "description": "verify-run passed: node benchmarks/chromux-doc-check.mjs",
+          "createdAt": "2026-07-12T16:25:43.575Z",
+          "bytes": 11253,
+          "sha256": "aa4e15509ac6a7ba0300010af1ee30753ad0ded5a4ecb03daa7e1f74273c3fc6",
+          "mimeHint": "text/plain",
+          "command": "node benchmarks/chromux-doc-check.mjs",
+          "contractCommand": "node benchmarks/chromux-doc-check.mjs",
+          "deviationId": null,
+          "exitCode": 0,
+          "startedAt": "2026-07-12T16:25:43.422Z",
+          "finishedAt": "2026-07-12T16:25:43.574Z"
+        }
+      ],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "automated behavior",
+        "covers": "R1, R6-R7, AC1, AC6-AC7, T1, T6",
+        "method": "`node benchmarks/chromux-doc-check.mjs`",
+        "artifact": "command-log",
+        "passCriteria": "command exits 0 and doc needles prove README, help, benchmark docs, and skills stay synchronized",
+        "environment": "local shell",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "local docs check only",
+        "liveProof": "command log",
+        "sideEffect": "none",
+        "sensitiveDataPolicy": "no secrets"
+      },
+      "testMode": "automated behavior"
+    },
+    {
+      "id": "V3",
+      "level": "General",
+      "title": "`node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-orde...",
+      "text": "Mode: benchmark/live-agent. Covers: R2-R3, AC2-AC3, T2-T3. Check: `node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,hn-top-story,wikipedia-hop,google-search,youtube-search,miniwob-email-inbox,miniwob-book-flight --out /tmp/chromux-sonnet-12-rerun.json`. Artifact: benchmark-report-json. Pass: report exists, covers the 12 approved tasks, records versions, reps, sessions, costs, and per-session command traces, and docs use only this same-run data for the new Sonnet table. Environment: authenticated `claude` CLI, Google Chrome, network, npm install access. Required For Done: yes. Can Be Blocked: yes. Safe Probe: stop before launch if estimated cost exceeds approved cap. Live Proof: report JSON and command log. Side Effect: launches agent sessions, installs competitor CLI packages in temp prefix, visits public sites. Sensitive Data Policy: do not print secrets, redact tokens, do not publish raw account data.",
+      "status": "pass",
+      "evidence": [
+        {
+          "ts": "2026-07-12T15:06:42.716Z",
+          "text": "Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json (9bafa342cff5) - Sonnet 5 same-run raw report for 12 tasks across chromux and playwright-cli, 2/1 reps, 40 sessions, with per-session commands and machine grading."
+        },
+        {
+          "ts": "2026-07-12T15:07:06.667Z",
+          "text": "Registered API artifact agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json sha256 9bafa342cff5fb20ec6084e478e2fda762cef916cc94635fecb1cc2b180ea688; 12 tasks, 2 tools, 40 sessions, 39 passed, .1543, per-session command traces present."
+        },
+        {
+          "ts": "2026-07-12T16:37:37.148Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log (c095a1dd5be8) - verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'"
+        },
+        {
+          "ts": "2026-07-12T16:37:37.149Z",
+          "text": "Command passed with exit code 0: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'. Log: agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "V3-api-2026-07-12T15-06-42-715Z",
+          "kind": "api",
+          "path": "agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json",
+          "description": "Sonnet 5 same-run raw report for 12 tasks across chromux and playwright-cli, 2/1 reps, 40 sessions, with per-session commands and machine grading.",
+          "createdAt": "2026-07-12T15:06:42.716Z",
+          "bytes": 38279,
+          "sha256": "9bafa342cff5fb20ec6084e478e2fda762cef916cc94635fecb1cc2b180ea688",
+          "mimeHint": "text/plain"
+        },
+        {
+          "artifactId": "V3-command-log-2026-07-12T16-37-37-148Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log",
+          "description": "verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+          "createdAt": "2026-07-12T16:37:37.148Z",
+          "bytes": 810,
+          "sha256": "c095a1dd5be80bed0bd906c2785e80e033739ed9573ffcba6bcc3913fb2b54dc",
+          "mimeHint": "text/plain",
+          "command": "node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+          "contractCommand": "node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,hn-top-story,wikipedia-hop,google-search,youtube-search,miniwob-email-inbox,miniwob-book-flight --out /tmp/chromux-sonnet-12-rerun.json",
+          "deviationId": "D1",
+          "exitCode": 0,
+          "startedAt": "2026-07-12T16:37:37.090Z",
+          "finishedAt": "2026-07-12T16:37:37.147Z"
+        }
+      ],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "benchmark/live-agent",
+        "covers": "R2-R3, AC2-AC3, T2-T3",
+        "method": "`node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,hn-top-story,wikipedia-hop,google-search,youtube-search,miniwob-email-inbox,miniwob-book-flight --out /tmp/chromux-sonnet-12-rerun.json`",
+        "artifact": "benchmark-report-json",
+        "passCriteria": "report exists, covers the 12 approved tasks, records versions, reps, sessions, costs, and per-session command traces, and docs use only this same-run data for the new Sonnet table",
+        "environment": "authenticated `claude` CLI, Google Chrome, network, npm install access",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": true,
+        "canBeBlockedRaw": "yes",
+        "safeProbe": "stop before launch if estimated cost exceeds approved cap",
+        "liveProof": "report JSON and command log",
+        "sideEffect": "launches agent sessions, installs competitor CLI packages in temp prefix, visits public sites",
+        "sensitiveDataPolicy": "do not print secrets, redact tokens, do not publish raw account data"
+      },
+      "testMode": "benchmark/live-agent"
+    },
+    {
+      "id": "V4",
+      "level": "General",
+      "title": "`node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --t...",
+      "text": "Mode: benchmark/live-agent. Covers: R4-R5, AC4-AC5, T4-T5. Check: `node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,shop-cookie-select,slow-order,iframe-register,miniwob-email-inbox,miniwob-book-flight,miniwob-use-autocomplete,miniwob-login-user,miniwob-search-engine,miniwob-click-checkboxes,wikipedia-extract,hn-top-story,wikipedia-hop,google-search,youtube-search --out /tmp/chromux-opus-20-expanded.json`. Artifact: benchmark-report-json. Pass: report exists, covers all 20 current tasks, records versions, reps, sessions, costs, and docs promote post-v2 tasks only from this same-run report. Environment: authenticated `claude` CLI, Google Chrome, network, npm install access. Required For Done: yes. Can Be Blocked: yes. Safe Probe: stop before launch if estimated cost exceeds approved cap or if auth/network setup is missing. Live Proof: report JSON and command log. Side Effect: launches agent sessions, installs competitor CLI packages in temp prefix, visits public sites. Sensitive Data Policy: do not print secrets, redact tokens, do not publish raw account data.",
+      "status": "pass",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:19:50.672Z",
+          "text": "Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json (85722fe6a57f) - Opus expanded 20-task same-run report: 3 tools, reduced 2/1 reps, 105 per-session records, 102 passed, 18.45 USD total"
+        },
+        {
+          "ts": "2026-07-12T16:20:26.927Z",
+          "text": "Registered API report agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json (sha256 85722fe6a57f3361201c79b9c5a33d897d0d5ccb32c412752a422e40e6a84f46): 105 same-run sessions, 102 passed, 18.45 USD; chromux 35/35, agent-browser 33/35, playwright-cli 34/35"
+        },
+        {
+          "ts": "2026-07-12T16:37:48.962Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log (bb9d4b608f92) - verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'"
+        },
+        {
+          "ts": "2026-07-12T16:37:48.963Z",
+          "text": "Command passed with exit code 0: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'. Log: agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "V4-api-2026-07-12T16-19-50-671Z",
+          "kind": "api",
+          "path": "agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json",
+          "description": "Opus expanded 20-task same-run report: 3 tools, reduced 2/1 reps, 105 per-session records, 102 passed, 18.45 USD total",
+          "createdAt": "2026-07-12T16:19:50.672Z",
+          "bytes": 95719,
+          "sha256": "85722fe6a57f3361201c79b9c5a33d897d0d5ccb32c412752a422e40e6a84f46",
+          "mimeHint": "text/plain"
+        },
+        {
+          "artifactId": "V4-command-log-2026-07-12T16-37-48-962Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log",
+          "description": "verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+          "createdAt": "2026-07-12T16:37:48.962Z",
+          "bytes": 830,
+          "sha256": "bb9d4b608f926c0e5331a53eb618b7d5bad8ecb1755e8238592a3ca1e59c49de",
+          "mimeHint": "text/plain",
+          "command": "node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+          "contractCommand": "node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,shop-cookie-select,slow-order,iframe-register,miniwob-email-inbox,miniwob-book-flight,miniwob-use-autocomplete,miniwob-login-user,miniwob-search-engine,miniwob-click-checkboxes,wikipedia-extract,hn-top-story,wikipedia-hop,google-search,youtube-search --out /tmp/chromux-opus-20-expanded.json",
+          "deviationId": "D2",
+          "exitCode": 0,
+          "startedAt": "2026-07-12T16:37:48.909Z",
+          "finishedAt": "2026-07-12T16:37:48.961Z"
+        }
+      ],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "benchmark/live-agent",
+        "covers": "R4-R5, AC4-AC5, T4-T5",
+        "method": "`node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,shop-cookie-select,slow-order,iframe-register,miniwob-email-inbox,miniwob-book-flight,miniwob-use-autocomplete,miniwob-login-user,miniwob-search-engine,miniwob-click-checkboxes,wikipedia-extract,hn-top-story,wikipedia-hop,google-search,youtube-search --out /tmp/chromux-opus-20-expanded.json`",
+        "artifact": "benchmark-report-json",
+        "passCriteria": "report exists, covers all 20 current tasks, records versions, reps, sessions, costs, and docs promote post-v2 tasks only from this same-run report",
+        "environment": "authenticated `claude` CLI, Google Chrome, network, npm install access",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": true,
+        "canBeBlockedRaw": "yes",
+        "safeProbe": "stop before launch if estimated cost exceeds approved cap or if auth/network setup is missing",
+        "liveProof": "report JSON and command log",
+        "sideEffect": "launches agent sessions, installs competitor CLI packages in temp prefix, visits public sites",
+        "sensitiveDataPolicy": "do not print secrets, redact tokens, do not publish raw account data"
+      },
+      "testMode": "benchmark/live-agent"
+    },
+    {
+      "id": "V5",
+      "level": "General",
+      "title": "`node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compa...",
+      "text": "Mode: automated behavior. Covers: R1-R7, AC1-AC7, T1-T6. Check: `node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json`. Artifact: benchmark-report-json. Pass: smoke report exists and proves the harness still launches a cheap machine-graded task after any harness or docs-adjacent changes. Environment: authenticated `claude` CLI, Google Chrome, network, npm install access. Required For Done: yes. Can Be Blocked: yes. Safe Probe: one cheap smoke task only. Live Proof: report JSON and command log. Side Effect: launches one or more local benchmark sessions and installs temp competitor packages. Sensitive Data Policy: do not print secrets, redact tokens.",
+      "status": "pass",
+      "evidence": [
+        {
+          "ts": "2026-07-12T14:42:19.581Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log (0e2bdc4386a6) - verify-run passed: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json"
+        },
+        {
+          "ts": "2026-07-12T14:42:19.582Z",
+          "text": "Command passed with exit code 0: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json. Log: agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log"
+        },
+        {
+          "ts": "2026-07-12T14:42:46.074Z",
+          "text": "Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-agent-compare-smoke.json (0997feef9205) - Machine-graded smoke report for one form-order session per tool, including versions, costs, and session records."
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "V5-command-log-2026-07-12T14-42-19-581Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log",
+          "description": "verify-run passed: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json",
+          "createdAt": "2026-07-12T14:42:19.581Z",
+          "bytes": 4026,
+          "sha256": "0e2bdc4386a6bf11004b863bbe3f2b3f13f37e07dd43fa7208e4cafdf19e8c60",
+          "mimeHint": "text/plain",
+          "command": "node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json",
+          "contractCommand": "node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json",
+          "deviationId": null,
+          "exitCode": 0,
+          "startedAt": "2026-07-12T14:40:42.876Z",
+          "finishedAt": "2026-07-12T14:42:19.579Z"
+        },
+        {
+          "artifactId": "V5-api-2026-07-12T14-42-46-073Z",
+          "kind": "api",
+          "path": "agents/implement/benchmark-followup/artifacts/api/chromux-agent-compare-smoke.json",
+          "description": "Machine-graded smoke report for one form-order session per tool, including versions, costs, and session records.",
+          "createdAt": "2026-07-12T14:42:46.074Z",
+          "bytes": 4655,
+          "sha256": "0997feef9205ef4ac8d171771e797cc9f26216f8f703b85c763de044e95cf100",
+          "mimeHint": "text/plain"
+        }
+      ],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "automated behavior",
+        "covers": "R1-R7, AC1-AC7, T1-T6",
+        "method": "`node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json`",
+        "artifact": "benchmark-report-json",
+        "passCriteria": "smoke report exists and proves the harness still launches a cheap machine-graded task after any harness or docs-adjacent changes",
+        "environment": "authenticated `claude` CLI, Google Chrome, network, npm install access",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": true,
+        "canBeBlockedRaw": "yes",
+        "safeProbe": "one cheap smoke task only",
+        "liveProof": "report JSON and command log",
+        "sideEffect": "launches one or more local benchmark sessions and installs temp competitor packages",
+        "sensitiveDataPolicy": "do not print secrets, redact tokens"
+      },
+      "testMode": "automated behavior"
+    },
+    {
+      "id": "V6",
+      "level": "General",
+      "title": "`bash ./test.sh`",
+      "text": "Mode: browser/runtime. Covers: R7, AC7, T6. Check: `bash ./test.sh`. Artifact: command-log. Pass: full chromux browser test suite exits 0 after benchmark docs or harness changes. Environment: local shell with Google Chrome. Required For Done: yes. Can Be Blocked: no. Safe Probe: isolated test profiles. Live Proof: command log. Side Effect: launches and closes local Chrome profiles, may fetch configured public test hosts. Sensitive Data Policy: no secrets.",
+      "status": "pass",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:28:37.743Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log (f933c72eee2b) - verify-run passed: bash ./test.sh"
+        },
+        {
+          "ts": "2026-07-12T16:28:37.743Z",
+          "text": "Command passed with exit code 0: bash ./test.sh. Log: agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log"
+        },
+        {
+          "ts": "2026-07-12T16:28:54.365Z",
+          "text": "Artifact recorded: browser agents/implement/benchmark-followup/artifacts/browser/V6-test-suite.log (f933c72eee2b) - Complete real Chrome ./test.sh transcript proving behavioral suite pass and browser cleanup"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "V6-command-log-2026-07-12T16-28-37-743Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log",
+          "description": "verify-run passed: bash ./test.sh",
+          "createdAt": "2026-07-12T16:28:37.743Z",
+          "bytes": 10951,
+          "sha256": "f933c72eee2bd26bc8979a6e3e7c4d22a8f8774dd8d99d60eddbf441a2e0c8eb",
+          "mimeHint": "text/plain",
+          "command": "bash ./test.sh",
+          "contractCommand": "bash ./test.sh",
+          "deviationId": null,
+          "exitCode": 0,
+          "startedAt": "2026-07-12T16:25:50.680Z",
+          "finishedAt": "2026-07-12T16:28:37.741Z"
+        },
+        {
+          "artifactId": "V6-browser-2026-07-12T16-28-54-364Z",
+          "kind": "browser",
+          "path": "agents/implement/benchmark-followup/artifacts/browser/V6-test-suite.log",
+          "description": "Complete real Chrome ./test.sh transcript proving behavioral suite pass and browser cleanup",
+          "createdAt": "2026-07-12T16:28:54.365Z",
+          "bytes": 10951,
+          "sha256": "f933c72eee2bd26bc8979a6e3e7c4d22a8f8774dd8d99d60eddbf441a2e0c8eb",
+          "mimeHint": "text/plain"
+        }
+      ],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "browser/runtime",
+        "covers": "R7, AC7, T6",
+        "method": "`bash ./test.sh`",
+        "artifact": "command-log",
+        "passCriteria": "full chromux browser test suite exits 0 after benchmark docs or harness changes",
+        "environment": "local shell with Google Chrome",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "isolated test profiles",
+        "liveProof": "command log",
+        "sideEffect": "launches and closes local Chrome profiles, may fetch configured public test hosts",
+        "sensitiveDataPolicy": "no secrets"
+      },
+      "testMode": "browser/runtime"
+    },
+    {
+      "id": "V7",
+      "level": "General",
+      "title": "`npm pack --dry-run`",
+      "text": "Mode: build/static. Covers: R7, AC7, T6-T7. Check: `npm pack --dry-run`. Artifact: command-log. Pass: command exits 0 and tarball includes only the package allowlist from `package.json`. Environment: local shell, npm. Required For Done: yes. Can Be Blocked: no. Safe Probe: package dry-run only. Live Proof: command log. Side Effect: no publish. Sensitive Data Policy: no secrets.",
+      "status": "pass",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:29:00.418Z",
+          "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log (db3136d2bc26) - verify-run passed: npm pack --dry-run"
+        },
+        {
+          "ts": "2026-07-12T16:29:00.418Z",
+          "text": "Command passed with exit code 0: npm pack --dry-run. Log: agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log"
+        }
+      ],
+      "artifacts": [
+        {
+          "artifactId": "V7-command-log-2026-07-12T16-29-00-418Z",
+          "kind": "command-log",
+          "path": "agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log",
+          "description": "verify-run passed: npm pack --dry-run",
+          "createdAt": "2026-07-12T16:29:00.418Z",
+          "bytes": 2640,
+          "sha256": "db3136d2bc268d9d806562c590761a57299fd637f0b6b6be38e2d066c2e35e5c",
+          "mimeHint": "text/plain",
+          "command": "npm pack --dry-run",
+          "contractCommand": "npm pack --dry-run",
+          "deviationId": null,
+          "exitCode": 0,
+          "startedAt": "2026-07-12T16:28:59.962Z",
+          "finishedAt": "2026-07-12T16:29:00.417Z"
+        }
+      ],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "build/static",
+        "covers": "R7, AC7, T6-T7",
+        "method": "`npm pack --dry-run`",
+        "artifact": "command-log",
+        "passCriteria": "command exits 0 and tarball includes only the package allowlist from `package.json`",
+        "environment": "local shell, npm",
+        "requiredForDone": true,
+        "requiredForDoneRaw": "yes",
+        "canBeBlocked": false,
+        "canBeBlockedRaw": "no",
+        "safeProbe": "package dry-run only",
+        "liveProof": "command log",
+        "sideEffect": "no publish",
+        "sensitiveDataPolicy": "no secrets"
+      },
+      "testMode": "build/static"
+    },
+    {
+      "id": "V8",
+      "level": "General",
+      "title": "`git status --short && gh pr view --json url,headRefName,statusCheckRollup`",
+      "text": "Mode: delivery/CI. Covers: R8, AC8, T7. Check: `git status --short && gh pr view --json url,headRefName,statusCheckRollup`. Artifact: command-log. Pass: changed file list excludes unrelated `.hoyeon` intake artifacts, PR URL exists after ship, and required CI status is reported as pass or explicitly blocked. Environment: authenticated GitHub CLI after receipt. Required For Done: no. Can Be Blocked: yes. Safe Probe: PR status read and diff inspection. Live Proof: PR URL, changed files, CI status. Side Effect: may push branch and open PR during ship stage. Sensitive Data Policy: do not include secrets or local-only paths in PR body.",
+      "status": "skipped",
+      "evidence": [
+        {
+          "ts": "2026-07-12T16:33:33.994Z",
+          "text": "Optional delivery/CI check is explicitly post-receipt by PRD Sections 4.2 and 9; delivery-readiness.md records branch, base freshness, staging scope, and exclusion of unrelated .hoyeon intake. ho-ship will create the PR and watch CI before user-facing completion."
+        }
+      ],
+      "artifacts": [],
+      "source": "verification_matrix",
+      "matrix": {
+        "mode": "delivery/CI",
+        "covers": "R8, AC8, T7",
+        "method": "`git status --short && gh pr view --json url,headRefName,statusCheckRollup`",
+        "artifact": "command-log",
+        "passCriteria": "changed file list excludes unrelated `.hoyeon` intake artifacts, PR URL exists after ship, and required CI status is reported as pass or explicitly blocked",
+        "environment": "authenticated GitHub CLI after receipt",
+        "requiredForDone": false,
+        "requiredForDoneRaw": "no",
+        "canBeBlocked": true,
+        "canBeBlockedRaw": "yes",
+        "safeProbe": "PR status read and diff inspection",
+        "liveProof": "PR URL, changed files, CI status",
+        "sideEffect": "may push branch and open PR during ship stage",
+        "sensitiveDataPolicy": "do not include secrets or local-only paths in PR body"
+      },
+      "testMode": "delivery/CI"
+    }
+  ],
+  "testModeContract": [
+    {
+      "id": "TM1",
+      "mode": "build/static",
+      "normalizedMode": "build-static",
+      "requiredForDone": true,
+      "requiredForDoneRaw": "yes",
+      "canBeBlocked": false,
+      "covers": "CLI help, docs drift, package surface, shell-level repo health",
+      "humanDecision": "none"
+    },
+    {
+      "id": "TM2",
+      "mode": "automated behavior",
+      "normalizedMode": "automated-behavior",
+      "requiredForDone": true,
+      "requiredForDoneRaw": "yes",
+      "canBeBlocked": false,
+      "covers": "benchmark harness smoke and doc-check regression coverage",
+      "humanDecision": "none"
+    },
+    {
+      "id": "TM3",
+      "mode": "benchmark/live-agent",
+      "normalizedMode": "benchmark-live-agent",
+      "requiredForDone": true,
+      "requiredForDoneRaw": "yes",
+      "canBeBlocked": false,
+      "covers": "approved Sonnet and Opus same-run benchmark reports",
+      "humanDecision": "cost, auth, network, and live-site approval required"
+    },
+    {
+      "id": "TM4",
+      "mode": "browser/runtime",
+      "normalizedMode": "browser-runtime",
+      "requiredForDone": true,
+      "requiredForDoneRaw": "yes",
+      "canBeBlocked": false,
+      "covers": "full chromux browser suite after docs or harness changes",
+      "humanDecision": "none"
+    },
+    {
+      "id": "TM5",
+      "mode": "delivery/CI",
+      "normalizedMode": "delivery-ci",
+      "requiredForDone": false,
+      "requiredForDoneRaw": "no/blockable",
+      "canBeBlocked": true,
+      "covers": "PR URL, diff scope, and GitHub CI after implementation receipt",
+      "humanDecision": "final merge remains human-owned"
+    }
+  ],
+  "verificationPlan": {
+    "schema": "hoyeon.prd-implement.verification-plan.v1",
+    "status": "ready",
+    "generatedAt": "2026-07-12T14:37:08.334Z",
+    "prdPath": "agents/prd/benchmark-followup/prd.md",
+    "prdSha256": "f6fd35999eb262234f744805ae224e20bf68b9e11e8698f53d06f49d859a4052",
+    "verificationContractHash": "6ab4fa01f48a99a9317180d6ecaf7bdf5e8c750665049a22ef88db904f3c5716",
+    "statePath": "agents/implement/benchmark-followup/state.json",
+    "environment": {
+      "packageManager": "npm",
+      "packageScripts": [],
+      "browserTool": "chromux",
+      "serverStrategy": "no dev server script detected",
+      "serviceStrategy": "use repo-local dev/test commands; ask if services are required",
+      "dbStrategy": "no DB surface detected"
+    },
+    "checks": [
+      {
+        "id": "VP1",
+        "verificationId": "V1",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "command",
+        "tool": "verify-run",
+        "command": "node chromux.mjs help",
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R1",
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC1",
+            "AC6",
+            "AC7"
+          ],
+          "tasks": [
+            "T1",
+            "T6"
+          ]
+        },
+        "artifactKinds": [
+          "command-log"
+        ],
+        "passCriteria": "command exits 0 and public help remains the source of truth for current CLI syntax",
+        "requiredForDone": true,
+        "canBeBlocked": false,
+        "testMode": "build/static",
+        "testModeContract": {
+          "id": "TM1",
+          "mode": "build/static",
+          "normalizedMode": "build-static",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "covers": "CLI help, docs drift, package surface, shell-level repo health",
+          "humanDecision": "none"
+        },
+        "contract": {
+          "mode": "build/static",
+          "covers": "R1, R6-R7, AC1, AC6-AC7, T1, T6",
+          "method": "`node chromux.mjs help`",
+          "artifact": "command-log",
+          "passCriteria": "command exits 0 and public help remains the source of truth for current CLI syntax",
+          "environment": "local shell, Node 22 or newer",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "canBeBlockedRaw": "no",
+          "safeProbe": "local CLI only",
+          "liveProof": "command log",
+          "sideEffect": "none",
+          "sensitiveDataPolicy": "no secrets"
+        },
+        "contractHash": "d9ca79afc0f9909df3b85639dd969043def8cc6d7df917e813444b1c515dcb71",
+        "status": "planned",
+        "notes": []
+      },
+      {
+        "id": "VP2",
+        "verificationId": "V2",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "automated",
+        "tool": "verify-run",
+        "command": "node benchmarks/chromux-doc-check.mjs",
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R1",
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC1",
+            "AC6",
+            "AC7"
+          ],
+          "tasks": [
+            "T1",
+            "T6"
+          ]
+        },
+        "artifactKinds": [
+          "command-log"
+        ],
+        "passCriteria": "command exits 0 and doc needles prove README, help, benchmark docs, and skills stay synchronized",
+        "requiredForDone": true,
+        "canBeBlocked": false,
+        "testMode": "automated behavior",
+        "testModeContract": {
+          "id": "TM2",
+          "mode": "automated behavior",
+          "normalizedMode": "automated-behavior",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "covers": "benchmark harness smoke and doc-check regression coverage",
+          "humanDecision": "none"
+        },
+        "contract": {
+          "mode": "automated behavior",
+          "covers": "R1, R6-R7, AC1, AC6-AC7, T1, T6",
+          "method": "`node benchmarks/chromux-doc-check.mjs`",
+          "artifact": "command-log",
+          "passCriteria": "command exits 0 and doc needles prove README, help, benchmark docs, and skills stay synchronized",
+          "environment": "local shell",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "canBeBlockedRaw": "no",
+          "safeProbe": "local docs check only",
+          "liveProof": "command log",
+          "sideEffect": "none",
+          "sensitiveDataPolicy": "no secrets"
+        },
+        "contractHash": "09bad15f3604413dc90caf823e2dd8eb8b9785d14075ecec6cd38c20d4e73d00",
+        "status": "planned",
+        "notes": []
+      },
+      {
+        "id": "VP3",
+        "verificationId": "V3",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "api",
+        "tool": "record-artifact",
+        "command": null,
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R2",
+            "R3"
+          ],
+          "acceptanceCriteria": [
+            "AC2",
+            "AC3"
+          ],
+          "tasks": [
+            "T2",
+            "T3"
+          ]
+        },
+        "artifactKinds": [
+          "api-log",
+          "network-log"
+        ],
+        "passCriteria": "report exists, covers the 12 approved tasks, records versions, reps, sessions, costs, and per-session command traces, and docs use only this same-run data for the new Sonnet table",
+        "requiredForDone": true,
+        "canBeBlocked": true,
+        "testMode": "benchmark/live-agent",
+        "testModeContract": {
+          "id": "TM3",
+          "mode": "benchmark/live-agent",
+          "normalizedMode": "benchmark-live-agent",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "covers": "approved Sonnet and Opus same-run benchmark reports",
+          "humanDecision": "cost, auth, network, and live-site approval required"
+        },
+        "contract": {
+          "mode": "benchmark/live-agent",
+          "covers": "R2-R3, AC2-AC3, T2-T3",
+          "method": "`node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,hn-top-story,wikipedia-hop,google-search,youtube-search,miniwob-email-inbox,miniwob-book-flight --out /tmp/chromux-sonnet-12-rerun.json`",
+          "artifact": "benchmark-report-json",
+          "passCriteria": "report exists, covers the 12 approved tasks, records versions, reps, sessions, costs, and per-session command traces, and docs use only this same-run data for the new Sonnet table",
+          "environment": "authenticated `claude` CLI, Google Chrome, network, npm install access",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": true,
+          "canBeBlockedRaw": "yes",
+          "safeProbe": "stop before launch if estimated cost exceeds approved cap",
+          "liveProof": "report JSON and command log",
+          "sideEffect": "launches agent sessions, installs competitor CLI packages in temp prefix, visits public sites",
+          "sensitiveDataPolicy": "do not print secrets, redact tokens, do not publish raw account data"
+        },
+        "contractHash": "c9ee7d807ad45344d69c9575e078e7430591d9b0381d076513e7c9b02bf42f58",
+        "status": "planned",
+        "notes": []
+      },
+      {
+        "id": "VP4",
+        "verificationId": "V4",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "api",
+        "tool": "record-artifact",
+        "command": null,
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R4",
+            "R5"
+          ],
+          "acceptanceCriteria": [
+            "AC4",
+            "AC5"
+          ],
+          "tasks": [
+            "T4",
+            "T5"
+          ]
+        },
+        "artifactKinds": [
+          "api-log",
+          "network-log"
+        ],
+        "passCriteria": "report exists, covers all 20 current tasks, records versions, reps, sessions, costs, and docs promote post-v2 tasks only from this same-run report",
+        "requiredForDone": true,
+        "canBeBlocked": true,
+        "testMode": "benchmark/live-agent",
+        "testModeContract": {
+          "id": "TM3",
+          "mode": "benchmark/live-agent",
+          "normalizedMode": "benchmark-live-agent",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "covers": "approved Sonnet and Opus same-run benchmark reports",
+          "humanDecision": "cost, auth, network, and live-site approval required"
+        },
+        "contract": {
+          "mode": "benchmark/live-agent",
+          "covers": "R4-R5, AC4-AC5, T4-T5",
+          "method": "`node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,shop-cookie-select,slow-order,iframe-register,miniwob-email-inbox,miniwob-book-flight,miniwob-use-autocomplete,miniwob-login-user,miniwob-search-engine,miniwob-click-checkboxes,wikipedia-extract,hn-top-story,wikipedia-hop,google-search,youtube-search --out /tmp/chromux-opus-20-expanded.json`",
+          "artifact": "benchmark-report-json",
+          "passCriteria": "report exists, covers all 20 current tasks, records versions, reps, sessions, costs, and docs promote post-v2 tasks only from this same-run report",
+          "environment": "authenticated `claude` CLI, Google Chrome, network, npm install access",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": true,
+          "canBeBlockedRaw": "yes",
+          "safeProbe": "stop before launch if estimated cost exceeds approved cap or if auth/network setup is missing",
+          "liveProof": "report JSON and command log",
+          "sideEffect": "launches agent sessions, installs competitor CLI packages in temp prefix, visits public sites",
+          "sensitiveDataPolicy": "do not print secrets, redact tokens, do not publish raw account data"
+        },
+        "contractHash": "cfb7197255dcbd86c11603bf0dedd3211f170bd43ff8db6d7c09af04f1c43398",
+        "status": "planned",
+        "notes": []
+      },
+      {
+        "id": "VP5",
+        "verificationId": "V5",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "automated",
+        "tool": "verify-run",
+        "command": "node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json",
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R1",
+            "R2",
+            "R3",
+            "R4",
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC1",
+            "AC2",
+            "AC3",
+            "AC4",
+            "AC5",
+            "AC6",
+            "AC7"
+          ],
+          "tasks": [
+            "T1",
+            "T2",
+            "T3",
+            "T4",
+            "T5",
+            "T6"
+          ]
+        },
+        "artifactKinds": [
+          "command-log",
+          "network-log"
+        ],
+        "passCriteria": "smoke report exists and proves the harness still launches a cheap machine-graded task after any harness or docs-adjacent changes",
+        "requiredForDone": true,
+        "canBeBlocked": true,
+        "testMode": "automated behavior",
+        "testModeContract": {
+          "id": "TM2",
+          "mode": "automated behavior",
+          "normalizedMode": "automated-behavior",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "covers": "benchmark harness smoke and doc-check regression coverage",
+          "humanDecision": "none"
+        },
+        "contract": {
+          "mode": "automated behavior",
+          "covers": "R1-R7, AC1-AC7, T1-T6",
+          "method": "`node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json`",
+          "artifact": "benchmark-report-json",
+          "passCriteria": "smoke report exists and proves the harness still launches a cheap machine-graded task after any harness or docs-adjacent changes",
+          "environment": "authenticated `claude` CLI, Google Chrome, network, npm install access",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": true,
+          "canBeBlockedRaw": "yes",
+          "safeProbe": "one cheap smoke task only",
+          "liveProof": "report JSON and command log",
+          "sideEffect": "launches one or more local benchmark sessions and installs temp competitor packages",
+          "sensitiveDataPolicy": "do not print secrets, redact tokens"
+        },
+        "contractHash": "df7eb032dbac0cc650f6905f0739c41b3fc501c14656a5966a02fd98aaf35552",
+        "status": "planned",
+        "notes": []
+      },
+      {
+        "id": "VP6",
+        "verificationId": "V6",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "command",
+        "tool": "verify-run",
+        "command": "bash ./test.sh",
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC7"
+          ],
+          "tasks": [
+            "T6"
+          ]
+        },
+        "artifactKinds": [
+          "command-log",
+          "screenshot",
+          "console-log"
+        ],
+        "passCriteria": "full chromux browser test suite exits 0 after benchmark docs or harness changes",
+        "requiredForDone": true,
+        "canBeBlocked": false,
+        "testMode": "browser/runtime",
+        "testModeContract": {
+          "id": "TM4",
+          "mode": "browser/runtime",
+          "normalizedMode": "browser-runtime",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "covers": "full chromux browser suite after docs or harness changes",
+          "humanDecision": "none"
+        },
+        "contract": {
+          "mode": "browser/runtime",
+          "covers": "R7, AC7, T6",
+          "method": "`bash ./test.sh`",
+          "artifact": "command-log",
+          "passCriteria": "full chromux browser test suite exits 0 after benchmark docs or harness changes",
+          "environment": "local shell with Google Chrome",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "canBeBlockedRaw": "no",
+          "safeProbe": "isolated test profiles",
+          "liveProof": "command log",
+          "sideEffect": "launches and closes local Chrome profiles, may fetch configured public test hosts",
+          "sensitiveDataPolicy": "no secrets"
+        },
+        "contractHash": "7d657f5c51fc9fb2c7ea141aaf531203b65ef38c23d36f33e02a9f043da7de33",
+        "status": "planned",
+        "notes": []
+      },
+      {
+        "id": "VP7",
+        "verificationId": "V7",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "command",
+        "tool": "verify-run",
+        "command": "npm pack --dry-run",
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC7"
+          ],
+          "tasks": [
+            "T6",
+            "T7"
+          ]
+        },
+        "artifactKinds": [
+          "command-log"
+        ],
+        "passCriteria": "command exits 0 and tarball includes only the package allowlist from `package.json`",
+        "requiredForDone": true,
+        "canBeBlocked": false,
+        "testMode": "build/static",
+        "testModeContract": {
+          "id": "TM1",
+          "mode": "build/static",
+          "normalizedMode": "build-static",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "covers": "CLI help, docs drift, package surface, shell-level repo health",
+          "humanDecision": "none"
+        },
+        "contract": {
+          "mode": "build/static",
+          "covers": "R7, AC7, T6-T7",
+          "method": "`npm pack --dry-run`",
+          "artifact": "command-log",
+          "passCriteria": "command exits 0 and tarball includes only the package allowlist from `package.json`",
+          "environment": "local shell, npm",
+          "requiredForDone": true,
+          "requiredForDoneRaw": "yes",
+          "canBeBlocked": false,
+          "canBeBlockedRaw": "no",
+          "safeProbe": "package dry-run only",
+          "liveProof": "command log",
+          "sideEffect": "no publish",
+          "sensitiveDataPolicy": "no secrets"
+        },
+        "contractHash": "dc48cdf2b663cfc4ab61394c82c39cd1c8af65001e0e72b22876ccc03183c1ec",
+        "status": "planned",
+        "notes": []
+      },
+      {
+        "id": "VP8",
+        "verificationId": "V8",
+        "level": "General",
+        "source": "verification_matrix",
+        "category": "api",
+        "tool": "record-artifact",
+        "command": null,
+        "target": null,
+        "covers": {
+          "requirements": [
+            "R8"
+          ],
+          "acceptanceCriteria": [
+            "AC8"
+          ],
+          "tasks": [
+            "T7"
+          ]
+        },
+        "artifactKinds": [
+          "api-log"
+        ],
+        "passCriteria": "changed file list excludes unrelated `.hoyeon` intake artifacts, PR URL exists after ship, and required CI status is reported as pass or explicitly blocked",
+        "requiredForDone": false,
+        "canBeBlocked": true,
+        "testMode": "delivery/CI",
+        "testModeContract": {
+          "id": "TM5",
+          "mode": "delivery/CI",
+          "normalizedMode": "delivery-ci",
+          "requiredForDone": false,
+          "requiredForDoneRaw": "no/blockable",
+          "canBeBlocked": true,
+          "covers": "PR URL, diff scope, and GitHub CI after implementation receipt",
+          "humanDecision": "final merge remains human-owned"
+        },
+        "contract": {
+          "mode": "delivery/CI",
+          "covers": "R8, AC8, T7",
+          "method": "`git status --short && gh pr view --json url,headRefName,statusCheckRollup`",
+          "artifact": "command-log",
+          "passCriteria": "changed file list excludes unrelated `.hoyeon` intake artifacts, PR URL exists after ship, and required CI status is reported as pass or explicitly blocked",
+          "environment": "authenticated GitHub CLI after receipt",
+          "requiredForDone": false,
+          "requiredForDoneRaw": "no",
+          "canBeBlocked": true,
+          "canBeBlockedRaw": "yes",
+          "safeProbe": "PR status read and diff inspection",
+          "liveProof": "PR URL, changed files, CI status",
+          "sideEffect": "may push branch and open PR during ship stage",
+          "sensitiveDataPolicy": "do not include secrets or local-only paths in PR body"
+        },
+        "contractHash": "6efdacbcf7bfcbc1e15b7cfc2b82702e68438246b69ea733a32ca1e6ec9afb1d",
+        "status": "planned",
+        "notes": []
+      }
+    ],
+    "coverage": {
+      "AC1": {
+        "title": "The implementation report lists the exact 20 current task IDs from `buildTasks` and identifies the 12 official v2 tas...",
+        "requirements": [],
+        "coveredBy": [
+          "VP1",
+          "VP2",
+          "VP5"
+        ],
+        "status": "covered"
+      },
+      "AC2": {
+        "title": "A Sonnet 5 report artifact exists for the approved 12-task same-run, and its per-session records include enough data ...",
+        "requirements": [],
+        "coveredBy": [
+          "VP3",
+          "VP5"
+        ],
+        "status": "covered"
+      },
+      "AC3": {
+        "title": "The Sonnet section in `docs/benchmark-2026-07.md` no longer claims that the rest of the table has not been re-run whe...",
+        "requirements": [],
+        "coveredBy": [
+          "VP3",
+          "VP5"
+        ],
+        "status": "covered"
+      },
+      "AC4": {
+        "title": "An Opus report artifact exists for the approved 20-task 3-tool same-run, or implementation status is `Blocked` with a...",
+        "requirements": [],
+        "coveredBy": [
+          "VP4",
+          "VP5"
+        ],
+        "status": "covered"
+      },
+      "AC5": {
+        "title": "The official benchmark table includes post-v2 tasks only from the expanded same-run and does not mix historical cells...",
+        "requirements": [],
+        "coveredBy": [
+          "VP4",
+          "VP5"
+        ],
+        "status": "covered"
+      },
+      "AC6": {
+        "title": "README and `benchmarks/chromux-doc-check.mjs` are consistent with the final benchmark claims, and unchanged surfaces ...",
+        "requirements": [],
+        "coveredBy": [
+          "VP1",
+          "VP2",
+          "VP5"
+        ],
+        "status": "covered"
+      },
+      "AC7": {
+        "title": "`node chromux.mjs help`, `bash ./test.sh`, `node benchmarks/chromux-doc-check.mjs`, and `npm pack --dry-run` pass aft...",
+        "requirements": [],
+        "coveredBy": [
+          "VP1",
+          "VP2",
+          "VP5",
+          "VP6",
+          "VP7"
+        ],
+        "status": "covered"
+      },
+      "AC8": {
+        "title": "PR delivery evidence includes branch name, PR URL, changed file list, CI status, and confirmation that no unrelated `...",
+        "requirements": [],
+        "coveredBy": [
+          "VP8"
+        ],
+        "status": "covered"
+      }
+    },
+    "gaps": []
+  },
+  "executionPlan": {
+    "schema": "hoyeon.prd-implement.execution-plan.v1",
+    "status": "ready",
+    "generatedAt": "2026-07-12T14:37:14.131Z",
+    "prdPath": "agents/prd/benchmark-followup/prd.md",
+    "statePath": "agents/implement/benchmark-followup/state.json",
+    "nodes": [
+      {
+        "id": "N1",
+        "kind": "implementation",
+        "sourceTask": "T1",
+        "title": "Reconcile current repo baseline, task list, harness flags, version, docs, and delivery config before measurement. Cov...",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "covers": {
+          "requirements": [
+            "R1"
+          ],
+          "acceptanceCriteria": [
+            "AC1"
+          ],
+          "verification": [
+            "V1",
+            "V2",
+            "V5"
+          ]
+        },
+        "parallelSafe": false,
+        "risk": "high",
+        "owner": null,
+        "status": "complete",
+        "evidence": [
+          {
+            "ts": "2026-07-12T14:39:49.099Z",
+            "text": "Baseline reconciliation started from origin/main@7e2dbf4 with approved PRD and verified local prerequisites."
+          },
+          {
+            "ts": "2026-07-12T14:40:18.496Z",
+            "text": "agents/implement/benchmark-followup/context-notes.md records origin/main@7e2dbf4, version 0.18.0, exact 12+8 task split from buildTasks(), harness flags, delivery config, prerequisites, and budget estimates."
+          }
+        ],
+        "artifacts": []
+      },
+      {
+        "id": "N2",
+        "kind": "implementation",
+        "sourceTask": "T2",
+        "title": "Run the approved Sonnet 5 12-task same-run and inspect report-level command traces for high-cost chromux sessions. Co...",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "covers": {
+          "requirements": [
+            "R2"
+          ],
+          "acceptanceCriteria": [
+            "AC2"
+          ],
+          "verification": [
+            "V3",
+            "V5"
+          ]
+        },
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "status": "complete",
+        "evidence": [
+          {
+            "ts": "2026-07-12T14:45:59.522Z",
+            "text": "Starting approved Sonnet 5 same-run through local Claude Code CLI with 12 tasks, chromux and playwright-cli, reduced 2/1 reps for 40 sessions."
+          },
+          {
+            "ts": "2026-07-12T15:07:12.614Z",
+            "text": "V3 raw report artifact proves the Sonnet 5 12-task same-run; high-turn chromux traces were inspected, led by miniwob-book-flight at 14 turns using open/click/snapshot/fill flows."
+          }
+        ],
+        "artifacts": []
+      },
+      {
+        "id": "N3",
+        "kind": "implementation",
+        "sourceTask": "T3",
+        "title": "Update the Sonnet section and aggregates in `docs/benchmark-2026-07.md` using only the new same-run data. Covers R3, ...",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md"
+        ],
+        "covers": {
+          "requirements": [
+            "R3"
+          ],
+          "acceptanceCriteria": [
+            "AC3"
+          ],
+          "verification": [
+            "V3",
+            "V5"
+          ]
+        },
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "status": "complete",
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:07:37.193Z",
+            "text": "Updating Sonnet documentation from the registered V3 same-run artifact only."
+          },
+          {
+            "ts": "2026-07-12T15:08:41.153Z",
+            "text": "docs/benchmark-2026-07.md now preserves historical Sonnet results and adds the registered V3 0.18.0 12-task same-run table plus full and MiniWoB-excluded aggregates; git diff --check passes."
+          }
+        ],
+        "artifacts": []
+      },
+      {
+        "id": "N4",
+        "kind": "implementation",
+        "sourceTask": "T4",
+        "title": "Run the approved Opus 20-task 3-tool same-run or stop with a documented blocker before publishing any expanded offici...",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "covers": {
+          "requirements": [
+            "R4"
+          ],
+          "acceptanceCriteria": [
+            "AC4"
+          ],
+          "verification": [
+            "V4",
+            "V5"
+          ]
+        },
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "status": "complete",
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:08:57.989Z",
+            "text": "Starting approved Opus 20-task three-tool same-run with reduced 2/1 reps for 105 sessions, preserving all tasks/tools while staying below the  cap."
+          },
+          {
+            "ts": "2026-07-12T16:20:32.046Z",
+            "text": "V4 registered report proves approved 20-task 3-tool run completed within cost cap; high-turn chromux traces inspected, including expected MiniWoB flows and isolated repaired command errors"
+          }
+        ],
+        "artifacts": []
+      },
+      {
+        "id": "N5",
+        "kind": "implementation",
+        "sourceTask": "T5",
+        "title": "Update the official benchmark table and post-v2 task wording only from the expanded same-run report. Covers R5, AC5.",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "covers": {
+          "requirements": [
+            "R5"
+          ],
+          "acceptanceCriteria": [
+            "AC5"
+          ],
+          "verification": [
+            "V4",
+            "V5"
+          ]
+        },
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "status": "complete",
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:25:02.964Z",
+            "text": "docs/benchmark-2026-07.md now publishes the registered V4 20-task same-run only; a structured JSON-to-Markdown assertion matched all 20 task rows and all aggregate values"
+          }
+        ],
+        "artifacts": []
+      },
+      {
+        "id": "N6",
+        "kind": "implementation",
+        "sourceTask": "T6",
+        "title": "Sync README, skills, and `benchmarks/chromux-doc-check.mjs` when benchmark claims or guidance changed, then run local...",
+        "dependsOn": [],
+        "writeScope": [
+          "benchmarks/chromux-doc-check.mjs"
+        ],
+        "covers": {
+          "requirements": [
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC6",
+            "AC7"
+          ],
+          "verification": [
+            "V1",
+            "V2",
+            "V5",
+            "V6",
+            "V7"
+          ]
+        },
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "status": "complete",
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:30:09.058Z",
+            "text": "README/docs/install/doc-check synchronized; skills and Token Footprint intentionally unchanged; V1, V2, V5, V6, V7 pass, including 222/222 real Chrome tests and clean package allowlist"
+          }
+        ],
+        "artifacts": []
+      },
+      {
+        "id": "N7",
+        "kind": "implementation",
+        "sourceTask": "T7",
+        "title": "Prepare PR delivery evidence with a clean diff and CI status, without publishing or staging unrelated artifacts. Cove...",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "covers": {
+          "requirements": [
+            "R8"
+          ],
+          "acceptanceCriteria": [
+            "AC8"
+          ],
+          "verification": [
+            "V7",
+            "V8"
+          ]
+        },
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "status": "complete",
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:33:48.575Z",
+            "text": "delivery-readiness.md records clean receipt-first PR plan, branch/base freshness, fallback template, exact staging scope, CI watch, and unrelated .hoyeon exclusion; V7 passed and optional V8 is explicitly deferred to ho-ship"
+          }
+        ],
+        "artifacts": []
+      }
+    ],
+    "rollups": {
+      "tasks": {
+        "T1": {
+          "nodes": [
+            "N1"
+          ],
+          "acceptanceCriteria": [
+            "AC1"
+          ],
+          "verification": [
+            "V1",
+            "V2",
+            "V5"
+          ]
+        },
+        "T2": {
+          "nodes": [
+            "N2"
+          ],
+          "acceptanceCriteria": [
+            "AC2"
+          ],
+          "verification": [
+            "V3",
+            "V5"
+          ]
+        },
+        "T3": {
+          "nodes": [
+            "N3"
+          ],
+          "acceptanceCriteria": [
+            "AC3"
+          ],
+          "verification": [
+            "V3",
+            "V5"
+          ]
+        },
+        "T4": {
+          "nodes": [
+            "N4"
+          ],
+          "acceptanceCriteria": [
+            "AC4"
+          ],
+          "verification": [
+            "V4",
+            "V5"
+          ]
+        },
+        "T5": {
+          "nodes": [
+            "N5"
+          ],
+          "acceptanceCriteria": [
+            "AC5"
+          ],
+          "verification": [
+            "V4",
+            "V5"
+          ]
+        },
+        "T6": {
+          "nodes": [
+            "N6"
+          ],
+          "acceptanceCriteria": [
+            "AC6",
+            "AC7"
+          ],
+          "verification": [
+            "V1",
+            "V2",
+            "V5",
+            "V6",
+            "V7"
+          ]
+        },
+        "T7": {
+          "nodes": [
+            "N7"
+          ],
+          "acceptanceCriteria": [
+            "AC8"
+          ],
+          "verification": [
+            "V7",
+            "V8"
+          ]
+        }
+      }
+    },
+    "traceMatrix": [
+      {
+        "taskId": "T1",
+        "nodeIds": [
+          "N1"
+        ],
+        "requirements": [
+          "R1"
+        ],
+        "acceptanceCriteria": [
+          "AC1"
+        ],
+        "verification": [
+          "V1",
+          "V2",
+          "V5"
+        ],
+        "requiredVerification": [
+          "V1",
+          "V2",
+          "V5"
+        ],
+        "optionalVerification": [],
+        "nodeStatuses": [
+          {
+            "id": "N1",
+            "status": "complete"
+          }
+        ]
+      },
+      {
+        "taskId": "T2",
+        "nodeIds": [
+          "N2"
+        ],
+        "requirements": [
+          "R2"
+        ],
+        "acceptanceCriteria": [
+          "AC2"
+        ],
+        "verification": [
+          "V3",
+          "V5"
+        ],
+        "requiredVerification": [
+          "V3",
+          "V5"
+        ],
+        "optionalVerification": [],
+        "nodeStatuses": [
+          {
+            "id": "N2",
+            "status": "complete"
+          }
+        ]
+      },
+      {
+        "taskId": "T3",
+        "nodeIds": [
+          "N3"
+        ],
+        "requirements": [
+          "R3"
+        ],
+        "acceptanceCriteria": [
+          "AC3"
+        ],
+        "verification": [
+          "V3",
+          "V5"
+        ],
+        "requiredVerification": [
+          "V3",
+          "V5"
+        ],
+        "optionalVerification": [],
+        "nodeStatuses": [
+          {
+            "id": "N3",
+            "status": "complete"
+          }
+        ]
+      },
+      {
+        "taskId": "T4",
+        "nodeIds": [
+          "N4"
+        ],
+        "requirements": [
+          "R4"
+        ],
+        "acceptanceCriteria": [
+          "AC4"
+        ],
+        "verification": [
+          "V4",
+          "V5"
+        ],
+        "requiredVerification": [
+          "V4",
+          "V5"
+        ],
+        "optionalVerification": [],
+        "nodeStatuses": [
+          {
+            "id": "N4",
+            "status": "complete"
+          }
+        ]
+      },
+      {
+        "taskId": "T5",
+        "nodeIds": [
+          "N5"
+        ],
+        "requirements": [
+          "R5"
+        ],
+        "acceptanceCriteria": [
+          "AC5"
+        ],
+        "verification": [
+          "V4",
+          "V5"
+        ],
+        "requiredVerification": [
+          "V4",
+          "V5"
+        ],
+        "optionalVerification": [],
+        "nodeStatuses": [
+          {
+            "id": "N5",
+            "status": "complete"
+          }
+        ]
+      },
+      {
+        "taskId": "T6",
+        "nodeIds": [
+          "N6"
+        ],
+        "requirements": [
+          "R6",
+          "R7"
+        ],
+        "acceptanceCriteria": [
+          "AC6",
+          "AC7"
+        ],
+        "verification": [
+          "V1",
+          "V2",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "requiredVerification": [
+          "V1",
+          "V2",
+          "V5",
+          "V6",
+          "V7"
+        ],
+        "optionalVerification": [],
+        "nodeStatuses": [
+          {
+            "id": "N6",
+            "status": "complete"
+          }
+        ]
+      },
+      {
+        "taskId": "T7",
+        "nodeIds": [
+          "N7"
+        ],
+        "requirements": [
+          "R8"
+        ],
+        "acceptanceCriteria": [
+          "AC8"
+        ],
+        "verification": [
+          "V7",
+          "V8"
+        ],
+        "requiredVerification": [
+          "V7"
+        ],
+        "optionalVerification": [
+          "V8"
+        ],
+        "nodeStatuses": [
+          {
+            "id": "N7",
+            "status": "complete"
+          }
+        ]
+      }
+    ],
+    "gaps": [
+      {
+        "severity": "warning",
+        "code": "weak_graph_no_dependencies",
+        "item": "execution-plan",
+        "message": "Execution plan has five or more nodes and no dependencies; confirm this is genuinely parallelizable or record a deviation"
+      }
+    ]
+  },
+  "taskGraph": {
+    "schema": "hoyeon.prd-implement.taskgraph.v2",
+    "generatedAt": "2026-07-12T16:40:04.940Z",
+    "prdPath": "agents/prd/benchmark-followup/prd.md",
+    "status": "complete",
+    "summary": {
+      "nodeCount": 35,
+      "edgeCount": 149,
+      "openNodeCount": 0,
+      "blockingGapCount": 0,
+      "executionNodeCount": 7,
+      "openExecutionNodeCount": 0
+    },
+    "nodes": [
+      {
+        "id": "VP0",
+        "kind": "verification_plan",
+        "title": "Generate and resolve verification plan",
+        "status": "ready",
+        "closed": true,
+        "blockingGapCount": 0,
+        "checkCount": 8,
+        "evidenceCount": 0,
+        "artifactCount": 0
+      },
+      {
+        "id": "EP0",
+        "kind": "execution_plan",
+        "title": "Generate execution plan from PRD tasks",
+        "status": "ready",
+        "closed": true,
+        "blockingGapCount": 0,
+        "nodeCount": 7,
+        "evidenceCount": 0,
+        "artifactCount": 0
+      },
+      {
+        "id": "T1",
+        "kind": "task_rollup",
+        "title": "Reconcile current repo baseline, task list, harness flags, version, docs, and delivery config before measurement. Cov...",
+        "status": "complete",
+        "closed": true,
+        "requirements": [
+          "R1"
+        ],
+        "acceptanceCriteria": [
+          "AC1"
+        ],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:29:46.985Z",
+            "text": "Execution roll-up: N1 complete; ACs AC1 met; required Verification V1, V2, V5 passed."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "T2",
+        "kind": "task_rollup",
+        "title": "Run the approved Sonnet 5 12-task same-run and inspect report-level command traces for high-cost chromux sessions. Co...",
+        "status": "complete",
+        "closed": true,
+        "requirements": [
+          "R2"
+        ],
+        "acceptanceCriteria": [
+          "AC2"
+        ],
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:07:18.675Z",
+            "text": "Execution roll-up: N2 complete; ACs AC2 met; required Verification V3, V5 passed."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "T3",
+        "kind": "task_rollup",
+        "title": "Update the Sonnet section and aggregates in `docs/benchmark-2026-07.md` using only the new same-run data. Covers R3, ...",
+        "status": "complete",
+        "closed": true,
+        "requirements": [
+          "R3"
+        ],
+        "acceptanceCriteria": [
+          "AC3"
+        ],
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:08:47.441Z",
+            "text": "Execution roll-up: N3 complete; ACs AC3 met; required Verification V3, V5 passed."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "T4",
+        "kind": "task_rollup",
+        "title": "Run the approved Opus 20-task 3-tool same-run or stop with a documented blocker before publishing any expanded offici...",
+        "status": "complete",
+        "closed": true,
+        "requirements": [
+          "R4"
+        ],
+        "acceptanceCriteria": [
+          "AC4"
+        ],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:20:36.004Z",
+            "text": "Execution roll-up: N4 complete; ACs AC4 met; required Verification V4, V5 passed."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "T5",
+        "kind": "task_rollup",
+        "title": "Update the official benchmark table and post-v2 task wording only from the expanded same-run report. Covers R5, AC5.",
+        "status": "complete",
+        "closed": true,
+        "requirements": [
+          "R5"
+        ],
+        "acceptanceCriteria": [
+          "AC5"
+        ],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:25:08.683Z",
+            "text": "Execution roll-up: N5 complete; ACs AC5 met; required Verification V4, V5 passed."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "T6",
+        "kind": "task_rollup",
+        "title": "Sync README, skills, and `benchmarks/chromux-doc-check.mjs` when benchmark claims or guidance changed, then run local...",
+        "status": "complete",
+        "closed": true,
+        "requirements": [
+          "R6",
+          "R7"
+        ],
+        "acceptanceCriteria": [
+          "AC6",
+          "AC7"
+        ],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:30:09.058Z",
+            "text": "Execution roll-up: N6 complete; ACs AC6, AC7 met; required Verification V1, V2, V5, V6, V7 passed."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "T7",
+        "kind": "task_rollup",
+        "title": "Prepare PR delivery evidence with a clean diff and CI status, without publishing or staging unrelated artifacts. Cove...",
+        "status": "complete",
+        "closed": true,
+        "requirements": [
+          "R8"
+        ],
+        "acceptanceCriteria": [
+          "AC8"
+        ],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:33:48.577Z",
+            "text": "Execution roll-up: N7 complete; ACs AC8 met; required Verification V7 passed."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "N1",
+        "kind": "execution_node",
+        "title": "Reconcile current repo baseline, task list, harness flags, version, docs, and delivery config before measurement. Cov...",
+        "status": "complete",
+        "closed": true,
+        "sourceTask": "T1",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "parallelSafe": false,
+        "risk": "high",
+        "owner": null,
+        "covers": {
+          "requirements": [
+            "R1"
+          ],
+          "acceptanceCriteria": [
+            "AC1"
+          ],
+          "verification": [
+            "V1",
+            "V2",
+            "V5"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T14:39:49.099Z",
+            "text": "Baseline reconciliation started from origin/main@7e2dbf4 with approved PRD and verified local prerequisites."
+          },
+          {
+            "ts": "2026-07-12T14:40:18.496Z",
+            "text": "agents/implement/benchmark-followup/context-notes.md records origin/main@7e2dbf4, version 0.18.0, exact 12+8 task split from buildTasks(), harness flags, delivery config, prerequisites, and budget estimates."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 2,
+        "artifactCount": 0
+      },
+      {
+        "id": "N2",
+        "kind": "execution_node",
+        "title": "Run the approved Sonnet 5 12-task same-run and inspect report-level command traces for high-cost chromux sessions. Co...",
+        "status": "complete",
+        "closed": true,
+        "sourceTask": "T2",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "covers": {
+          "requirements": [
+            "R2"
+          ],
+          "acceptanceCriteria": [
+            "AC2"
+          ],
+          "verification": [
+            "V3",
+            "V5"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T14:45:59.522Z",
+            "text": "Starting approved Sonnet 5 same-run through local Claude Code CLI with 12 tasks, chromux and playwright-cli, reduced 2/1 reps for 40 sessions."
+          },
+          {
+            "ts": "2026-07-12T15:07:12.614Z",
+            "text": "V3 raw report artifact proves the Sonnet 5 12-task same-run; high-turn chromux traces were inspected, led by miniwob-book-flight at 14 turns using open/click/snapshot/fill flows."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 2,
+        "artifactCount": 0
+      },
+      {
+        "id": "N3",
+        "kind": "execution_node",
+        "title": "Update the Sonnet section and aggregates in `docs/benchmark-2026-07.md` using only the new same-run data. Covers R3, ...",
+        "status": "complete",
+        "closed": true,
+        "sourceTask": "T3",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md"
+        ],
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "covers": {
+          "requirements": [
+            "R3"
+          ],
+          "acceptanceCriteria": [
+            "AC3"
+          ],
+          "verification": [
+            "V3",
+            "V5"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:07:37.193Z",
+            "text": "Updating Sonnet documentation from the registered V3 same-run artifact only."
+          },
+          {
+            "ts": "2026-07-12T15:08:41.153Z",
+            "text": "docs/benchmark-2026-07.md now preserves historical Sonnet results and adds the registered V3 0.18.0 12-task same-run table plus full and MiniWoB-excluded aggregates; git diff --check passes."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 2,
+        "artifactCount": 0
+      },
+      {
+        "id": "N4",
+        "kind": "execution_node",
+        "title": "Run the approved Opus 20-task 3-tool same-run or stop with a documented blocker before publishing any expanded offici...",
+        "status": "complete",
+        "closed": true,
+        "sourceTask": "T4",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "covers": {
+          "requirements": [
+            "R4"
+          ],
+          "acceptanceCriteria": [
+            "AC4"
+          ],
+          "verification": [
+            "V4",
+            "V5"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:08:57.989Z",
+            "text": "Starting approved Opus 20-task three-tool same-run with reduced 2/1 reps for 105 sessions, preserving all tasks/tools while staying below the  cap."
+          },
+          {
+            "ts": "2026-07-12T16:20:32.046Z",
+            "text": "V4 registered report proves approved 20-task 3-tool run completed within cost cap; high-turn chromux traces inspected, including expected MiniWoB flows and isolated repaired command errors"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 2,
+        "artifactCount": 0
+      },
+      {
+        "id": "N5",
+        "kind": "execution_node",
+        "title": "Update the official benchmark table and post-v2 task wording only from the expanded same-run report. Covers R5, AC5.",
+        "status": "complete",
+        "closed": true,
+        "sourceTask": "T5",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "covers": {
+          "requirements": [
+            "R5"
+          ],
+          "acceptanceCriteria": [
+            "AC5"
+          ],
+          "verification": [
+            "V4",
+            "V5"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:25:02.964Z",
+            "text": "docs/benchmark-2026-07.md now publishes the registered V4 20-task same-run only; a structured JSON-to-Markdown assertion matched all 20 task rows and all aggregate values"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "N6",
+        "kind": "execution_node",
+        "title": "Sync README, skills, and `benchmarks/chromux-doc-check.mjs` when benchmark claims or guidance changed, then run local...",
+        "status": "complete",
+        "closed": true,
+        "sourceTask": "T6",
+        "dependsOn": [],
+        "writeScope": [
+          "benchmarks/chromux-doc-check.mjs"
+        ],
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "covers": {
+          "requirements": [
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC6",
+            "AC7"
+          ],
+          "verification": [
+            "V1",
+            "V2",
+            "V5",
+            "V6",
+            "V7"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:30:09.058Z",
+            "text": "README/docs/install/doc-check synchronized; skills and Token Footprint intentionally unchanged; V1, V2, V5, V6, V7 pass, including 222/222 real Chrome tests and clean package allowlist"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "N7",
+        "kind": "execution_node",
+        "title": "Prepare PR delivery evidence with a clean diff and CI status, without publishing or staging unrelated artifacts. Cove...",
+        "status": "complete",
+        "closed": true,
+        "sourceTask": "T7",
+        "dependsOn": [],
+        "writeScope": [
+          "docs/benchmark-2026-07.md",
+          "benchmarks/chromux-doc-check.mjs",
+          "benchmarks/agent-compare-benchmark.mjs",
+          ".hoyeon/intake/chromux-memory-credential-search/",
+          "/Users/",
+          "file://"
+        ],
+        "parallelSafe": true,
+        "risk": "medium",
+        "owner": null,
+        "covers": {
+          "requirements": [
+            "R8"
+          ],
+          "acceptanceCriteria": [
+            "AC8"
+          ],
+          "verification": [
+            "V7",
+            "V8"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:33:48.575Z",
+            "text": "delivery-readiness.md records clean receipt-first PR plan, branch/base freshness, fallback template, exact staging scope, CI watch, and unrelated .hoyeon exclusion; V7 passed and optional V8 is explicitly deferred to ho-ship"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC1",
+        "kind": "acceptance_criterion",
+        "title": "The implementation report lists the exact 20 current task IDs from `buildTasks` and identifies the 12 official v2 tas...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:29:46.984Z",
+            "text": "agents/implement/benchmark-followup/context-notes.md records the exact buildTasks() 20-task source of truth and explicitly separates the 12 official v2 IDs from the 8 post-v2 IDs for implementation reporting"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC2",
+        "kind": "acceptance_criterion",
+        "title": "A Sonnet 5 report artifact exists for the approved 12-task same-run, and its per-session records include enough data ...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:07:18.674Z",
+            "text": "V3 API artifact contains 40 Sonnet session records with tool/task/rep grading, versions, costs, tokens, turns, and redacted chromux command arrays; chromux high-turn traces were inspected."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC3",
+        "kind": "acceptance_criterion",
+        "title": "The Sonnet section in `docs/benchmark-2026-07.md` no longer claims that the rest of the table has not been re-run whe...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:08:47.441Z",
+            "text": "docs/benchmark-2026-07.md removes the stale full-table-not-rerun claim and adds a 0.18.0 Sonnet table sourced only from registered V3, while preserving older tables as history."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC4",
+        "kind": "acceptance_criterion",
+        "title": "An Opus report artifact exists for the approved 20-task 3-tool same-run, or implementation status is `Blocked` with a...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:20:36.004Z",
+            "text": "Expanded Opus run completed at 18.45 USD below the approved 30 USD cap; V4 artifact records 105 sessions and exact same-run tool versions"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC5",
+        "kind": "acceptance_criterion",
+        "title": "The official benchmark table includes post-v2 tasks only from the expanded same-run and does not mix historical cells...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:25:08.682Z",
+            "text": "Official expanded section in docs/benchmark-2026-07.md contains all 20 current buildTasks IDs, exact V4 same-run cells, versions, reduced reps, cost, MiniWoB commit, trace audit, and live-site caveats"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC6",
+        "kind": "acceptance_criterion",
+        "title": "README and `benchmarks/chromux-doc-check.mjs` are consistent with the final benchmark claims, and unchanged surfaces ...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:29:54.528Z",
+            "text": "README now uses the registered 20-task V4 headline, doc-check asserts README/benchmark/install claims, and context-notes explicitly records unchanged skills, Token Footprint, harness, and package version surfaces"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC7",
+        "kind": "acceptance_criterion",
+        "title": "`node chromux.mjs help`, `bash ./test.sh`, `node benchmarks/chromux-doc-check.mjs`, and `npm pack --dry-run` pass aft...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:29:59.067Z",
+            "text": "V1 help passed; V2 doc check passed; V6 ./test.sh passed 222/222 with registered browser log; V7 npm pack --dry-run passed with 41 allowlisted files"
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "AC8",
+        "kind": "acceptance_criterion",
+        "title": "PR delivery evidence includes branch name, PR URL, changed file list, CI status, and confirmation that no unrelated `...",
+        "status": "met",
+        "closed": true,
+        "requirements": [],
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:33:43.438Z",
+            "text": "agents/implement/benchmark-followup/delivery-readiness.md records branch prd/benchmark-followup, current origin/main base, exact intended changed paths, PR template selection, CI-watch mode, and exclusion of unrelated .hoyeon intake. Per the approved receipt-first sequence, ho-ship supplies the PR URL and CI verdict after finalization before completion is reported."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "V1",
+        "kind": "verification",
+        "title": "`node chromux.mjs help`",
+        "status": "pass",
+        "closed": true,
+        "level": "General",
+        "category": "command",
+        "tool": "verify-run",
+        "requiredForDone": true,
+        "covers": {
+          "requirements": [
+            "R1",
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC1",
+            "AC6",
+            "AC7"
+          ],
+          "tasks": [
+            "T1",
+            "T6"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:25:17.744Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log (f909c0e9c6ea) - verify-run passed: node chromux.mjs help"
+          },
+          {
+            "ts": "2026-07-12T16:25:17.744Z",
+            "text": "Command passed with exit code 0: node chromux.mjs help. Log: agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifactId": "V1-command-log-2026-07-12T16-25-17-744Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log",
+            "description": "verify-run passed: node chromux.mjs help",
+            "createdAt": "2026-07-12T16:25:17.744Z",
+            "bytes": 9677,
+            "sha256": "f909c0e9c6ea7936760898e2a3d5391f293b5adb3984356b465dd9c3c478a10d",
+            "mimeHint": "text/plain",
+            "command": "node chromux.mjs help",
+            "contractCommand": "node chromux.mjs help",
+            "deviationId": null,
+            "exitCode": 0,
+            "startedAt": "2026-07-12T16:25:17.657Z",
+            "finishedAt": "2026-07-12T16:25:17.742Z"
+          }
+        ],
+        "evidenceCount": 2,
+        "artifactCount": 1
+      },
+      {
+        "id": "V2",
+        "kind": "verification",
+        "title": "`node benchmarks/chromux-doc-check.mjs`",
+        "status": "pass",
+        "closed": true,
+        "level": "General",
+        "category": "automated",
+        "tool": "verify-run",
+        "requiredForDone": true,
+        "covers": {
+          "requirements": [
+            "R1",
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC1",
+            "AC6",
+            "AC7"
+          ],
+          "tasks": [
+            "T1",
+            "T6"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:25:21.955Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log (7be696aa81b3) - verify-run failed: node benchmarks/chromux-doc-check.mjs"
+          },
+          {
+            "ts": "2026-07-12T16:25:21.955Z",
+            "text": "Command failed with exit code 1: node benchmarks/chromux-doc-check.mjs. Log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log"
+          },
+          {
+            "ts": "2026-07-12T16:25:43.575Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log (aa4e15509ac6) - verify-run passed: node benchmarks/chromux-doc-check.mjs"
+          },
+          {
+            "ts": "2026-07-12T16:25:43.575Z",
+            "text": "Command passed with exit code 0: node benchmarks/chromux-doc-check.mjs. Log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifactId": "V2-command-log-2026-07-12T16-25-21-955Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log",
+            "description": "verify-run failed: node benchmarks/chromux-doc-check.mjs",
+            "createdAt": "2026-07-12T16:25:21.955Z",
+            "bytes": 1003,
+            "sha256": "7be696aa81b3e3cde95fd8c928ba1d520cb8f6073bcb1b1bfabe338dd9b6c935",
+            "mimeHint": "text/plain",
+            "command": "node benchmarks/chromux-doc-check.mjs",
+            "contractCommand": "node benchmarks/chromux-doc-check.mjs",
+            "deviationId": null,
+            "exitCode": 1,
+            "startedAt": "2026-07-12T16:25:21.814Z",
+            "finishedAt": "2026-07-12T16:25:21.953Z"
+          },
+          {
+            "artifactId": "V2-command-log-2026-07-12T16-25-43-575Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log",
+            "description": "verify-run passed: node benchmarks/chromux-doc-check.mjs",
+            "createdAt": "2026-07-12T16:25:43.575Z",
+            "bytes": 11253,
+            "sha256": "aa4e15509ac6a7ba0300010af1ee30753ad0ded5a4ecb03daa7e1f74273c3fc6",
+            "mimeHint": "text/plain",
+            "command": "node benchmarks/chromux-doc-check.mjs",
+            "contractCommand": "node benchmarks/chromux-doc-check.mjs",
+            "deviationId": null,
+            "exitCode": 0,
+            "startedAt": "2026-07-12T16:25:43.422Z",
+            "finishedAt": "2026-07-12T16:25:43.574Z"
+          }
+        ],
+        "evidenceCount": 4,
+        "artifactCount": 2
+      },
+      {
+        "id": "V3",
+        "kind": "verification",
+        "title": "`node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-orde...",
+        "status": "pass",
+        "closed": true,
+        "level": "General",
+        "category": "api",
+        "tool": "record-artifact",
+        "requiredForDone": true,
+        "covers": {
+          "requirements": [
+            "R2",
+            "R3"
+          ],
+          "acceptanceCriteria": [
+            "AC2",
+            "AC3"
+          ],
+          "tasks": [
+            "T2",
+            "T3"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T15:06:42.716Z",
+            "text": "Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json (9bafa342cff5) - Sonnet 5 same-run raw report for 12 tasks across chromux and playwright-cli, 2/1 reps, 40 sessions, with per-session commands and machine grading."
+          },
+          {
+            "ts": "2026-07-12T15:07:06.667Z",
+            "text": "Registered API artifact agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json sha256 9bafa342cff5fb20ec6084e478e2fda762cef916cc94635fecb1cc2b180ea688; 12 tasks, 2 tools, 40 sessions, 39 passed, .1543, per-session command traces present."
+          },
+          {
+            "ts": "2026-07-12T16:37:37.148Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log (c095a1dd5be8) - verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'"
+          },
+          {
+            "ts": "2026-07-12T16:37:37.149Z",
+            "text": "Command passed with exit code 0: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'. Log: agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifactId": "V3-api-2026-07-12T15-06-42-715Z",
+            "kind": "api",
+            "path": "agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json",
+            "description": "Sonnet 5 same-run raw report for 12 tasks across chromux and playwright-cli, 2/1 reps, 40 sessions, with per-session commands and machine grading.",
+            "createdAt": "2026-07-12T15:06:42.716Z",
+            "bytes": 38279,
+            "sha256": "9bafa342cff5fb20ec6084e478e2fda762cef916cc94635fecb1cc2b180ea688",
+            "mimeHint": "text/plain"
+          },
+          {
+            "artifactId": "V3-command-log-2026-07-12T16-37-37-148Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log",
+            "description": "verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+            "createdAt": "2026-07-12T16:37:37.148Z",
+            "bytes": 810,
+            "sha256": "c095a1dd5be80bed0bd906c2785e80e033739ed9573ffcba6bcc3913fb2b54dc",
+            "mimeHint": "text/plain",
+            "command": "node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+            "contractCommand": "node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,hn-top-story,wikipedia-hop,google-search,youtube-search,miniwob-email-inbox,miniwob-book-flight --out /tmp/chromux-sonnet-12-rerun.json",
+            "deviationId": "D1",
+            "exitCode": 0,
+            "startedAt": "2026-07-12T16:37:37.090Z",
+            "finishedAt": "2026-07-12T16:37:37.147Z"
+          }
+        ],
+        "evidenceCount": 4,
+        "artifactCount": 2
+      },
+      {
+        "id": "V4",
+        "kind": "verification",
+        "title": "`node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --t...",
+        "status": "pass",
+        "closed": true,
+        "level": "General",
+        "category": "api",
+        "tool": "record-artifact",
+        "requiredForDone": true,
+        "covers": {
+          "requirements": [
+            "R4",
+            "R5"
+          ],
+          "acceptanceCriteria": [
+            "AC4",
+            "AC5"
+          ],
+          "tasks": [
+            "T4",
+            "T5"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:19:50.672Z",
+            "text": "Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json (85722fe6a57f) - Opus expanded 20-task same-run report: 3 tools, reduced 2/1 reps, 105 per-session records, 102 passed, 18.45 USD total"
+          },
+          {
+            "ts": "2026-07-12T16:20:26.927Z",
+            "text": "Registered API report agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json (sha256 85722fe6a57f3361201c79b9c5a33d897d0d5ccb32c412752a422e40e6a84f46): 105 same-run sessions, 102 passed, 18.45 USD; chromux 35/35, agent-browser 33/35, playwright-cli 34/35"
+          },
+          {
+            "ts": "2026-07-12T16:37:48.962Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log (bb9d4b608f92) - verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'"
+          },
+          {
+            "ts": "2026-07-12T16:37:48.963Z",
+            "text": "Command passed with exit code 0: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'. Log: agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifactId": "V4-api-2026-07-12T16-19-50-671Z",
+            "kind": "api",
+            "path": "agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json",
+            "description": "Opus expanded 20-task same-run report: 3 tools, reduced 2/1 reps, 105 per-session records, 102 passed, 18.45 USD total",
+            "createdAt": "2026-07-12T16:19:50.672Z",
+            "bytes": 95719,
+            "sha256": "85722fe6a57f3361201c79b9c5a33d897d0d5ccb32c412752a422e40e6a84f46",
+            "mimeHint": "text/plain"
+          },
+          {
+            "artifactId": "V4-command-log-2026-07-12T16-37-48-962Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log",
+            "description": "verify-run passed: node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+            "createdAt": "2026-07-12T16:37:48.962Z",
+            "bytes": 830,
+            "sha256": "bb9d4b608f926c0e5331a53eb618b7d5bad8ecb1755e8238592a3ca1e59c49de",
+            "mimeHint": "text/plain",
+            "command": "node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'",
+            "contractCommand": "node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,shop-cookie-select,slow-order,iframe-register,miniwob-email-inbox,miniwob-book-flight,miniwob-use-autocomplete,miniwob-login-user,miniwob-search-engine,miniwob-click-checkboxes,wikipedia-extract,hn-top-story,wikipedia-hop,google-search,youtube-search --out /tmp/chromux-opus-20-expanded.json",
+            "deviationId": "D2",
+            "exitCode": 0,
+            "startedAt": "2026-07-12T16:37:48.909Z",
+            "finishedAt": "2026-07-12T16:37:48.961Z"
+          }
+        ],
+        "evidenceCount": 4,
+        "artifactCount": 2
+      },
+      {
+        "id": "V5",
+        "kind": "verification",
+        "title": "`node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compa...",
+        "status": "pass",
+        "closed": true,
+        "level": "General",
+        "category": "automated",
+        "tool": "verify-run",
+        "requiredForDone": true,
+        "covers": {
+          "requirements": [
+            "R1",
+            "R2",
+            "R3",
+            "R4",
+            "R5",
+            "R6",
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC1",
+            "AC2",
+            "AC3",
+            "AC4",
+            "AC5",
+            "AC6",
+            "AC7"
+          ],
+          "tasks": [
+            "T1",
+            "T2",
+            "T3",
+            "T4",
+            "T5",
+            "T6"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T14:42:19.581Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log (0e2bdc4386a6) - verify-run passed: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json"
+          },
+          {
+            "ts": "2026-07-12T14:42:19.582Z",
+            "text": "Command passed with exit code 0: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json. Log: agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log"
+          },
+          {
+            "ts": "2026-07-12T14:42:46.074Z",
+            "text": "Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-agent-compare-smoke.json (0997feef9205) - Machine-graded smoke report for one form-order session per tool, including versions, costs, and session records."
+          }
+        ],
+        "artifacts": [
+          {
+            "artifactId": "V5-command-log-2026-07-12T14-42-19-581Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log",
+            "description": "verify-run passed: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json",
+            "createdAt": "2026-07-12T14:42:19.581Z",
+            "bytes": 4026,
+            "sha256": "0e2bdc4386a6bf11004b863bbe3f2b3f13f37e07dd43fa7208e4cafdf19e8c60",
+            "mimeHint": "text/plain",
+            "command": "node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json",
+            "contractCommand": "node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json",
+            "deviationId": null,
+            "exitCode": 0,
+            "startedAt": "2026-07-12T14:40:42.876Z",
+            "finishedAt": "2026-07-12T14:42:19.579Z"
+          },
+          {
+            "artifactId": "V5-api-2026-07-12T14-42-46-073Z",
+            "kind": "api",
+            "path": "agents/implement/benchmark-followup/artifacts/api/chromux-agent-compare-smoke.json",
+            "description": "Machine-graded smoke report for one form-order session per tool, including versions, costs, and session records.",
+            "createdAt": "2026-07-12T14:42:46.074Z",
+            "bytes": 4655,
+            "sha256": "0997feef9205ef4ac8d171771e797cc9f26216f8f703b85c763de044e95cf100",
+            "mimeHint": "text/plain"
+          }
+        ],
+        "evidenceCount": 3,
+        "artifactCount": 2
+      },
+      {
+        "id": "V6",
+        "kind": "verification",
+        "title": "`bash ./test.sh`",
+        "status": "pass",
+        "closed": true,
+        "level": "General",
+        "category": "command",
+        "tool": "verify-run",
+        "requiredForDone": true,
+        "covers": {
+          "requirements": [
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC7"
+          ],
+          "tasks": [
+            "T6"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:28:37.743Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log (f933c72eee2b) - verify-run passed: bash ./test.sh"
+          },
+          {
+            "ts": "2026-07-12T16:28:37.743Z",
+            "text": "Command passed with exit code 0: bash ./test.sh. Log: agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log"
+          },
+          {
+            "ts": "2026-07-12T16:28:54.365Z",
+            "text": "Artifact recorded: browser agents/implement/benchmark-followup/artifacts/browser/V6-test-suite.log (f933c72eee2b) - Complete real Chrome ./test.sh transcript proving behavioral suite pass and browser cleanup"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifactId": "V6-command-log-2026-07-12T16-28-37-743Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log",
+            "description": "verify-run passed: bash ./test.sh",
+            "createdAt": "2026-07-12T16:28:37.743Z",
+            "bytes": 10951,
+            "sha256": "f933c72eee2bd26bc8979a6e3e7c4d22a8f8774dd8d99d60eddbf441a2e0c8eb",
+            "mimeHint": "text/plain",
+            "command": "bash ./test.sh",
+            "contractCommand": "bash ./test.sh",
+            "deviationId": null,
+            "exitCode": 0,
+            "startedAt": "2026-07-12T16:25:50.680Z",
+            "finishedAt": "2026-07-12T16:28:37.741Z"
+          },
+          {
+            "artifactId": "V6-browser-2026-07-12T16-28-54-364Z",
+            "kind": "browser",
+            "path": "agents/implement/benchmark-followup/artifacts/browser/V6-test-suite.log",
+            "description": "Complete real Chrome ./test.sh transcript proving behavioral suite pass and browser cleanup",
+            "createdAt": "2026-07-12T16:28:54.365Z",
+            "bytes": 10951,
+            "sha256": "f933c72eee2bd26bc8979a6e3e7c4d22a8f8774dd8d99d60eddbf441a2e0c8eb",
+            "mimeHint": "text/plain"
+          }
+        ],
+        "evidenceCount": 3,
+        "artifactCount": 2
+      },
+      {
+        "id": "V7",
+        "kind": "verification",
+        "title": "`npm pack --dry-run`",
+        "status": "pass",
+        "closed": true,
+        "level": "General",
+        "category": "command",
+        "tool": "verify-run",
+        "requiredForDone": true,
+        "covers": {
+          "requirements": [
+            "R7"
+          ],
+          "acceptanceCriteria": [
+            "AC7"
+          ],
+          "tasks": [
+            "T6",
+            "T7"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:29:00.418Z",
+            "text": "Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log (db3136d2bc26) - verify-run passed: npm pack --dry-run"
+          },
+          {
+            "ts": "2026-07-12T16:29:00.418Z",
+            "text": "Command passed with exit code 0: npm pack --dry-run. Log: agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log"
+          }
+        ],
+        "artifacts": [
+          {
+            "artifactId": "V7-command-log-2026-07-12T16-29-00-418Z",
+            "kind": "command-log",
+            "path": "agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log",
+            "description": "verify-run passed: npm pack --dry-run",
+            "createdAt": "2026-07-12T16:29:00.418Z",
+            "bytes": 2640,
+            "sha256": "db3136d2bc268d9d806562c590761a57299fd637f0b6b6be38e2d066c2e35e5c",
+            "mimeHint": "text/plain",
+            "command": "npm pack --dry-run",
+            "contractCommand": "npm pack --dry-run",
+            "deviationId": null,
+            "exitCode": 0,
+            "startedAt": "2026-07-12T16:28:59.962Z",
+            "finishedAt": "2026-07-12T16:29:00.417Z"
+          }
+        ],
+        "evidenceCount": 2,
+        "artifactCount": 1
+      },
+      {
+        "id": "V8",
+        "kind": "verification",
+        "title": "`git status --short && gh pr view --json url,headRefName,statusCheckRollup`",
+        "status": "skipped",
+        "closed": true,
+        "level": "General",
+        "category": "api",
+        "tool": "record-artifact",
+        "requiredForDone": false,
+        "covers": {
+          "requirements": [
+            "R8"
+          ],
+          "acceptanceCriteria": [
+            "AC8"
+          ],
+          "tasks": [
+            "T7"
+          ]
+        },
+        "evidence": [
+          {
+            "ts": "2026-07-12T16:33:33.994Z",
+            "text": "Optional delivery/CI check is explicitly post-receipt by PRD Sections 4.2 and 9; delivery-readiness.md records branch, base freshness, staging scope, and exclusion of unrelated .hoyeon intake. ho-ship will create the PR and watch CI before user-facing completion."
+          }
+        ],
+        "artifacts": [],
+        "evidenceCount": 1,
+        "artifactCount": 0
+      },
+      {
+        "id": "REQ_FIDELITY_REVIEW",
+        "kind": "requirements_fidelity_review",
+        "title": "Requirements fidelity review",
+        "status": "pass",
+        "closed": true,
+        "evidenceCount": 1,
+        "artifactCount": 1
+      },
+      {
+        "id": "REVIEW",
+        "kind": "final_review",
+        "title": "Adversarial final review",
+        "status": "pass",
+        "closed": true,
+        "requiredForDone": true,
+        "evidenceCount": 1,
+        "artifactCount": 1
+      },
+      {
+        "id": "FINALIZE",
+        "kind": "receipt",
+        "title": "Final receipt",
+        "status": "complete",
+        "closed": true,
+        "evidenceCount": 1,
+        "artifactCount": 1
+      }
+    ],
+    "edges": [
+      {
+        "from": "VP0",
+        "to": "EP0",
+        "type": "unblocks",
+        "reason": "execution planning starts after verification planning"
+      },
+      {
+        "from": "EP0",
+        "to": "N1",
+        "type": "unblocks",
+        "reason": "execution node comes from the execution plan"
+      },
+      {
+        "from": "T1",
+        "to": "N1",
+        "type": "decomposes_to",
+        "reason": "PRD task is executed through this implementation node"
+      },
+      {
+        "from": "N1",
+        "to": "AC1",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N1",
+        "to": "V1",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N1",
+        "to": "V2",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N1",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "EP0",
+        "to": "N2",
+        "type": "unblocks",
+        "reason": "execution node comes from the execution plan"
+      },
+      {
+        "from": "T2",
+        "to": "N2",
+        "type": "decomposes_to",
+        "reason": "PRD task is executed through this implementation node"
+      },
+      {
+        "from": "N2",
+        "to": "AC2",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N2",
+        "to": "V3",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N2",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "EP0",
+        "to": "N3",
+        "type": "unblocks",
+        "reason": "execution node comes from the execution plan"
+      },
+      {
+        "from": "T3",
+        "to": "N3",
+        "type": "decomposes_to",
+        "reason": "PRD task is executed through this implementation node"
+      },
+      {
+        "from": "N3",
+        "to": "AC3",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N3",
+        "to": "V3",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N3",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "EP0",
+        "to": "N4",
+        "type": "unblocks",
+        "reason": "execution node comes from the execution plan"
+      },
+      {
+        "from": "T4",
+        "to": "N4",
+        "type": "decomposes_to",
+        "reason": "PRD task is executed through this implementation node"
+      },
+      {
+        "from": "N4",
+        "to": "AC4",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N4",
+        "to": "V4",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N4",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "EP0",
+        "to": "N5",
+        "type": "unblocks",
+        "reason": "execution node comes from the execution plan"
+      },
+      {
+        "from": "T5",
+        "to": "N5",
+        "type": "decomposes_to",
+        "reason": "PRD task is executed through this implementation node"
+      },
+      {
+        "from": "N5",
+        "to": "AC5",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N5",
+        "to": "V4",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N5",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "EP0",
+        "to": "N6",
+        "type": "unblocks",
+        "reason": "execution node comes from the execution plan"
+      },
+      {
+        "from": "T6",
+        "to": "N6",
+        "type": "decomposes_to",
+        "reason": "PRD task is executed through this implementation node"
+      },
+      {
+        "from": "N6",
+        "to": "AC6",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N6",
+        "to": "AC7",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N6",
+        "to": "V1",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N6",
+        "to": "V2",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N6",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N6",
+        "to": "V6",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N6",
+        "to": "V7",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "EP0",
+        "to": "N7",
+        "type": "unblocks",
+        "reason": "execution node comes from the execution plan"
+      },
+      {
+        "from": "T7",
+        "to": "N7",
+        "type": "decomposes_to",
+        "reason": "PRD task is executed through this implementation node"
+      },
+      {
+        "from": "N7",
+        "to": "AC8",
+        "type": "satisfies",
+        "reason": "execution node covers this acceptance criterion"
+      },
+      {
+        "from": "N7",
+        "to": "V7",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "N7",
+        "to": "V8",
+        "type": "verified_by",
+        "reason": "execution node is proven by this verification item"
+      },
+      {
+        "from": "VP0",
+        "to": "V1",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T1",
+        "to": "V1",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T6",
+        "to": "V1",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC1",
+        "to": "V1",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC6",
+        "to": "V1",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC7",
+        "to": "V1",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "VP0",
+        "to": "V2",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T1",
+        "to": "V2",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T6",
+        "to": "V2",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC1",
+        "to": "V2",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC6",
+        "to": "V2",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC7",
+        "to": "V2",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "VP0",
+        "to": "V3",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T2",
+        "to": "V3",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T3",
+        "to": "V3",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC2",
+        "to": "V3",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC3",
+        "to": "V3",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "VP0",
+        "to": "V4",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T4",
+        "to": "V4",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T5",
+        "to": "V4",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC4",
+        "to": "V4",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC5",
+        "to": "V4",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "VP0",
+        "to": "V5",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T1",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T2",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T3",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T4",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T5",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T6",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC1",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC2",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC3",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC4",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC5",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC6",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "AC7",
+        "to": "V5",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "VP0",
+        "to": "V6",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T6",
+        "to": "V6",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC7",
+        "to": "V6",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "VP0",
+        "to": "V7",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T6",
+        "to": "V7",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "T7",
+        "to": "V7",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC7",
+        "to": "V7",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "VP0",
+        "to": "V8",
+        "type": "plans",
+        "reason": "verification check comes from the verification plan"
+      },
+      {
+        "from": "T7",
+        "to": "V8",
+        "type": "verified_by",
+        "reason": "verification covers this task"
+      },
+      {
+        "from": "AC8",
+        "to": "V8",
+        "type": "verified_by",
+        "reason": "verification covers this acceptance criterion"
+      },
+      {
+        "from": "T1",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "T1",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "T2",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "T2",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "T3",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "T3",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "T4",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "T4",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "T5",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "T5",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "T6",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "T6",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "T7",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "T7",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "N1",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "N1",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "N2",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "N2",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "N3",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "N3",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "N4",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "N4",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "N5",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "N5",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "N6",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "N6",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "N7",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "N7",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC1",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC1",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC2",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC2",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC3",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC3",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC4",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC4",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC5",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC5",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC6",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC6",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC7",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC7",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "AC8",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "AC8",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V1",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V1",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V2",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V2",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V3",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V3",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V4",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V4",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V5",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V5",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V6",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V6",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V7",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V7",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "V8",
+        "to": "REQ_FIDELITY_REVIEW",
+        "type": "requirements_review_input",
+        "reason": "requirements reviewer must audit this item against original user intent and PRD decisions"
+      },
+      {
+        "from": "V8",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit this item and its evidence"
+      },
+      {
+        "from": "REQ_FIDELITY_REVIEW",
+        "to": "REVIEW",
+        "type": "review_input",
+        "reason": "final reviewer must audit the requirements fidelity verdict"
+      },
+      {
+        "from": "REVIEW",
+        "to": "FINALIZE",
+        "type": "gates",
+        "reason": "receipt can be written only after passing final review"
+      }
+    ]
+  },
+  "deviations": [
+    {
+      "id": "D1",
+      "ts": "2026-07-12T16:37:37.089Z",
+      "type": "verification_command",
+      "targetId": "V3",
+      "summary": "The approved benchmark ran as a long-lived direct session with explicit 2/1 reps to honor the cost cap; this equivalent verifier validates the registered raw same-run report instead of spending again.",
+      "details": {
+        "expectedCommand": "node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,hn-top-story,wikipedia-hop,google-search,youtube-search,miniwob-email-inbox,miniwob-book-flight --out /tmp/chromux-sonnet-12-rerun.json",
+        "actualCommand": "node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-sonnet-5\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'"
+      }
+    },
+    {
+      "id": "D2",
+      "ts": "2026-07-12T16:37:48.908Z",
+      "type": "verification_command",
+      "targetId": "V4",
+      "summary": "The approved benchmark ran as a long-lived direct session with explicit 2/1 reps to stay near 30 USD and below the 40 USD hard stop; this equivalent verifier validates the registered raw same-run report instead of spending again.",
+      "details": {
+        "expectedCommand": "node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --tasks form-order,feed-extract,nav-tour,sequential-steps,inventory-aggregate,signup-challenge,shop-cookie-select,slow-order,iframe-register,miniwob-email-inbox,miniwob-book-flight,miniwob-use-autocomplete,miniwob-login-user,miniwob-search-engine,miniwob-click-checkboxes,wikipedia-extract,hn-top-story,wikipedia-hop,google-search,youtube-search --out /tmp/chromux-opus-20-expanded.json",
+        "actualCommand": "node -e 'const r=require(\"./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json\"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!==\"claude-opus-4-8\"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'"
+      }
+    }
+  ],
+  "requirementsFidelityReview": {
+    "status": "pass",
+    "summary": "Original intent, same-run and cost decisions, R/AC/V coverage, non-goals, D1-D2 equivalent report validators, and receipt-first delivery sequencing align without material drift.",
+    "reportPath": "agents/implement/benchmark-followup/review/requirements-fidelity-review.md",
+    "reportBytes": 7429,
+    "reportSha256": "777bc2a770187438a01472baa96c020c7ae35ba6bcef61498c2b83ae23bd5f87",
+    "worktreeSnapshot": {
+      "capturedAt": "2026-07-12T16:38:17.771Z",
+      "headSha": "7e2dbf4197a3bf0cbbd1e0975649ad7b7efa4edd",
+      "statusHash": "9c14466f",
+      "entryCount": 5,
+      "entries": [
+        {
+          "status": "??",
+          "path": "agents/prd/benchmark-followup/prd.md",
+          "originalPath": null,
+          "sha256": "f6fd35999eb262234f744805ae224e20bf68b9e11e8698f53d06f49d859a4052",
+          "bytes": 23190
+        },
+        {
+          "status": " M",
+          "path": "benchmarks/chromux-doc-check.mjs",
+          "originalPath": null,
+          "sha256": "0be09a0167167f1aea52187e2064a557f54c75c7feaa2378d59e4f5cd65fadfb",
+          "bytes": 10209
+        },
+        {
+          "status": " M",
+          "path": "docs/benchmark-2026-07.md",
+          "originalPath": null,
+          "sha256": "3a8015edb13359a63e20a0bde5e02cffbcfa4c806e1167c9935e89bb1f9dc24e",
+          "bytes": 35656
+        },
+        {
+          "status": " M",
+          "path": "install.md",
+          "originalPath": null,
+          "sha256": "a4d941ccca902ffcce3caff09605c4000c0c75cf2dac69547427c37ba63bea4b",
+          "bytes": 23913
+        },
+        {
+          "status": " M",
+          "path": "README.md",
+          "originalPath": null,
+          "sha256": "6cf170c25de3308513d9dfbac3b4c4af47147bf27ed97ef28c4fa4174209ff21",
+          "bytes": 43259
+        }
+      ]
+    },
+    "recordedAt": "2026-07-12T16:38:17.771Z"
+  },
+  "finalReview": {
+    "status": "pass",
+    "summary": "High-risk adversarial audit found no material implementation or evidence gap; all required artifacts validate, D1-D2 are accepted equivalent report validators, and PR/CI remains the enforced post-receipt delivery gate.",
+    "reportPath": "agents/implement/benchmark-followup/review/final-review.md",
+    "reportBytes": 3995,
+    "reportSha256": "b07df6f7d43f1b589be25df3ed3bb2f30c29d93433b211eebb116073596deac2",
+    "worktreeSnapshot": {
+      "capturedAt": "2026-07-12T16:39:21.775Z",
+      "headSha": "7e2dbf4197a3bf0cbbd1e0975649ad7b7efa4edd",
+      "statusHash": "9c14466f",
+      "entryCount": 5,
+      "entries": [
+        {
+          "status": "??",
+          "path": "agents/prd/benchmark-followup/prd.md",
+          "originalPath": null,
+          "sha256": "f6fd35999eb262234f744805ae224e20bf68b9e11e8698f53d06f49d859a4052",
+          "bytes": 23190
+        },
+        {
+          "status": " M",
+          "path": "benchmarks/chromux-doc-check.mjs",
+          "originalPath": null,
+          "sha256": "0be09a0167167f1aea52187e2064a557f54c75c7feaa2378d59e4f5cd65fadfb",
+          "bytes": 10209
+        },
+        {
+          "status": " M",
+          "path": "docs/benchmark-2026-07.md",
+          "originalPath": null,
+          "sha256": "3a8015edb13359a63e20a0bde5e02cffbcfa4c806e1167c9935e89bb1f9dc24e",
+          "bytes": 35656
+        },
+        {
+          "status": " M",
+          "path": "install.md",
+          "originalPath": null,
+          "sha256": "a4d941ccca902ffcce3caff09605c4000c0c75cf2dac69547427c37ba63bea4b",
+          "bytes": 23913
+        },
+        {
+          "status": " M",
+          "path": "README.md",
+          "originalPath": null,
+          "sha256": "6cf170c25de3308513d9dfbac3b4c4af47147bf27ed97ef28c4fa4174209ff21",
+          "bytes": 43259
+        }
+      ]
+    },
+    "recordedAt": "2026-07-12T16:39:21.775Z"
+  },
+  "finalReceipt": {
+    "schema": "hoyeon.prd-implement.receipt.v1",
+    "status": "complete",
+    "summary": "Completed approved same-run benchmark follow-up: Sonnet 39/40 at 5.15 USD, expanded Opus 102/105 at 18.45 USD with chromux 35/35; docs/README/drift checks synchronized, 222/222 browser tests and package dry-run passed, reviews passed, and PR delivery is ready.",
+    "verifiedAt": "2026-07-12T16:40:04.920Z",
+    "reviewProfile": {
+      "profile": "high-risk",
+      "source": "auto",
+      "reason": "risk keywords found in PRD structure, tasks, ACs, or verification"
+    },
+    "counts": {
+      "executionOpen": 0,
+      "tasksOpen": 0,
+      "acOpen": 0,
+      "verificationOpen": 0,
+      "totalOpen": 0,
+      "blocked": {
+        "execution": 0,
+        "tasks": 0,
+        "acceptanceCriteria": 0,
+        "verification": 0,
+        "requiredVerification": 0
+      },
+      "requiredVerificationNotPassed": 0
+    },
+    "delivery": {
+      "schema": "hoyeon.delivery.v1",
+      "mode": "pr",
+      "branch": "prd/benchmark-followup",
+      "baseBranch": "main",
+      "prTemplate": null,
+      "ci": {
+        "watch": true,
+        "maxFixAttempts": 2
+      },
+      "staging": {
+        "include": [],
+        "exclude": []
+      },
+      "worktree": {
+        "enabled": true,
+        "path": "/Users/hoyeonlee/team-attention/chromux.worktrees/prd-benchmark-followup",
+        "root": "/Users/hoyeonlee/team-attention/chromux.worktrees",
+        "link": [],
+        "copy": [],
+        "setup": [],
+        "current": true,
+        "skipped": true,
+        "preparation": null
+      },
+      "configPath": null,
+      "initializedAt": "2026-07-12T14:36:59.061Z"
+    },
+    "worktreeSnapshot": {
+      "capturedAt": "2026-07-12T16:40:04.939Z",
+      "headSha": "7e2dbf4197a3bf0cbbd1e0975649ad7b7efa4edd",
+      "statusHash": "9c14466f",
+      "entryCount": 5,
+      "entries": [
+        {
+          "status": "??",
+          "path": "agents/prd/benchmark-followup/prd.md",
+          "originalPath": null,
+          "sha256": "f6fd35999eb262234f744805ae224e20bf68b9e11e8698f53d06f49d859a4052",
+          "bytes": 23190
+        },
+        {
+          "status": " M",
+          "path": "benchmarks/chromux-doc-check.mjs",
+          "originalPath": null,
+          "sha256": "0be09a0167167f1aea52187e2064a557f54c75c7feaa2378d59e4f5cd65fadfb",
+          "bytes": 10209
+        },
+        {
+          "status": " M",
+          "path": "docs/benchmark-2026-07.md",
+          "originalPath": null,
+          "sha256": "3a8015edb13359a63e20a0bde5e02cffbcfa4c806e1167c9935e89bb1f9dc24e",
+          "bytes": 35656
+        },
+        {
+          "status": " M",
+          "path": "install.md",
+          "originalPath": null,
+          "sha256": "a4d941ccca902ffcce3caff09605c4000c0c75cf2dac69547427c37ba63bea4b",
+          "bytes": 23913
+        },
+        {
+          "status": " M",
+          "path": "README.md",
+          "originalPath": null,
+          "sha256": "6cf170c25de3308513d9dfbac3b4c4af47147bf27ed97ef28c4fa4174209ff21",
+          "bytes": 43259
+        }
+      ]
+    },
+    "executionPlan": {
+      "status": "ready",
+      "nodeCount": 7,
+      "openNodeCount": 0,
+      "blockingGapCount": 0,
+      "warningCount": 1,
+      "generatedAt": "2026-07-12T14:37:14.131Z"
+    },
+    "taskGraph": {
+      "status": "complete",
+      "nodeCount": 35,
+      "edgeCount": 149,
+      "openNodeCount": 0,
+      "blockingGapCount": 0,
+      "generatedAt": "2026-07-12T16:40:04.940Z"
+    },
+    "artifactCount": 12,
+    "requirementsFidelityReview": {
+      "status": "pass",
+      "summary": "Original intent, same-run and cost decisions, R/AC/V coverage, non-goals, D1-D2 equivalent report validators, and receipt-first delivery sequencing align without material drift.",
+      "reportPath": "agents/implement/benchmark-followup/review/requirements-fidelity-review.md",
+      "reportBytes": 7429,
+      "reportSha256": "777bc2a770187438a01472baa96c020c7ae35ba6bcef61498c2b83ae23bd5f87",
+      "worktreeSnapshot": {
+        "capturedAt": "2026-07-12T16:38:17.771Z",
+        "headSha": "7e2dbf4197a3bf0cbbd1e0975649ad7b7efa4edd",
+        "statusHash": "9c14466f",
+        "entryCount": 5,
+        "entries": [
+          {
+            "status": "??",
+            "path": "agents/prd/benchmark-followup/prd.md",
+            "originalPath": null,
+            "sha256": "f6fd35999eb262234f744805ae224e20bf68b9e11e8698f53d06f49d859a4052",
+            "bytes": 23190
+          },
+          {
+            "status": " M",
+            "path": "benchmarks/chromux-doc-check.mjs",
+            "originalPath": null,
+            "sha256": "0be09a0167167f1aea52187e2064a557f54c75c7feaa2378d59e4f5cd65fadfb",
+            "bytes": 10209
+          },
+          {
+            "status": " M",
+            "path": "docs/benchmark-2026-07.md",
+            "originalPath": null,
+            "sha256": "3a8015edb13359a63e20a0bde5e02cffbcfa4c806e1167c9935e89bb1f9dc24e",
+            "bytes": 35656
+          },
+          {
+            "status": " M",
+            "path": "install.md",
+            "originalPath": null,
+            "sha256": "a4d941ccca902ffcce3caff09605c4000c0c75cf2dac69547427c37ba63bea4b",
+            "bytes": 23913
+          },
+          {
+            "status": " M",
+            "path": "README.md",
+            "originalPath": null,
+            "sha256": "6cf170c25de3308513d9dfbac3b4c4af47147bf27ed97ef28c4fa4174209ff21",
+            "bytes": 43259
+          }
+        ]
+      },
+      "recordedAt": "2026-07-12T16:38:17.771Z"
+    },
+    "finalReview": {
+      "status": "pass",
+      "summary": "High-risk adversarial audit found no material implementation or evidence gap; all required artifacts validate, D1-D2 are accepted equivalent report validators, and PR/CI remains the enforced post-receipt delivery gate.",
+      "reportPath": "agents/implement/benchmark-followup/review/final-review.md",
+      "reportBytes": 3995,
+      "reportSha256": "b07df6f7d43f1b589be25df3ed3bb2f30c29d93433b211eebb116073596deac2",
+      "worktreeSnapshot": {
+        "capturedAt": "2026-07-12T16:39:21.775Z",
+        "headSha": "7e2dbf4197a3bf0cbbd1e0975649ad7b7efa4edd",
+        "statusHash": "9c14466f",
+        "entryCount": 5,
+        "entries": [
+          {
+            "status": "??",
+            "path": "agents/prd/benchmark-followup/prd.md",
+            "originalPath": null,
+            "sha256": "f6fd35999eb262234f744805ae224e20bf68b9e11e8698f53d06f49d859a4052",
+            "bytes": 23190
+          },
+          {
+            "status": " M",
+            "path": "benchmarks/chromux-doc-check.mjs",
+            "originalPath": null,
+            "sha256": "0be09a0167167f1aea52187e2064a557f54c75c7feaa2378d59e4f5cd65fadfb",
+            "bytes": 10209
+          },
+          {
+            "status": " M",
+            "path": "docs/benchmark-2026-07.md",
+            "originalPath": null,
+            "sha256": "3a8015edb13359a63e20a0bde5e02cffbcfa4c806e1167c9935e89bb1f9dc24e",
+            "bytes": 35656
+          },
+          {
+            "status": " M",
+            "path": "install.md",
+            "originalPath": null,
+            "sha256": "a4d941ccca902ffcce3caff09605c4000c0c75cf2dac69547427c37ba63bea4b",
+            "bytes": 23913
+          },
+          {
+            "status": " M",
+            "path": "README.md",
+            "originalPath": null,
+            "sha256": "6cf170c25de3308513d9dfbac3b4c4af47147bf27ed97ef28c4fa4174209ff21",
+            "bytes": 43259
+          }
+        ]
+      },
+      "recordedAt": "2026-07-12T16:39:21.775Z"
+    },
+    "evidenceHash": "63131915"
+  },
+  "lastStopPhase": "execution_node"
+}

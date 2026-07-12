@@ -430,10 +430,9 @@ snippets, `npm pack --dry-run`, the real headless Chrome `./test.sh` suite on
 Linux, and a native Windows PowerShell Chrome smoke covering launch, open,
 snapshot, list, ps, kill, and `chromux app --open`.
 
-The npm publish workflow at `.github/workflows/npm-publish.yml` runs on pushes
-to `main` and manual dispatch. It validates the package, checks whether the
-exact `package.json` version is already on npm, and publishes with provenance
-when the version is new and the repository secret is configured.
+Automatic npm publishing is disabled, and `.github/workflows/npm-publish.yml` does not exist.
+Merging or pushing to `main` runs validation through CI but does not publish the package.
+The npm registry package is updated only through an explicit, user-requested manual release from a maintained checkout.
 
 The macOS app release workflow at
 `.github/workflows/release-macos-status-app.yml` runs on `v*` tags and manual
@@ -461,8 +460,9 @@ npm pack --dry-run
 git status --short
 ```
 
-Then bump `package.json`, commit, and push to `main`. Do not run `npm publish`
-locally unless the user explicitly requests a local/manual package release.
+For an intended package release, bump `package.json`, commit the change on a review branch, and open a pull request.
+Merging the pull request still does not publish automatically.
+Do not run `npm publish` unless the user explicitly requests the package release.
 
 ## Troubleshooting
 

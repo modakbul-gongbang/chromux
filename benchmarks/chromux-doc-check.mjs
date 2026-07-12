@@ -26,6 +26,7 @@ if (help.status !== 0) throw new Error(help.stderr || 'chromux help failed');
 const docs = {
   help: help.stdout,
   readme: read('README.md'),
+  benchmark: read('docs/benchmark-2026-07.md'),
   install: read('install.md'),
   chromuxSkill: read('skills/chromux/SKILL.md'),
   workSkill: read('skills/chromux-work/SKILL.md'),
@@ -72,6 +73,8 @@ assertContains(checks, 'README agent cross-tool benchmark', docs.readme, 'agent-
 assertContains(checks, 'README deterministic cross-tool benchmark', docs.readme, 'compare-benchmark.mjs');
 assertContains(checks, 'README benchmark doc link', docs.readme, 'docs/benchmark-2026-07.md');
 assertContains(checks, 'README miniwob tasks', docs.readme, 'MiniWoB++');
+assertContains(checks, 'README expanded benchmark', docs.readme, 'Agent task success (20 tasks, 35 sessions)');
+assertContains(checks, 'benchmark expanded same-run', docs.benchmark, 'Expanded 20-task same-run results (chromux 0.18.0)');
 assertContains(checks, 'README macos app install', docs.readme, 'install-app.sh');
 assertContains(checks, 'README launch at login', docs.readme, 'Launch at Login');
 assertContains(checks, 'README profile disk usage', docs.readme, 'per-profile disk usage');
@@ -80,6 +83,7 @@ assertContains(checks, 'install macos app install', docs.install, 'install-app.s
 assertContains(checks, 'install macos app ask first', docs.install, 'macOS App (ask the user first)');
 assertContains(checks, 'install launch at login', docs.install, 'Launch at Login');
 assertContains(checks, 'install profile disk usage', docs.install, 'per-profile disk usage');
+assertContains(checks, 'install automatic npm publishing disabled', docs.install, 'Automatic npm publishing is disabled');
 assertContains(checks, 'chromux skill receipt', docs.chromuxSkill, '--receipt');
 assertContains(checks, 'chromux skill snippets', docs.chromuxSkill, 'network-errors.js');
 assertContains(checks, 'chromux skill snapshot diff', docs.chromuxSkill, '--diff');

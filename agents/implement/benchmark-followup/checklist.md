@@ -1,0 +1,244 @@
+# PRD Implementation Checklist: benchmark-followup
+
+Source PRD: agents/prd/benchmark-followup/prd.md
+
+## Execution Nodes
+
+- [x] N1. Reconcile current repo baseline, task list, harness flags, version, docs, and delivery config before measurement. Cov...
+  - Status: complete
+  - Source Task: T1
+  - Write Scope: docs/benchmark-2026-07.md, benchmarks/chromux-doc-check.mjs, benchmarks/agent-compare-benchmark.mjs, .hoyeon/intake/chromux-memory-credential-search/, /Users/, file://
+  - Parallel Safe: no
+  - Risk: high
+  - Covers: R: R1; AC: AC1; V: V1, V2, V5
+  - Evidence:
+    - 2026-07-12T14:39:49.099Z: Baseline reconciliation started from origin/main@7e2dbf4 with approved PRD and verified local prerequisites.
+    - 2026-07-12T14:40:18.496Z: agents/implement/benchmark-followup/context-notes.md records origin/main@7e2dbf4, version 0.18.0, exact 12+8 task split from buildTasks(), harness flags, delivery config, prerequisites, and budget estimates.
+- [x] N2. Run the approved Sonnet 5 12-task same-run and inspect report-level command traces for high-cost chromux sessions. Co...
+  - Status: complete
+  - Source Task: T2
+  - Write Scope: docs/benchmark-2026-07.md, benchmarks/chromux-doc-check.mjs, benchmarks/agent-compare-benchmark.mjs, .hoyeon/intake/chromux-memory-credential-search/, /Users/, file://
+  - Parallel Safe: yes
+  - Risk: medium
+  - Covers: R: R2; AC: AC2; V: V3, V5
+  - Evidence:
+    - 2026-07-12T14:45:59.522Z: Starting approved Sonnet 5 same-run through local Claude Code CLI with 12 tasks, chromux and playwright-cli, reduced 2/1 reps for 40 sessions.
+    - 2026-07-12T15:07:12.614Z: V3 raw report artifact proves the Sonnet 5 12-task same-run; high-turn chromux traces were inspected, led by miniwob-book-flight at 14 turns using open/click/snapshot/fill flows.
+- [x] N3. Update the Sonnet section and aggregates in `docs/benchmark-2026-07.md` using only the new same-run data. Covers R3, ...
+  - Status: complete
+  - Source Task: T3
+  - Write Scope: docs/benchmark-2026-07.md
+  - Parallel Safe: yes
+  - Risk: medium
+  - Covers: R: R3; AC: AC3; V: V3, V5
+  - Evidence:
+    - 2026-07-12T15:07:37.193Z: Updating Sonnet documentation from the registered V3 same-run artifact only.
+    - 2026-07-12T15:08:41.153Z: docs/benchmark-2026-07.md now preserves historical Sonnet results and adds the registered V3 0.18.0 12-task same-run table plus full and MiniWoB-excluded aggregates; git diff --check passes.
+- [x] N4. Run the approved Opus 20-task 3-tool same-run or stop with a documented blocker before publishing any expanded offici...
+  - Status: complete
+  - Source Task: T4
+  - Write Scope: docs/benchmark-2026-07.md, benchmarks/chromux-doc-check.mjs, benchmarks/agent-compare-benchmark.mjs, .hoyeon/intake/chromux-memory-credential-search/, /Users/, file://
+  - Parallel Safe: yes
+  - Risk: medium
+  - Covers: R: R4; AC: AC4; V: V4, V5
+  - Evidence:
+    - 2026-07-12T15:08:57.989Z: Starting approved Opus 20-task three-tool same-run with reduced 2/1 reps for 105 sessions, preserving all tasks/tools while staying below the  cap.
+    - 2026-07-12T16:20:32.046Z: V4 registered report proves approved 20-task 3-tool run completed within cost cap; high-turn chromux traces inspected, including expected MiniWoB flows and isolated repaired command errors
+- [x] N5. Update the official benchmark table and post-v2 task wording only from the expanded same-run report. Covers R5, AC5.
+  - Status: complete
+  - Source Task: T5
+  - Write Scope: docs/benchmark-2026-07.md, benchmarks/chromux-doc-check.mjs, benchmarks/agent-compare-benchmark.mjs, .hoyeon/intake/chromux-memory-credential-search/, /Users/, file://
+  - Parallel Safe: yes
+  - Risk: medium
+  - Covers: R: R5; AC: AC5; V: V4, V5
+  - Evidence:
+    - 2026-07-12T16:25:02.964Z: docs/benchmark-2026-07.md now publishes the registered V4 20-task same-run only; a structured JSON-to-Markdown assertion matched all 20 task rows and all aggregate values
+- [x] N6. Sync README, skills, and `benchmarks/chromux-doc-check.mjs` when benchmark claims or guidance changed, then run local...
+  - Status: complete
+  - Source Task: T6
+  - Write Scope: benchmarks/chromux-doc-check.mjs
+  - Parallel Safe: yes
+  - Risk: medium
+  - Covers: R: R6, R7; AC: AC6, AC7; V: V1, V2, V5, V6, V7
+  - Evidence:
+    - 2026-07-12T16:30:09.058Z: README/docs/install/doc-check synchronized; skills and Token Footprint intentionally unchanged; V1, V2, V5, V6, V7 pass, including 222/222 real Chrome tests and clean package allowlist
+- [x] N7. Prepare PR delivery evidence with a clean diff and CI status, without publishing or staging unrelated artifacts. Cove...
+  - Status: complete
+  - Source Task: T7
+  - Write Scope: docs/benchmark-2026-07.md, benchmarks/chromux-doc-check.mjs, benchmarks/agent-compare-benchmark.mjs, .hoyeon/intake/chromux-memory-credential-search/, /Users/, file://
+  - Parallel Safe: yes
+  - Risk: medium
+  - Covers: R: R8; AC: AC8; V: V7, V8
+  - Evidence:
+    - 2026-07-12T16:33:48.575Z: delivery-readiness.md records clean receipt-first PR plan, branch/base freshness, fallback template, exact staging scope, CI watch, and unrelated .hoyeon exclusion; V7 passed and optional V8 is explicitly deferred to ho-ship
+
+## Tasks
+
+- [x] T1. Reconcile current repo baseline, task list, harness flags, version, docs, and delivery config before measurement. Cov...
+  - Status: complete
+  - Requirements: R1
+  - Acceptance Criteria: AC1
+  - Evidence:
+    - 2026-07-12T16:29:46.985Z: Execution roll-up: N1 complete; ACs AC1 met; required Verification V1, V2, V5 passed.
+- [x] T2. Run the approved Sonnet 5 12-task same-run and inspect report-level command traces for high-cost chromux sessions. Co...
+  - Status: complete
+  - Requirements: R2
+  - Acceptance Criteria: AC2
+  - Evidence:
+    - 2026-07-12T15:07:18.675Z: Execution roll-up: N2 complete; ACs AC2 met; required Verification V3, V5 passed.
+- [x] T3. Update the Sonnet section and aggregates in `docs/benchmark-2026-07.md` using only the new same-run data. Covers R3, ...
+  - Status: complete
+  - Requirements: R3
+  - Acceptance Criteria: AC3
+  - Evidence:
+    - 2026-07-12T15:08:47.441Z: Execution roll-up: N3 complete; ACs AC3 met; required Verification V3, V5 passed.
+- [x] T4. Run the approved Opus 20-task 3-tool same-run or stop with a documented blocker before publishing any expanded offici...
+  - Status: complete
+  - Requirements: R4
+  - Acceptance Criteria: AC4
+  - Evidence:
+    - 2026-07-12T16:20:36.004Z: Execution roll-up: N4 complete; ACs AC4 met; required Verification V4, V5 passed.
+- [x] T5. Update the official benchmark table and post-v2 task wording only from the expanded same-run report. Covers R5, AC5.
+  - Status: complete
+  - Requirements: R5
+  - Acceptance Criteria: AC5
+  - Evidence:
+    - 2026-07-12T16:25:08.683Z: Execution roll-up: N5 complete; ACs AC5 met; required Verification V4, V5 passed.
+- [x] T6. Sync README, skills, and `benchmarks/chromux-doc-check.mjs` when benchmark claims or guidance changed, then run local...
+  - Status: complete
+  - Requirements: R6, R7
+  - Acceptance Criteria: AC6, AC7
+  - Evidence:
+    - 2026-07-12T16:30:09.058Z: Execution roll-up: N6 complete; ACs AC6, AC7 met; required Verification V1, V2, V5, V6, V7 passed.
+- [x] T7. Prepare PR delivery evidence with a clean diff and CI status, without publishing or staging unrelated artifacts. Cove...
+  - Status: complete
+  - Requirements: R8
+  - Acceptance Criteria: AC8
+  - Evidence:
+    - 2026-07-12T16:33:48.577Z: Execution roll-up: N7 complete; ACs AC8 met; required Verification V7 passed.
+
+## Acceptance Criteria
+
+- [x] AC1. The implementation report lists the exact 20 current task IDs from `buildTasks` and identifies the 12 official v2 tas...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T16:29:46.984Z: agents/implement/benchmark-followup/context-notes.md records the exact buildTasks() 20-task source of truth and explicitly separates the 12 official v2 IDs from the 8 post-v2 IDs for implementation reporting
+- [x] AC2. A Sonnet 5 report artifact exists for the approved 12-task same-run, and its per-session records include enough data ...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T15:07:18.674Z: V3 API artifact contains 40 Sonnet session records with tool/task/rep grading, versions, costs, tokens, turns, and redacted chromux command arrays; chromux high-turn traces were inspected.
+- [x] AC3. The Sonnet section in `docs/benchmark-2026-07.md` no longer claims that the rest of the table has not been re-run whe...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T15:08:47.441Z: docs/benchmark-2026-07.md removes the stale full-table-not-rerun claim and adds a 0.18.0 Sonnet table sourced only from registered V3, while preserving older tables as history.
+- [x] AC4. An Opus report artifact exists for the approved 20-task 3-tool same-run, or implementation status is `Blocked` with a...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T16:20:36.004Z: Expanded Opus run completed at 18.45 USD below the approved 30 USD cap; V4 artifact records 105 sessions and exact same-run tool versions
+- [x] AC5. The official benchmark table includes post-v2 tasks only from the expanded same-run and does not mix historical cells...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T16:25:08.682Z: Official expanded section in docs/benchmark-2026-07.md contains all 20 current buildTasks IDs, exact V4 same-run cells, versions, reduced reps, cost, MiniWoB commit, trace audit, and live-site caveats
+- [x] AC6. README and `benchmarks/chromux-doc-check.mjs` are consistent with the final benchmark claims, and unchanged surfaces ...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T16:29:54.528Z: README now uses the registered 20-task V4 headline, doc-check asserts README/benchmark/install claims, and context-notes explicitly records unchanged skills, Token Footprint, harness, and package version surfaces
+- [x] AC7. `node chromux.mjs help`, `bash ./test.sh`, `node benchmarks/chromux-doc-check.mjs`, and `npm pack --dry-run` pass aft...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T16:29:59.067Z: V1 help passed; V2 doc check passed; V6 ./test.sh passed 222/222 with registered browser log; V7 npm pack --dry-run passed with 41 allowlisted files
+- [x] AC8. PR delivery evidence includes branch name, PR URL, changed file list, CI status, and confirmation that no unrelated `...
+  - Status: met
+  - Evidence:
+    - 2026-07-12T16:33:43.438Z: agents/implement/benchmark-followup/delivery-readiness.md records branch prd/benchmark-followup, current origin/main base, exact intended changed paths, PR template selection, CI-watch mode, and exclusion of unrelated .hoyeon intake. Per the approved receipt-first sequence, ho-ship supplies the PR URL and CI verdict after finalization before completion is reported.
+
+## Verification Evidence
+
+- [x] V1. General: `node chromux.mjs help`
+  - Status: pass
+  - Required For Done: yes
+  - Evidence:
+    - 2026-07-12T16:25:17.744Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log (f909c0e9c6ea) - verify-run passed: node chromux.mjs help
+    - 2026-07-12T16:25:17.744Z: Command passed with exit code 0: node chromux.mjs help. Log: agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log
+  - Artifacts:
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V1-2026-07-12T16-25-17-742Z.log (f909c0e9c6ea)
+- [x] V2. General: `node benchmarks/chromux-doc-check.mjs`
+  - Status: pass
+  - Required For Done: yes
+  - Evidence:
+    - 2026-07-12T16:25:21.955Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log (7be696aa81b3) - verify-run failed: node benchmarks/chromux-doc-check.mjs
+    - 2026-07-12T16:25:21.955Z: Command failed with exit code 1: node benchmarks/chromux-doc-check.mjs. Log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log
+    - 2026-07-12T16:25:43.575Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log (aa4e15509ac6) - verify-run passed: node benchmarks/chromux-doc-check.mjs
+    - 2026-07-12T16:25:43.575Z: Command passed with exit code 0: node benchmarks/chromux-doc-check.mjs. Log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log
+  - Artifacts:
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-21-953Z.log (7be696aa81b3)
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V2-2026-07-12T16-25-43-574Z.log (aa4e15509ac6)
+- [x] V3. General: `node benchmarks/agent-compare-benchmark.mjs --model claude-sonnet-5 --tools chromux,playwright-cli --tasks form-orde...
+  - Status: pass
+  - Required For Done: yes
+  - Evidence:
+    - 2026-07-12T15:06:42.716Z: Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json (9bafa342cff5) - Sonnet 5 same-run raw report for 12 tasks across chromux and playwright-cli, 2/1 reps, 40 sessions, with per-session commands and machine grading.
+    - 2026-07-12T15:07:06.667Z: Registered API artifact agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json sha256 9bafa342cff5fb20ec6084e478e2fda762cef916cc94635fecb1cc2b180ea688; 12 tasks, 2 tools, 40 sessions, 39 passed, .1543, per-session command traces present.
+    - 2026-07-12T16:37:37.148Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log (c095a1dd5be8) - verify-run passed: node -e 'const r=require("./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!=="claude-sonnet-5"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'
+    - 2026-07-12T16:37:37.149Z: Command passed with exit code 0: node -e 'const r=require("./agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!=="claude-sonnet-5"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==40||tasks.size!==12||tools.size!==2) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'. Log: agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log
+  - Artifacts:
+    - api: agents/implement/benchmark-followup/artifacts/api/chromux-sonnet-12-rerun.json (9bafa342cff5)
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V3-2026-07-12T16-37-37-147Z.log (c095a1dd5be8)
+- [x] V4. General: `node benchmarks/agent-compare-benchmark.mjs --model claude-opus-4-8 --tools chromux,agent-browser,playwright-cli --t...
+  - Status: pass
+  - Required For Done: yes
+  - Evidence:
+    - 2026-07-12T16:19:50.672Z: Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json (85722fe6a57f) - Opus expanded 20-task same-run report: 3 tools, reduced 2/1 reps, 105 per-session records, 102 passed, 18.45 USD total
+    - 2026-07-12T16:20:26.927Z: Registered API report agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json (sha256 85722fe6a57f3361201c79b9c5a33d897d0d5ccb32c412752a422e40e6a84f46): 105 same-run sessions, 102 passed, 18.45 USD; chromux 35/35, agent-browser 33/35, playwright-cli 34/35
+    - 2026-07-12T16:37:48.962Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log (bb9d4b608f92) - verify-run passed: node -e 'const r=require("./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!=="claude-opus-4-8"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'
+    - 2026-07-12T16:37:48.963Z: Command passed with exit code 0: node -e 'const r=require("./agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json"); const tasks=new Set(r.results.map(x=>x.task)); const tools=new Set(r.results.map(x=>x.tool)); if(r.model!=="claude-opus-4-8"||r.repsLocal!==2||r.repsExternal!==1||r.results.length!==105||tasks.size!==20||tools.size!==3) process.exit(1); console.log(JSON.stringify({ok:true,sessions:r.results.length,tasks:tasks.size,tools:[...tools],cost:Object.values(r.summary).reduce((n,x)=>n+x.overall.totalCostUsd,0)}));'. Log: agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log
+  - Artifacts:
+    - api: agents/implement/benchmark-followup/artifacts/api/chromux-opus-20-expanded.json (85722fe6a57f)
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V4-2026-07-12T16-37-48-961Z.log (bb9d4b608f92)
+- [x] V5. General: `node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compa...
+  - Status: pass
+  - Required For Done: yes
+  - Evidence:
+    - 2026-07-12T14:42:19.581Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log (0e2bdc4386a6) - verify-run passed: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json
+    - 2026-07-12T14:42:19.582Z: Command passed with exit code 0: node benchmarks/agent-compare-benchmark.mjs --smoke --model claude-haiku-4-5-20251001 --out /tmp/chromux-agent-compare-smoke.json. Log: agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log
+    - 2026-07-12T14:42:46.074Z: Artifact recorded: api agents/implement/benchmark-followup/artifacts/api/chromux-agent-compare-smoke.json (0997feef9205) - Machine-graded smoke report for one form-order session per tool, including versions, costs, and session records.
+  - Artifacts:
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V5-2026-07-12T14-42-19-579Z.log (0e2bdc4386a6)
+    - api: agents/implement/benchmark-followup/artifacts/api/chromux-agent-compare-smoke.json (0997feef9205)
+- [x] V6. General: `bash ./test.sh`
+  - Status: pass
+  - Required For Done: yes
+  - Evidence:
+    - 2026-07-12T16:28:37.743Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log (f933c72eee2b) - verify-run passed: bash ./test.sh
+    - 2026-07-12T16:28:37.743Z: Command passed with exit code 0: bash ./test.sh. Log: agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log
+    - 2026-07-12T16:28:54.365Z: Artifact recorded: browser agents/implement/benchmark-followup/artifacts/browser/V6-test-suite.log (f933c72eee2b) - Complete real Chrome ./test.sh transcript proving behavioral suite pass and browser cleanup
+  - Artifacts:
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V6-2026-07-12T16-28-37-741Z.log (f933c72eee2b)
+    - browser: agents/implement/benchmark-followup/artifacts/browser/V6-test-suite.log (f933c72eee2b)
+- [x] V7. General: `npm pack --dry-run`
+  - Status: pass
+  - Required For Done: yes
+  - Evidence:
+    - 2026-07-12T16:29:00.418Z: Artifact recorded: command-log agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log (db3136d2bc26) - verify-run passed: npm pack --dry-run
+    - 2026-07-12T16:29:00.418Z: Command passed with exit code 0: npm pack --dry-run. Log: agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log
+  - Artifacts:
+    - command-log: agents/implement/benchmark-followup/artifacts/logs/V7-2026-07-12T16-29-00-417Z.log (db3136d2bc26)
+- [x] V8. General: `git status --short && gh pr view --json url,headRefName,statusCheckRollup`
+  - Status: skipped
+  - Required For Done: no
+  - Evidence:
+    - 2026-07-12T16:33:33.994Z: Optional delivery/CI check is explicitly post-receipt by PRD Sections 4.2 and 9; delivery-readiness.md records branch, base freshness, staging scope, and exclusion of unrelated .hoyeon intake. ho-ship will create the PR and watch CI before user-facing completion.
+
+## Requirements Fidelity Review
+
+- [x] REQ_FIDELITY_REVIEW. Requirements fidelity review
+  - Status: pass
+  - Report: agents/implement/benchmark-followup/review/requirements-fidelity-review.md
+  - Summary: Original intent, same-run and cost decisions, R/AC/V coverage, non-goals, D1-D2 equivalent report validators, and receipt-first delivery sequencing align without material drift.
+
+## Final Adversarial Review
+
+- [x] REVIEW. Final adversarial review
+  - Status: pass
+  - Report: agents/implement/benchmark-followup/review/final-review.md
+  - Summary: High-risk adversarial audit found no material implementation or evidence gap; all required artifacts validate, D1-D2 are accepted equivalent report validators, and PR/CI remains the enforced post-receipt delivery gate.
