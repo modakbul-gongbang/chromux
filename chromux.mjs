@@ -2656,6 +2656,11 @@ async function startDaemon(profileName, port, daemonPort) {
         const entry = browserState.popups.find(p => p.targetId === targetInfo.targetId);
         if (entry) entry.url = targetInfo.url;
       });
+      client.on('Target.targetCrashed', ({ targetId }) => {
+        for (const s of sessions.values()) {
+          if (s.oopif?.enabled) removeOopifTarget(s.oopif, { targetId, crashed: true });
+        }
+      });
       client.on('Browser.downloadWillBegin', (params) => {
         browserState.downloads.set(params.guid, { suggestedFilename: params.suggestedFilename, url: params.url, state: 'inProgress' });
       });
@@ -3224,6 +3229,28 @@ async function pressKey(cdp, key) {
   await cdp.send('Page.bringToFront', {});
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...def });
   await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...def });
+}
+
+async function typeFocusedText(cdp, text) {
+  const focus = await cdp.send('Runtime.evaluate', {
+    expression: `(() => {
+      const el = document.activeElement;
+      if (!el || !/^(IFRAME|FRAME)$/.test(el.tagName)) return { opaqueFrame: false };
+      try {
+        return { opaqueFrame: !el.contentDocument };
+      } catch {
+        return { opaqueFrame: true };
+      }
+    })()`,
+    returnByValue: true,
+  });
+  if (focus.result?.value?.opaqueFrame !== true) {
+    await cdp.send('Input.insertText', { text });
+    return;
+  }
+  for (const char of String(text)) {
+    await cdp.send('Input.dispatchKeyEvent', { type: 'char', text: char });
+  }
 }
 
 function enforceResourceGuard(settings) {
@@ -4091,7 +4118,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const s = getSession(sessions, session);
     touchSession(s);
     await s.cdp.send('Page.bringToFront', {});
-    await s.cdp.send('Input.insertText', { text });
+    await typeFocusedText(s.cdp, text);
     const verifyMs = resolveVerifyMs(body, settings);
     if (verifyMs != null) {
       const changed = await captureVerifyDiff(s, verifyMs);

@@ -97,7 +97,7 @@ const server = http.createServer((req, res) => {
 <title>Browser Reach Parent</title>
 <style>body{margin:0;padding:20px;font-family:sans-serif}iframe{display:block;width:320px;height:180px;border:2px solid #333}</style>
 <h1>Parent fixture</h1>
-<iframe id="opaque-frame" title="Opaque editor" src="${child}"></iframe>`);
+<iframe id="opaque-frame" title="Opaque editor" src="${child}" onload="this.dataset.loaded='true'"></iframe>`);
   }
   if (url.pathname === '/frame-child') {
     return html(res, childPage());

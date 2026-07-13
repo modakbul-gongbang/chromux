@@ -769,7 +769,7 @@ else
   # Tier 1 deliberately avoids target attachment. Prove its opaque geometry
   # and focused input path with normal Chrome site isolation still enabled.
   CHROMUX_PROFILE=$PROFILE node "$CT" open tab-opaque "$REACH_PARENT" 2>/dev/null > /dev/null
-  sleep 0.25
+  CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-selector tab-opaque 'iframe[data-loaded="true"]' 3000 2>/dev/null > /dev/null
   OPAQUE_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-opaque 2>/dev/null)
   check "snapshot exposes opaque cross-origin frame ref" "cross-origin opaque" "$OPAQUE_SNAP"
   check "opaque frame snapshot exposes origin only" "origin=$REACH_ORIGIN" "$OPAQUE_SNAP"
