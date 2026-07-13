@@ -442,7 +442,8 @@ By default, a cross-origin frame stays opaque but exposes a stable frame ref, it
 Use that geometry for visible pointer actions.
 Reliable DOM or text actions inside a site-isolated OOPIF require reopening the session with `open <session> <url> --oopif`.
 The opt-in snapshot adds namespaced child refs such as `@f1g1:2`, and click, fill, text/selector waits, and snapshots route to the child target.
-Child navigation or detach invalidates that namespace, so take a fresh snapshot instead of retrying a stale child ref.
+Child navigation, detach, or renderer crash invalidates that namespace, so take a fresh snapshot instead of retrying a stale child ref.
+Session diagnostics report `crashedTotal`, and closing an opted-in session returns child-routing and CDP transport cleanup with zero attached frames, pending calls, waiters, and listeners.
 The opt-in uses `Target.setAutoAttach`, adds payload and browser attachment surface, and remains off by default.
 Closed shadow roots stay invisible.
 Native JS dialogs (`alert`/`confirm`/`prompt`) are
@@ -473,13 +474,15 @@ target into view and fail when the element is hidden, zero-size, stale, outside
 the viewport after scroll, or covered by another element at the click point.
 Coordinate actions interpret `X,Y` as CSS viewport units by default and reject points outside the current viewport.
 When coordinates came from a screenshot PNG, pass `--space image` and use the response's measured `coordinateSpace.cssToImage` or `imageToCss` mapping.
+The top-level `coordinateSpace.image` always describes the returned PNG, so a region or ref crop uses crop-local image coordinates with `[0,0]` at that PNG's top-left corner.
+Image-space hover, click, and drag use the session's most recent screenshot mapping; taking another screenshot replaces it, while open, raw CDP, and scroll invalidate it.
 Do not derive the mapping from DPR alone because browser zoom, visual viewport scale, and clipping can change the relationship.
 `fill` updates ordinary fields through native setters and framework-visible events.
 For a standards-based contenteditable root, `fill` selects and replaces its contents through browser input events, while `type` preserves insertion semantics at the current selection.
 Mentions, slash commands, IME composition, and editor-specific nested markup remain conditional and require flow-specific verification.
 
 Canvas and other visual-only surfaces do not gain DOM refs for their internal objects.
-Take a full or bounded screenshot, inspect the visible target, then use `hover`, `click`, or pointer `drag` with CSS coordinates or `--space image`.
+Take a full or bounded screenshot, inspect the visible target, then use `hover`, `click`, or pointer `drag` with CSS coordinates or crop-local `--space image` coordinates.
 For a range slider, drag the visible thumb rather than using `fill`.
 Use `--drag-mode html5` only for a native draggable/drop target; chromux does not report JavaScript synthetic fallback as success.
 
@@ -594,11 +597,13 @@ The PNG remains a separate visual artifact read by the agent when needed.
 
 | reach surface | response size | budget |
 |---|---|---|
-| full canvas screenshot metadata | ~197 tok | 300 tok |
-| bounded canvas crop metadata | ~275 tok | 400 tok |
+| full canvas screenshot metadata | ~245 tok | 300 tok |
+| bounded canvas crop metadata | ~323 tok | 400 tok |
 | default opaque-frame open / snapshot | ~89 / ~47 tok | 500 / 250 tok |
-| `open --oopif` / namespaced snapshot | ~163 / ~84 tok | 650 / 400 tok |
-| measured OOPIF attach overhead over default open | ~74 tok | 200 tok |
+| `open --oopif` / namespaced snapshot | ~169 / ~84 tok | 650 / 400 tok |
+| measured OOPIF attach overhead over default open | ~80 tok | 200 tok |
+
+The screenshot metadata rows include the action-ready mapping for the returned full or cropped PNG.
 
 The workflow the skills teach — inspect structure with `--interactive`, verify
 each action with `--diff`, extract with a shaped `page(...)` result (optionally

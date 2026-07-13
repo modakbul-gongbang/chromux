@@ -139,7 +139,9 @@ snapshot. Navigation resets refs; in-page changes keep them stable.
    `drag exp-ab12 --xy X1 Y1 --to-xy X2 Y2 --drag-mode pointer`.
    Coordinates are CSS viewport units by default. Add `--space image` when
    values come from the screenshot PNG; the response's measured
-   `coordinateSpace` handles DPR and visual viewport scale.
+   `coordinateSpace` handles DPR and visual viewport scale. Its top-level
+   `image` describes the returned full screenshot or crop, and image-space
+   actions use that session's most recent screenshot mapping.
 4. Verify: read the `changed` diff in the action's own response; for slower
    UIs use `--verify 1000`, or `wait-for-text exp-ab12 "Saved"` /
    `wait-for-selector exp-ab12 ".toast"` for readiness
@@ -225,6 +227,9 @@ hard-stop or resume a profile's tab work.
 - `screenshot <s> [path]` for visual evidence; add `--ref @N|selector` or
   `--region X Y WIDTH HEIGHT` for a bounded crop. The response includes PNG
   dimensions, CSS/visual viewport metadata, and measured image conversion.
+  A crop's image coordinates start at its own `[0,0]`; image-space actions use
+  the most recent screenshot mapping until another screenshot replaces it or
+  open, raw CDP, or scroll invalidates it.
   For canvas, save the PNG under the current work directory, inspect it, then
   use image-space `hover`, `click`, or `drag`. For an HTML range slider,
   locate the visible thumb and move it with pointer `drag`; `fill` is not a
@@ -262,7 +267,8 @@ credentials, cookies, pixel coordinates, one-off task narration, stale facts.
 - Older aliases (`eval`, `scroll`, `wait`, `console`, `network`, `scroll-until`)
   exist for compatibility; prefer `run`, `cdp`, and `watch`.
 - Known reach limits (report these instead of retrying blindly): opaque cross-origin geometry is available by default, but reliable DOM/text action inside a site-isolated OOPIF requires an explicit `open ... --oopif` session.
-  That opt-in attaches child targets, adds namespaced snapshot refs, and routes click/fill/waits; navigation invalidates the child namespace.
+  That opt-in attaches child targets, adds namespaced snapshot refs, and routes click/fill/waits; navigation, detach, or renderer crash invalidates the child namespace.
+  `list` reports crash cleanup, and `close` reports drained child-routing and CDP transport state.
   Keep it off when origin-only frame geometry is enough because it adds payload and target attachment surface.
   Closed shadow roots remain unreachable. Verify diffs may
   show a newly revealed listener-only element as text without a clickable

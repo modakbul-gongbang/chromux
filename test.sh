@@ -99,6 +99,7 @@ echo "--- Test 1: Launch headless profile ---"
 R1=$(node "$CT" launch "$PROFILE" --headless 2>/dev/null)
 check "profile launched" "port" "$R1"
 check "profile name" "$PROFILE" "$R1"
+PROFILE_CDP_PORT=$(printf '%s' "$R1" | node -e 'let raw="";process.stdin.on("data",chunk=>raw+=chunk);process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(raw).port)))')
 
 # --- Test 1b: Removed hidden launch mode ---
 echo ""
@@ -350,6 +351,11 @@ CHROMUX_PROFILE=$PROFILE node "$CT" cdp tab-coord Emulation.setDeviceMetricsOver
 DPR2_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-dpr2-$$.png 2>/dev/null)
 check "DPR 2 screenshot metadata records DPR" '"devicePixelRatio": 2' "$DPR2_SHOT"
 check "DPR 2 screenshot metadata records image width" '"width": 800' "$DPR2_SHOT"
+IMAGE_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-coord --xy 180 140 --space image 2>/dev/null)
+check "image-space click reports converted CSS coordinates" '"space": "image"' "$IMAGE_CLICK"
+COORD_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title" 2>/dev/null)
+check "image-space click reaches DPR 2 target" "image-clicked" "$COORD_TITLE"
+CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title='CoordinatePage'" 2>/dev/null > /dev/null
 REGION_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-region-$$.png --region 40 30 100 80 2>/dev/null)
 check "CSS screenshot region reports crop source" '"source": "region"' "$REGION_SHOT"
 check "DPR 2 CSS screenshot region produces scaled image width" '"width": 200' "$REGION_SHOT"
@@ -357,11 +363,6 @@ COORD_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-coord 2>/dev/null)
 COORD_REF=$(echo "$COORD_SNAP" | grep "Coordinate target" | grep -o '@[0-9]*' | head -1)
 REF_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-ref-$$.png --ref "$COORD_REF" 2>/dev/null)
 check "ref screenshot crop reports crop source" '"source": "ref"' "$REF_SHOT"
-IMAGE_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-coord --xy 180 140 --space image 2>/dev/null)
-check "image-space click reports converted CSS coordinates" '"space": "image"' "$IMAGE_CLICK"
-COORD_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title" 2>/dev/null)
-check "image-space click reaches DPR 2 target" "image-clicked" "$COORD_TITLE"
-CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title='CoordinatePage'" 2>/dev/null > /dev/null
 CHROMUX_PROFILE=$PROFILE node "$CT" cdp tab-coord Emulation.setPageScaleFactor '{"pageScaleFactor":1.5}' 2>/dev/null > /dev/null
 ZOOM_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-zoom-$$.png 2>/dev/null)
 check "zoomed screenshot records visual viewport scale" '"scale": 1.5' "$ZOOM_SHOT"
@@ -375,7 +376,7 @@ rm -f /tmp/chromux-dpr1-$$.png /tmp/chromux-dpr2-$$.png /tmp/chromux-region-$$.p
 # --- Test 5c.0b: hover and real CDP drag paths ---
 echo ""
 echo "--- Test 5c.0b: Hover, pointer drag, and native HTML5 drag ---"
-ACTION_HTML='<title>InputActions</title><style>body{margin:0}.hover{position:absolute;left:20px;top:20px;width:100px;height:40px}.tip{display:none;position:absolute;top:65px}.hover:hover+.tip{display:block}.source{position:absolute;left:20px;top:120px;width:80px;height:50px;background:#9cf}.dest{position:absolute;left:220px;top:120px;width:100px;height:70px;background:#cfc}.htmlsrc{position:absolute;left:20px;top:230px;width:80px;height:50px;background:#fc9}.htmldest{position:absolute;left:220px;top:230px;width:100px;height:70px;background:#ccf}.covered{position:absolute;left:340px;top:20px;width:60px;height:40px}.cover{position:absolute;left:335px;top:15px;width:70px;height:50px;background:#fff;z-index:2}</style><button id="hover" class="hover">Hover me</button><p class="tip">Tooltip shown</p><div id="pointer" class="source" role="button">Pointer</div><div id="pointerDest" class="dest" role="button">Pointer target</div><div id="htmlsrc" class="htmlsrc" role="button" draggable="true">HTML source</div><div id="htmldest" class="htmldest" role="button">HTML target</div><button id="hidden" style="display:none">Hidden</button><button id="covered" class="covered">Covered</button><div class="cover">cover</div><p id="out">idle</p><script>const out=document.getElementById("out");let down=false;document.getElementById("pointer").addEventListener("pointerdown",()=>down=true);document.addEventListener("pointerup",e=>{if(down&&e.clientX>200)out.textContent="pointer dropped";down=false});document.getElementById("htmldest").addEventListener("dragover",e=>e.preventDefault());document.getElementById("htmldest").addEventListener("drop",e=>{e.preventDefault();out.textContent="html5 dropped"})</script>'
+ACTION_HTML='<title>InputActions</title><style>body{margin:0}.hover{position:absolute;left:20px;top:20px;width:100px;height:40px}.tip{display:none;position:absolute;top:65px}.hover:hover+.tip{display:block}.sort{position:absolute;left:20px;top:120px;width:160px;margin:0;padding:0;list-style:none}.sortItem{height:44px;line-height:44px;padding:0 10px;box-sizing:border-box}.source{background:#9cf}.dest{background:#cfc}.htmlsrc{position:absolute;left:20px;top:240px;width:80px;height:50px;background:#fc9}.htmldest{position:absolute;left:220px;top:240px;width:100px;height:70px;background:#ccf}.covered{position:absolute;left:340px;top:20px;width:60px;height:40px}.cover{position:absolute;left:335px;top:15px;width:70px;height:50px;background:#fff;z-index:2}#out{position:absolute;left:220px;top:120px}</style><button id="hover" class="hover">Hover me</button><p class="tip">Tooltip shown</p><ol id="pointerSort" class="sort"><li id="pointer" class="sortItem source" role="button">Pointer item</li><li id="pointerDest" class="sortItem dest" role="button">Pointer target</li></ol><div id="htmlsrc" class="htmlsrc" role="button" draggable="true">HTML source</div><div id="htmldest" class="htmldest" role="button">HTML target</div><button id="hidden" style="display:none">Hidden</button><button id="covered" class="covered">Covered</button><div class="cover">cover</div><p id="out">idle</p><script>const out=document.getElementById("out");const sort=document.getElementById("pointerSort");const pointer=document.getElementById("pointer");const pointerDest=document.getElementById("pointerDest");let down=false;pointer.addEventListener("pointerdown",e=>{down=true;pointer.setPointerCapture(e.pointerId)});pointer.addEventListener("pointermove",e=>{if(down&&e.clientY>=pointerDest.getBoundingClientRect().top+pointerDest.offsetHeight/2){sort.appendChild(pointer);out.textContent="sorted:"+Array.from(sort.children,el=>el.id).join(",")}});pointer.addEventListener("pointerup",()=>down=false);pointer.addEventListener("pointercancel",()=>down=false);document.getElementById("htmldest").addEventListener("dragover",e=>e.preventDefault());document.getElementById("htmldest").addEventListener("drop",e=>{e.preventDefault();out.textContent="html5 dropped"})</script>'
 ACTION_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$ACTION_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-actions "$ACTION_URL" 2>/dev/null > /dev/null
 ACTION_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-actions 2>/dev/null)
@@ -412,7 +413,9 @@ else
 fi
 POINTER_DRAG=$(CHROMUX_PROFILE=$PROFILE node "$CT" drag tab-actions '#pointer' --to '#pointerDest' --drag-mode pointer 2>/dev/null)
 check "pointer drag reports real CDP mode" '"mode": "pointer"' "$POINTER_DRAG"
-check "pointer drag changes fixture state" "pointer dropped" "$POINTER_DRAG"
+check "pointer drag response reports sorted DOM state" "sorted:pointerDest,pointer" "$POINTER_DRAG"
+POINTER_ORDER=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-actions "Array.from(document.querySelectorAll('#pointerSort > *'), el => el.id).join(',')" 2>/dev/null)
+check "pointer drag changes actual sortable DOM order" "pointerDest,pointer" "$POINTER_ORDER"
 HTML5_DRAG=$(CHROMUX_PROFILE=$PROFILE node "$CT" drag tab-actions '#htmlsrc' --to '#htmldest' 2>/dev/null)
 check "draggable source auto-selects native HTML5 mode" '"mode": "html5"' "$HTML5_DRAG"
 check "native HTML5 drag changes fixture state" "html5 dropped" "$HTML5_DRAG"
@@ -827,6 +830,41 @@ else
   CHROMUX_PROFILE=$PROFILE node "$CT" close tab-oopif 2>/dev/null > /dev/null
   rm -f /tmp/chromux-oopif-stale-$$.txt /tmp/chromux-oopif-detached-$$.txt
 
+  OOPIF_CRASH_OPEN=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-oopif-crash "$REACH_PARENT" --oopif 2>/dev/null)
+  check "OOPIF crash fixture starts with attached child" '"attachedFrames": 1' "$OOPIF_CRASH_OPEN"
+  OOPIF_CRASH=$(node benchmarks/oopif-crash-probe.mjs "$PROFILE_CDP_PORT" 2>/dev/null)
+  check "OOPIF crash probe dispatches Page.crash to child target" '"dispatched":true' "$OOPIF_CRASH"
+  OOPIF_CRASH_LIST=""
+  for _ in $(seq 1 20); do
+    OOPIF_CRASH_LIST=$(CHROMUX_PROFILE=$PROFILE node "$CT" list 2>/dev/null)
+    if echo "$OOPIF_CRASH_LIST" | grep -q '"crashedTotal": 1'; then break; fi
+    sleep 0.1
+  done
+  check "OOPIF renderer crash removes child session" '"attachedFrames": 0' "$OOPIF_CRASH_LIST"
+  check "OOPIF renderer crash increments crash cleanup count" '"crashedTotal": 1' "$OOPIF_CRASH_LIST"
+  check "OOPIF renderer crash leaves no pending setup" '"pending": 0' "$OOPIF_CRASH_LIST"
+  OOPIF_CRASH_PARENT=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-oopif-crash "document.title" 2>/dev/null)
+  check "parent session survives OOPIF renderer crash" "Browser Reach Parent" "$OOPIF_CRASH_PARENT"
+  CHROMUX_PROFILE=$PROFILE node "$CT" close tab-oopif-crash 2>/dev/null > /dev/null
+
+  OOPIF_CLOSE_OPEN=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-oopif-close "$REACH_PARENT" --oopif 2>/dev/null)
+  check "OOPIF close fixture starts with attached child" '"attachedFrames": 1' "$OOPIF_CLOSE_OPEN"
+  OOPIF_CLOSE=$(CHROMUX_PROFILE=$PROFILE node "$CT" close tab-oopif-close 2>/dev/null)
+  check "OOPIF close reports attached child before cleanup" '"attachedFrames": 1' "$OOPIF_CLOSE"
+  check "OOPIF close disables child routing" '"enabled": false' "$OOPIF_CLOSE"
+  check "OOPIF close drains child setup" '"pending": 0' "$OOPIF_CLOSE"
+  check "OOPIF close drains CDP waiters" '"waiters": 0' "$OOPIF_CLOSE"
+  check "OOPIF close removes CDP listener methods" '"listenerMethods": 0' "$OOPIF_CLOSE"
+  check "OOPIF close removes every CDP listener" '"listeners": 0' "$OOPIF_CLOSE"
+  OOPIF_CLOSED_LIST=$(CHROMUX_PROFILE=$PROFILE node "$CT" list 2>/dev/null)
+  if echo "$OOPIF_CLOSED_LIST" | grep -q 'tab-oopif-close'; then
+    echo "  ✗ OOPIF session remained listed after close"
+    FAIL=$((FAIL+1))
+  else
+    echo "  ✓ OOPIF session is absent after close"
+    PASS=$((PASS+1))
+  fi
+
   echo ""
   echo "--- Test 5c.1h: Canvas crops and image-space actions at DPR 1 and 2 ---"
   for CANVAS_DPR in 1 2; do
@@ -840,19 +878,18 @@ else
     check "canvas DPR $CANVAS_DPR ref crop reports measured DPR" "\"devicePixelRatio\": $CANVAS_DPR" "$CANVAS_META"
     check "canvas DPR $CANVAS_DPR ref crop is bounded to element" '"source": "ref"' "$CANVAS_META"
     check "canvas DPR $CANVAS_DPR ref crop is not viewport-clipped" '"clipped": false' "$CANVAS_META"
+    check "canvas DPR $CANVAS_DPR ref crop exposes local image coordinate source" '"imageSource": "ref"' "$CANVAS_META"
     CANVAS_POINTS=$(printf '%s' "$CANVAS_META" | node -e '
       let raw=""; process.stdin.on("data",c=>raw+=c); process.stdin.on("end",()=>{
-        const value=JSON.parse(raw); const rect=value.crop.cssRect; const map=value.coordinateSpace.cssToImage; const vv=value.coordinateSpace.visualViewport;
+        const value=JSON.parse(raw); const rect=value.crop.cssRect; const image=value.coordinateSpace.image;
         const css=(x,y)=>({x:rect.x+x*rect.width/600,y:rect.y+y*rect.height/360});
-        const image=p=>({x:Math.round((p.x-vv.offsetLeft)*map.scaleX),y:Math.round((p.y-vv.offsetTop)*map.scaleY)});
-        const points=[[480,70],[300,180],[100,280],[500,280]].map(([x,y])=>image(css(x,y)));
-        const region=css(260,140); const expectedWidth=Math.round(rect.width*map.scaleX);
+        const local=(x,y)=>({x:Math.round(x*image.width/600),y:Math.round(y*image.height/360)});
+        const points=[[480,70],[300,180],[100,280],[500,280]].map(([x,y])=>local(x,y));
+        const region=css(260,140); const expectedWidth=image.width;
         console.log([...points.flatMap(p=>[p.x,p.y]),region.x,region.y,80*rect.width/600,80*rect.height/360,expectedWidth].join(" "));
       });')
     read -r CANVAS_HOVER_X CANVAS_HOVER_Y CANVAS_CLICK_X CANVAS_CLICK_Y CANVAS_DRAG_X CANVAS_DRAG_Y CANVAS_DROP_X CANVAS_DROP_Y CANVAS_REGION_X CANVAS_REGION_Y CANVAS_REGION_W CANVAS_REGION_H CANVAS_EXPECTED_WIDTH <<< "$CANVAS_POINTS"
     check "canvas DPR $CANVAS_DPR ref crop image width follows measured scale" "\"width\": $CANVAS_EXPECTED_WIDTH" "$CANVAS_META"
-    CANVAS_REGION_META=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot "$CANVAS_SESSION" "$CANVAS_REGION" --region "$CANVAS_REGION_X" "$CANVAS_REGION_Y" "$CANVAS_REGION_W" "$CANVAS_REGION_H" 2>/dev/null)
-    check "canvas DPR $CANVAS_DPR region crop reports region source" '"source": "region"' "$CANVAS_REGION_META"
     CHROMUX_PROFILE=$PROFILE node "$CT" hover "$CANVAS_SESSION" --xy "$CANVAS_HOVER_X" "$CANVAS_HOVER_Y" --space image --no-verify 2>/dev/null > /dev/null
     CHROMUX_PROFILE=$PROFILE node "$CT" click "$CANVAS_SESSION" --xy "$CANVAS_CLICK_X" "$CANVAS_CLICK_Y" --space image --no-verify 2>/dev/null > /dev/null
     CHROMUX_PROFILE=$PROFILE node "$CT" drag "$CANVAS_SESSION" --xy "$CANVAS_DRAG_X" "$CANVAS_DRAG_Y" --to-xy "$CANVAS_DROP_X" "$CANVAS_DROP_Y" --space image --drag-mode pointer --steps 12 --no-verify 2>/dev/null > /dev/null
@@ -865,6 +902,8 @@ else
     check "canvas DPR $CANVAS_DPR image-space hover reaches target" '"hover"' "$CANVAS_GRADE"
     check "canvas DPR $CANVAS_DPR image-space click reaches target" '"click"' "$CANVAS_GRADE"
     check "canvas DPR $CANVAS_DPR image-space drag reaches target" '"drag"' "$CANVAS_GRADE"
+    CANVAS_REGION_META=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot "$CANVAS_SESSION" "$CANVAS_REGION" --region "$CANVAS_REGION_X" "$CANVAS_REGION_Y" "$CANVAS_REGION_W" "$CANVAS_REGION_H" 2>/dev/null)
+    check "canvas DPR $CANVAS_DPR region crop reports region source" '"source": "region"' "$CANVAS_REGION_META"
     CHROMUX_PROFILE=$PROFILE node "$CT" close "$CANVAS_SESSION" 2>/dev/null > /dev/null
     rm -f "$CANVAS_FULL" "$CANVAS_REGION"
   done

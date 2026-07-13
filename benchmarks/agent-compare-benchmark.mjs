@@ -128,7 +128,11 @@ function buildTools(runRoot, toolsDir) {
       bin: 'chromux',
       stateDir: path.join(runRoot, 'state-chromux'),
       setupShim(shimDir) {
-        makeShim(shimDir, 'chromux', `exec "${process.execPath}" "${CHROMUX}" "$@"`);
+        makeShim(shimDir, 'chromux', `if [ "\${CHROMUX_BENCH_VISUAL_ONLY:-0}" = "1" ] && { [ "$1" = "run" ] || [ "$1" = "cdp" ]; }; then
+  printf '%s\n' "Visual benchmark policy: chromux $1 is disabled; use screenshot and browser input actions." >&2
+  exit 64
+fi
+exec "${process.execPath}" "${CHROMUX}" "$@"`);
       },
       env() {
         return {
@@ -526,6 +530,7 @@ async function runAgentSession({ tool, task, rep, model, maxTurns, timeoutMs, sh
     if (key.startsWith('CHROMUX_') || key.startsWith('AGENT_BROWSER_') || key === 'CLAUDE_SESSION_ID') delete env[key];
   }
   Object.assign(env, tool.env(), { PATH: `${shimDir}:${process.env.PATH}` });
+  if (task.kind === 'webgames') env.CHROMUX_BENCH_VISUAL_ONLY = '1';
 
   const args = [
     '-p', prompt,

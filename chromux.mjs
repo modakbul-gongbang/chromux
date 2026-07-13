@@ -1355,6 +1355,39 @@ class CDPClient {
     this.#listeners.delete(method);
   }
 
+  diagnostics() {
+    let listenerCount = 0;
+    for (const callbacks of this.#listeners.values()) listenerCount += callbacks.length;
+    return {
+      connected: this.connected,
+      pending: this.#pending.size,
+      waiters: this.#waiters.length,
+      listenerMethods: this.#listeners.size,
+      listeners: listenerCount,
+    };
+  }
+
+  async closeAndWait(timeoutMs = 2000) {
+    const ws = this.#ws;
+    if (!ws || ws.readyState === WebSocket.CLOSED) return this.diagnostics();
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        ws.removeEventListener('close', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      ws.addEventListener('close', finish, { once: true });
+      if (ws.readyState !== WebSocket.CLOSING) {
+        try { ws.close(); } catch { finish(); }
+      }
+    });
+    return this.diagnostics();
+  }
+
   #onDisconnect = null;
   set onDisconnect(fn) { this.#onDisconnect = fn; }
 
@@ -1834,6 +1867,52 @@ function oopifNamespace(child) {
   return `f${child.slot}g${child.generation}`;
 }
 
+const OOPIF_EVENT_METHODS = [
+  'Target.attachedToTarget',
+  'Target.detachedFromTarget',
+  'Target.targetCrashed',
+  'Target.targetInfoChanged',
+  'Inspector.targetCrashed',
+  'Page.frameNavigated',
+];
+
+function disposeOopifRouting(s) {
+  const state = s.oopif;
+  for (const method of OOPIF_EVENT_METHODS) s.cdp.off(method);
+  if (state) {
+    state.enabled = false;
+    state.children.clear();
+    state.targetSessions.clear();
+    state.detachedTargets.clear();
+    state.crashedTargets.clear();
+    state.pending = 0;
+  }
+  s.oopif = null;
+  return { enabled: false, attachedFrames: 0, pending: 0 };
+}
+
+function removeOopifTarget(state, { sessionId = null, targetId = null, crashed = false } = {}) {
+  const resolvedSessionId = sessionId || (targetId ? state.targetSessions.get(targetId) : null);
+  const child = resolvedSessionId ? state.children.get(resolvedSessionId) : null;
+  const resolvedTargetId = targetId || child?.targetId || null;
+  const knownTarget = Boolean(child || (resolvedTargetId && (
+    state.targetSessions.has(resolvedTargetId)
+    || state.detachedTargets.has(resolvedTargetId)
+    || state.crashedTargets.has(resolvedTargetId)
+  )));
+  if (!knownTarget) return;
+  if (resolvedSessionId) state.children.delete(resolvedSessionId);
+  if (resolvedTargetId) state.targetSessions.delete(resolvedTargetId);
+  if (resolvedTargetId && !state.detachedTargets.has(resolvedTargetId)) {
+    state.detachedTargets.add(resolvedTargetId);
+    state.detachedTotal++;
+  }
+  if (crashed && resolvedTargetId && !state.crashedTargets.has(resolvedTargetId)) {
+    state.crashedTargets.add(resolvedTargetId);
+    state.crashedTotal++;
+  }
+}
+
 async function enableOopifRouting(s) {
   if (s.oopif?.enabled) return s.oopif;
   const state = {
@@ -1842,8 +1921,12 @@ async function enableOopifRouting(s) {
     nextSlot: 0,
     attachedTotal: 0,
     detachedTotal: 0,
+    crashedTotal: 0,
     pending: 0,
     enabledAt: Date.now(),
+    targetSessions: new Map(),
+    detachedTargets: new Set(),
+    crashedTargets: new Set(),
   };
   s.oopif = state;
   s.cdp.on('Target.attachedToTarget', (params) => {
@@ -1859,14 +1942,24 @@ async function enableOopifRouting(s) {
       ready: null,
     };
     state.children.set(params.sessionId, child);
+    state.targetSessions.set(info.targetId, params.sessionId);
     state.attachedTotal++;
     state.pending++;
-    child.ready = s.cdp.send('Page.enable', {}, 5000, params.sessionId)
+    child.ready = Promise.all([
+      s.cdp.send('Page.enable', {}, 5000, params.sessionId),
+      s.cdp.send('Inspector.enable', {}, 5000, params.sessionId),
+    ])
       .catch(() => null)
       .finally(() => { state.pending = Math.max(0, state.pending - 1); });
   });
-  s.cdp.on('Target.detachedFromTarget', ({ sessionId }) => {
-    if (state.children.delete(sessionId)) state.detachedTotal++;
+  s.cdp.on('Target.detachedFromTarget', ({ sessionId, targetId }) => {
+    removeOopifTarget(state, { sessionId, targetId });
+  });
+  s.cdp.on('Target.targetCrashed', ({ targetId }) => {
+    removeOopifTarget(state, { targetId, crashed: true });
+  });
+  s.cdp.on('Inspector.targetCrashed', (_, eventSessionId) => {
+    removeOopifTarget(state, { sessionId: eventSessionId, crashed: true });
   });
   s.cdp.on('Target.targetInfoChanged', ({ targetInfo }) => {
     for (const child of state.children.values()) {
@@ -1893,7 +1986,7 @@ async function enableOopifRouting(s) {
       ],
     });
   } catch (err) {
-    s.oopif = null;
+    disposeOopifRouting(s);
     throw httpErr(503, `OOPIF opt-in failed: ${err.message}`);
   }
   await sleep(100);
@@ -1908,6 +2001,7 @@ function oopifSummary(s) {
     namespaces: [...s.oopif.children.values()].map(oopifNamespace),
     attachedTotal: s.oopif.attachedTotal,
     detachedTotal: s.oopif.detachedTotal,
+    crashedTotal: s.oopif.crashedTotal,
     pending: s.oopif.pending,
   };
 }
@@ -2754,6 +2848,30 @@ function pngDimensions(buffer) {
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
 }
 
+function mapImageCoordinateSpace(base, image, cssRect, imageSource = 'viewport') {
+  if (!image?.width || !image?.height || !cssRect?.width || !cssRect?.height) {
+    throw httpErr(503, 'Unable to map screenshot image coordinates');
+  }
+  return {
+    ...base,
+    image,
+    imageSource,
+    imageCssRect: cssRect,
+    cssToImage: {
+      scaleX: image.width / cssRect.width,
+      scaleY: image.height / cssRect.height,
+      offsetCssX: cssRect.x,
+      offsetCssY: cssRect.y,
+    },
+    imageToCss: {
+      scaleX: cssRect.width / image.width,
+      scaleY: cssRect.height / image.height,
+      offsetCssX: cssRect.x,
+      offsetCssY: cssRect.y,
+    },
+  };
+}
+
 async function captureCoordinateSpace(cdp) {
   const viewportResult = await cdp.send('Runtime.evaluate', {
     expression: `(() => {
@@ -2795,32 +2913,26 @@ async function captureCoordinateSpace(cdp) {
   const buffer = Buffer.from(screenshot.data, 'base64');
   const image = pngDimensions(buffer);
   const vv = viewport.visualViewport;
-  const coordinateSpace = {
+  const base = {
     cssViewport: viewport.cssViewport,
     visualViewport: vv,
     scroll: viewport.scroll,
     devicePixelRatio: viewport.devicePixelRatio,
     viewportImage: image,
-    cssToImage: {
-      scaleX: image.width / vv.width,
-      scaleY: image.height / vv.height,
-      offsetCssX: vv.offsetLeft,
-      offsetCssY: vv.offsetTop,
-    },
-    imageToCss: {
-      scaleX: vv.width / image.width,
-      scaleY: vv.height / image.height,
-      offsetCssX: vv.offsetLeft,
-      offsetCssY: vv.offsetTop,
-    },
   };
+  const coordinateSpace = mapImageCoordinateSpace(base, image, {
+    x: vv.offsetLeft,
+    y: vv.offsetTop,
+    width: vv.width,
+    height: vv.height,
+  });
   return { buffer, coordinateSpace };
 }
 
 function pointToCss(x, y, space, coordinateSpace) {
   if (space === 'css') return { x, y };
   if (space !== 'image') throw httpErr(400, `Unknown coordinate space "${space}"; use css or image`);
-  const image = coordinateSpace.viewportImage;
+  const image = coordinateSpace.image || coordinateSpace.viewportImage;
   if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
     throw httpErr(400, `image coordinates outside screenshot: [${x}, ${y}] not within ${image.width}x${image.height}`);
   }
@@ -3260,6 +3372,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         await cdp.send('Network.setBlockedURLs', { urls: CRAWL_BLOCK_URLS });
       }
       cdp.onDisconnect = (reason) => {
+        if (s) disposeOopifRouting(s);
         sessions.delete(session);
       };
       const now = Date.now();
@@ -3271,6 +3384,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     if (body.dialog === 'accept' || body.dialog === 'dismiss') s.dialogPolicy = body.dialog;
     if (body.oopif === true) await enableOopifRouting(s);
     touchSession(s);
+    s.lastImageCoordinateSpace = null;
     try {
       await navigateSession(s.cdp, url, settings);
     } catch (err) {
@@ -3375,6 +3489,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     if (!session || !cdpMethod) throw httpErr(400, 'session and method required');
     const s = getSession(sessions, session);
     touchSession(s);
+    s.lastImageCoordinateSpace = null;
     try {
       return await s.cdp.send(cdpMethod, params || {}, timeoutMs);
     } catch (err) {
@@ -3545,7 +3660,8 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const s = getSession(sessions, session);
     touchSession(s);
     await s.cdp.send('Page.bringToFront', {});
-    const point = await resolveActionTarget(s.cdp, { selector, xy, space }, 'Hover');
+    const coordinateSpace = space === 'image' ? s.lastImageCoordinateSpace : null;
+    const point = await resolveActionTarget(s.cdp, { selector, xy, space }, 'Hover', coordinateSpace);
     await s.cdp.send('Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x: point.x,
@@ -3574,7 +3690,9 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const s = getSession(sessions, session);
     touchSession(s);
     await s.cdp.send('Page.bringToFront', {});
-    const start = await resolveActionTarget(s.cdp, from, 'Drag source');
+    const usesImageSpace = from?.space === 'image' || to?.space === 'image';
+    const coordinateSpace = usesImageSpace ? s.lastImageCoordinateSpace : null;
+    const start = await resolveActionTarget(s.cdp, from, 'Drag source', coordinateSpace);
     const end = await resolveActionTarget(s.cdp, to, 'Drag destination', start.coordinateSpace);
     const selectedMode = mode === 'auto' ? (start.geometry?.draggable ? 'html5' : 'pointer') : mode;
     if (selectedMode === 'html5') await dispatchHtml5Drag(s.cdp, start, end, steps, holdMs);
@@ -3627,7 +3745,8 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       let x = inputX;
       let y = inputY;
       if (space === 'image') {
-        ({ coordinateSpace } = await captureCoordinateSpace(s.cdp));
+        coordinateSpace = s.lastImageCoordinateSpace;
+        if (!coordinateSpace) ({ coordinateSpace } = await captureCoordinateSpace(s.cdp));
         ({ x, y } = pointToCss(inputX, inputY, space, coordinateSpace));
       } else if (space !== 'css') {
         throw httpErr(400, `Unknown coordinate space "${space}"; use css or image`);
@@ -4290,10 +4409,14 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     }
     fs.writeFileSync(resolved, output);
     const image = pngDimensions(output);
+    const coordinateSpace = crop
+      ? mapImageCoordinateSpace(captured.coordinateSpace, image, crop.cssRect, crop.source)
+      : captured.coordinateSpace;
+    s.lastImageCoordinateSpace = coordinateSpace;
     return {
       path: resolved,
       image,
-      coordinateSpace: captured.coordinateSpace,
+      coordinateSpace,
       ...(crop ? { crop: { ...crop, image } } : {}),
     };
   }
@@ -4302,6 +4425,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const { session, direction } = body;
     const s = getSession(sessions, session);
     touchSession(s);
+    s.lastImageCoordinateSpace = null;
     const delta = direction === 'up' ? -500 : 500;
     await s.cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: 300, y: 300, deltaX: 0, deltaY: delta });
     await sleep(300);
@@ -4319,12 +4443,16 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const s = sessions.get(session);
     let knowledgeHint = null;
     let pageInfo = null;
+    let cleanup = null;
     if (s) {
       try {
         pageInfo = await readPageInfo(port, s.targetId, s.cdp, settings);
         knowledgeHint = siteKnowledgeHintForUrl(pageInfo.url);
       } catch {}
-      s.cdp.close();
+      const oopifBefore = s.oopif?.enabled ? oopifSummary(s) : null;
+      const transport = await s.cdp.closeAndWait();
+      const oopifAfter = disposeOopifRouting(s);
+      if (oopifBefore) cleanup = { oopif: { before: oopifBefore, after: oopifAfter }, transport };
       await closeTab(port, s.targetId).catch(() => {});
       sessions.delete(session);
     }
@@ -4332,6 +4460,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     if (pageInfo?.url) result.url = pageInfo.url;
     if (pageInfo?.title) result.title = pageInfo.title;
     if (knowledgeHint) result.knowledgeHint = knowledgeHint;
+    if (cleanup) result.cleanup = cleanup;
     return result;
   }
 
@@ -6896,14 +7025,15 @@ Convenience shortcuts:
   Snapshots, clicks, fills, and waits pierce same-origin iframes and open shadow DOM.
                                      Cross-origin frames expose an origin-only opaque ref and CSS
                                      rect; --oopif adds namespaced child refs such as @f1g1:2
-                                     for snapshot/click/fill/waits. Navigation invalidates child refs.
+                                     for snapshot/click/fill/waits. Navigation, detach, or crash invalidates refs.
+                                     list reports crashedTotal; close reports drained child/CDP cleanup.
                                      --oopif uses child-target attachment and remains opt-in.
   chromux click <session> @<ref>     Click by ref number
   chromux click <session> "selector" Click by CSS selector
   chromux click <session> --text "label"   Click by visible label when refs went stale
                                      (ambiguous text fails and lists the candidates)
   chromux click <session> --xy X Y   Click by CSS viewport coordinates (backward compatible)
-  chromux click <s> --xy X Y --space image   Click screenshot image-pixel coordinates
+  chromux click <s> --xy X Y --space image   Click the most recent screenshot's image pixels
   chromux hover <s> (@ref|SEL|--xy X Y) [--space css|image]   Move the real pointer
   chromux drag <s> (@ref|SEL|--xy X Y) (--to @ref|SEL|--to-xy X Y)
                                      [--space css|image] [--drag-mode auto|pointer|html5]
@@ -6931,7 +7061,9 @@ Convenience shortcuts:
   chromux screenshot <session> [p]   Take PNG with measured CSS/image coordinate metadata
   chromux screenshot <s> [p] --ref @N|SEL   Crop a visible element
   chromux screenshot <s> [p] --region X Y W H [--space css|image]   Crop a visible region
-  Screenshot mappings are measured from the PNG and visual viewport; do not infer from DPR alone.
+  Screenshot mappings describe the returned PNG; crop image coordinates start at local [0,0].
+                                     Image actions use the session's most recent screenshot mapping.
+                                     Do not infer mappings from DPR alone.
   Canvas objects have no DOM refs: inspect a crop, then hover/click/drag in css or image space.
   chromux show <session>             Open DevTools in browser (inspect live tab)
 

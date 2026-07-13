@@ -9,7 +9,11 @@ Read this for canvas, range sliders, drag/drop, hover-only controls, screenshot 
 Keep that default for coordinates measured from DOM geometry.
 
 A screenshot response reports PNG dimensions, CSS and visual viewport data, scroll offsets, and measured `cssToImage` / `imageToCss` conversion.
+Its top-level `coordinateSpace.image` describes the returned PNG, including a region or ref crop.
+For a crop, image coordinates are local to that PNG and `[0,0]` is its top-left corner.
 Use `--space image` when a point or crop came from the PNG.
+Image-space hover, click, and drag use the session's most recent screenshot mapping.
+Another screenshot replaces that mapping; open, raw CDP, and scroll invalidate it.
 Do not multiply or divide by `devicePixelRatio` alone; zoom, visual viewport scale, and clipping can change the mapping.
 
 ```bash
@@ -19,7 +23,7 @@ chromux click <s> --xy IMAGE_X IMAGE_Y --space image
 ```
 
 `--ref @N|selector` crops one reachable visible element.
-Region and ref crops are clipped to the visible viewport and return their own image dimensions and CSS rect.
+Region and ref crops are clipped to the visible viewport and return their own image dimensions, CSS rect, and action-ready local image mapping.
 
 ## Canvas and visual-only controls
 
@@ -47,8 +51,9 @@ Use `open <s> <url> --oopif` only when child DOM/ref access is necessary.
 The snapshot appends namespaced refs such as `@f1g1:2`; snapshot, click, fill, and text/selector waits route to that child target.
 File fill, autocomplete `--pick`, and ref-based hover/drag are not routed to OOPIF children.
 
-Frame navigation or detach invalidates the namespace.
+Frame navigation, detach, or renderer crash invalidates the namespace.
 Take a fresh snapshot on a stale-child error.
+`list` reports `crashedTotal`; `close` reports child-routing and CDP transport cleanup so zero pending calls, waiters, and listeners are observable.
 The opt-in uses child-target attachment, increases the response payload, and broadens the observable automation surface, so it stays disabled by default.
 
 ## Recovery loop
