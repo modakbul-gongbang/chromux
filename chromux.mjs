@@ -2907,8 +2907,6 @@ async function captureCoordinateSpace(cdp) {
   }
   const screenshot = await cdp.send('Page.captureScreenshot', {
     format: 'png',
-    fromSurface: true,
-    captureBeyondViewport: false,
   }, 30000);
   const buffer = Buffer.from(screenshot.data, 'base64');
   const image = pngDimensions(buffer);
@@ -4385,8 +4383,6 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       const scroll = captured.coordinateSpace.scroll;
       const clipped = await s.cdp.send('Page.captureScreenshot', {
         format: 'png',
-        fromSurface: true,
-        captureBeyondViewport: false,
         clip: {
           x: scroll.x + visibleRect.x,
           y: scroll.y + visibleRect.y,
