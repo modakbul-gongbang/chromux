@@ -1,13 +1,18 @@
 #!/bin/bash
 set -e
 
-CT="$(dirname "$0")/chromux.mjs"
+CT="$(cd "$(dirname "$0")" && pwd)/chromux.mjs"
 PROFILE="test-$$"
+OPAQUE_PROFILE="$PROFILE-opaque"
 COLD_PROFILE="$PROFILE-cold"
 LIVE_LOCK_PROFILE="$PROFILE-live-lock"
 STALE_LOCK_PROFILE="$PROFILE-stale-lock"
 PASS=0
 FAIL=0
+REACH_FIXTURE_PID=""
+REACH_FIXTURE_INFO=""
+REACH_FIXTURE_LOG=""
+RELATIVE_SHOT_DIR=""
 
 if [ -z "${CHROMUX_HOME:-}" ]; then
   CHROMUX_HOME="$(mktemp -d /tmp/chromux-test-home-XXXXXX)"
@@ -45,12 +50,16 @@ count_profile_chrome_processes() {
 cleanup() {
   echo ""
   echo "--- Cleanup ---"
+  if [ -n "$REACH_FIXTURE_PID" ]; then kill "$REACH_FIXTURE_PID" 2>/dev/null || true; fi
+  rm -f "$REACH_FIXTURE_INFO" "$REACH_FIXTURE_LOG"
+  if [ -n "$RELATIVE_SHOT_DIR" ]; then rm -rf "$RELATIVE_SHOT_DIR"; fi
   node "$CT" kill "$PROFILE" 2>/dev/null || true
+  node "$CT" kill "$OPAQUE_PROFILE" 2>/dev/null || true
   node "$CT" kill "$COLD_PROFILE" 2>/dev/null || true
   node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null || true
   node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null || true
-  chmod -R u+rwX "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
-  rm -rf "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
+  chmod -R u+rwX "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$OPAQUE_PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+  rm -rf "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$OPAQUE_PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
   if [ "$CHROMUX_TEST_OWNS_HOME" = "1" ]; then
     rm -rf "$CHROMUX_HOME"
   fi
@@ -314,6 +323,103 @@ else
 fi
 rm -f /tmp/chromux-xy-out-$$.txt
 
+# --- Test 5c.0a: screenshot coordinate metadata, DPR conversion, and crops ---
+echo ""
+echo "--- Test 5c.0a: Screenshot coordinate metadata and DPR-safe actions ---"
+COORD_HTML='<title>CoordinatePage</title><style>html,body{margin:0}.target{position:absolute;left:40px;top:30px;width:100px;height:80px}</style><button id="target" class="target" aria-label="Coordinate target" onclick="document.title=&quot;image-clicked&quot;">Coordinate target</button>'
+COORD_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$COORD_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-coord "$COORD_URL" 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" cdp tab-coord Emulation.setDeviceMetricsOverride '{"width":400,"height":300,"deviceScaleFactor":1,"mobile":false}' 2>/dev/null > /dev/null
+DPR1_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-dpr1-$$.png 2>/dev/null)
+check "DPR 1 screenshot metadata records DPR" '"devicePixelRatio": 1' "$DPR1_SHOT"
+check "DPR 1 screenshot metadata records image width" '"width": 400' "$DPR1_SHOT"
+RELATIVE_SHOT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/chromux-relative-shot-XXXXXX")
+mkdir -p "$RELATIVE_SHOT_DIR/shots"
+RELATIVE_SHOT=$(cd "$RELATIVE_SHOT_DIR" && CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord ./shots/proof.png 2>/dev/null)
+check "relative screenshot path resolves in the CLI working directory" '"path"' "$RELATIVE_SHOT"
+if [ -s "$RELATIVE_SHOT_DIR/shots/proof.png" ]; then
+  echo "  ✓ relative screenshot artifact written in caller directory"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ relative screenshot artifact missing from caller directory"
+  FAIL=$((FAIL+1))
+fi
+rm -rf "$RELATIVE_SHOT_DIR"
+RELATIVE_SHOT_DIR=""
+CHROMUX_PROFILE=$PROFILE node "$CT" cdp tab-coord Emulation.setDeviceMetricsOverride '{"width":400,"height":300,"deviceScaleFactor":2,"mobile":false}' 2>/dev/null > /dev/null
+DPR2_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-dpr2-$$.png 2>/dev/null)
+check "DPR 2 screenshot metadata records DPR" '"devicePixelRatio": 2' "$DPR2_SHOT"
+check "DPR 2 screenshot metadata records image width" '"width": 800' "$DPR2_SHOT"
+REGION_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-region-$$.png --region 40 30 100 80 2>/dev/null)
+check "CSS screenshot region reports crop source" '"source": "region"' "$REGION_SHOT"
+check "DPR 2 CSS screenshot region produces scaled image width" '"width": 200' "$REGION_SHOT"
+COORD_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-coord 2>/dev/null)
+COORD_REF=$(echo "$COORD_SNAP" | grep "Coordinate target" | grep -o '@[0-9]*' | head -1)
+REF_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-ref-$$.png --ref "$COORD_REF" 2>/dev/null)
+check "ref screenshot crop reports crop source" '"source": "ref"' "$REF_SHOT"
+IMAGE_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-coord --xy 180 140 --space image 2>/dev/null)
+check "image-space click reports converted CSS coordinates" '"space": "image"' "$IMAGE_CLICK"
+COORD_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title" 2>/dev/null)
+check "image-space click reaches DPR 2 target" "image-clicked" "$COORD_TITLE"
+CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title='CoordinatePage'" 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" cdp tab-coord Emulation.setPageScaleFactor '{"pageScaleFactor":1.5}' 2>/dev/null > /dev/null
+ZOOM_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-zoom-$$.png 2>/dev/null)
+check "zoomed screenshot records visual viewport scale" '"scale": 1.5' "$ZOOM_SHOT"
+ZOOM_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-coord --xy 270 210 --space image 2>/dev/null)
+check "zoomed image-space click reports converted CSS coordinates" '"css":' "$ZOOM_CLICK"
+ZOOM_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title" 2>/dev/null)
+check "image-space click reaches target at visual viewport scale 1.5" "image-clicked" "$ZOOM_TITLE"
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-coord 2>/dev/null > /dev/null
+rm -f /tmp/chromux-dpr1-$$.png /tmp/chromux-dpr2-$$.png /tmp/chromux-region-$$.png /tmp/chromux-ref-$$.png /tmp/chromux-zoom-$$.png
+
+# --- Test 5c.0b: hover and real CDP drag paths ---
+echo ""
+echo "--- Test 5c.0b: Hover, pointer drag, and native HTML5 drag ---"
+ACTION_HTML='<title>InputActions</title><style>body{margin:0}.hover{position:absolute;left:20px;top:20px;width:100px;height:40px}.tip{display:none;position:absolute;top:65px}.hover:hover+.tip{display:block}.source{position:absolute;left:20px;top:120px;width:80px;height:50px;background:#9cf}.dest{position:absolute;left:220px;top:120px;width:100px;height:70px;background:#cfc}.htmlsrc{position:absolute;left:20px;top:230px;width:80px;height:50px;background:#fc9}.htmldest{position:absolute;left:220px;top:230px;width:100px;height:70px;background:#ccf}.covered{position:absolute;left:340px;top:20px;width:60px;height:40px}.cover{position:absolute;left:335px;top:15px;width:70px;height:50px;background:#fff;z-index:2}</style><button id="hover" class="hover">Hover me</button><p class="tip">Tooltip shown</p><div id="pointer" class="source" role="button">Pointer</div><div id="pointerDest" class="dest" role="button">Pointer target</div><div id="htmlsrc" class="htmlsrc" role="button" draggable="true">HTML source</div><div id="htmldest" class="htmldest" role="button">HTML target</div><button id="hidden" style="display:none">Hidden</button><button id="covered" class="covered">Covered</button><div class="cover">cover</div><p id="out">idle</p><script>const out=document.getElementById("out");let down=false;document.getElementById("pointer").addEventListener("pointerdown",()=>down=true);document.addEventListener("pointerup",e=>{if(down&&e.clientX>200)out.textContent="pointer dropped";down=false});document.getElementById("htmldest").addEventListener("dragover",e=>e.preventDefault());document.getElementById("htmldest").addEventListener("drop",e=>{e.preventDefault();out.textContent="html5 dropped"})</script>'
+ACTION_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$ACTION_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-actions "$ACTION_URL" 2>/dev/null > /dev/null
+ACTION_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-actions 2>/dev/null)
+HOVER_REF=$(echo "$ACTION_SNAP" | grep "Hover me" | grep -o '@[0-9]*' | head -1)
+HOVER_RESULT=$(CHROMUX_PROFILE=$PROFILE node "$CT" hover tab-actions "$HOVER_REF" 2>/dev/null)
+check "hover by ref exposes hover-only content" "Tooltip shown" "$HOVER_RESULT"
+CHROMUX_PROFILE=$PROFILE node "$CT" hover tab-actions --xy 430 300 --no-verify 2>/dev/null > /dev/null
+HOVER_XY=$(CHROMUX_PROFILE=$PROFILE node "$CT" hover tab-actions --xy 70 40 2>/dev/null)
+check "hover by CSS coordinates reports target space" '"space": "css"' "$HOVER_XY"
+if CHROMUX_PROFILE=$PROFILE node "$CT" hover tab-actions '#hidden' >/tmp/chromux-hover-hidden-$$.txt 2>&1; then
+  echo "  ✗ hover accepted hidden target"
+  FAIL=$((FAIL+1))
+else
+  check "hover rejects hidden target with repair hint" "fresh ref" "$(cat /tmp/chromux-hover-hidden-$$.txt)"
+fi
+if CHROMUX_PROFILE=$PROFILE node "$CT" hover tab-actions '#covered' >/tmp/chromux-hover-covered-$$.txt 2>&1; then
+  echo "  ✗ hover accepted covered target"
+  FAIL=$((FAIL+1))
+else
+  check "hover rejects covered target" "covered" "$(cat /tmp/chromux-hover-covered-$$.txt)"
+fi
+CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-actions "document.getElementById('hover').remove()" 2>/dev/null > /dev/null
+if CHROMUX_PROFILE=$PROFILE node "$CT" hover tab-actions "$HOVER_REF" >/tmp/chromux-hover-stale-$$.txt 2>&1; then
+  echo "  ✗ hover accepted stale ref"
+  FAIL=$((FAIL+1))
+else
+  check "hover rejects stale ref" "not found or stale" "$(cat /tmp/chromux-hover-stale-$$.txt)"
+fi
+if CHROMUX_PROFILE=$PROFILE node "$CT" hover tab-actions --xy 9999 9999 >/tmp/chromux-hover-out-$$.txt 2>&1; then
+  echo "  ✗ hover accepted out-of-viewport coordinates"
+  FAIL=$((FAIL+1))
+else
+  check "hover rejects out-of-viewport coordinates" "outside viewport" "$(cat /tmp/chromux-hover-out-$$.txt)"
+fi
+POINTER_DRAG=$(CHROMUX_PROFILE=$PROFILE node "$CT" drag tab-actions '#pointer' --to '#pointerDest' --drag-mode pointer 2>/dev/null)
+check "pointer drag reports real CDP mode" '"mode": "pointer"' "$POINTER_DRAG"
+check "pointer drag changes fixture state" "pointer dropped" "$POINTER_DRAG"
+HTML5_DRAG=$(CHROMUX_PROFILE=$PROFILE node "$CT" drag tab-actions '#htmlsrc' --to '#htmldest' 2>/dev/null)
+check "draggable source auto-selects native HTML5 mode" '"mode": "html5"' "$HTML5_DRAG"
+check "native HTML5 drag changes fixture state" "html5 dropped" "$HTML5_DRAG"
+check "drag response confirms no synthetic fallback" '"syntheticFallback": false' "$HTML5_DRAG"
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-actions 2>/dev/null > /dev/null
+rm -f /tmp/chromux-hover-hidden-$$.txt /tmp/chromux-hover-covered-$$.txt /tmp/chromux-hover-stale-$$.txt /tmp/chromux-hover-out-$$.txt
+
 # --- Test 5c.1: text input shortcuts ---
 echo ""
 echo "--- Test 5c.1: Text input shortcuts ---"
@@ -495,9 +601,20 @@ CHROMUX_PROFILE=$PROFILE node "$CT" click tab-noop "#noop" 2>/dev/null > /dev/nu
 NOOP_VERIFY=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-noop "#noop" 2>/dev/null)
 check "no-change verify is time-qualified, not definitive" "may still be updating" "$NOOP_VERIFY"
 check "no-change verify warns before retrying" "BEFORE retrying" "$NOOP_VERIFY"
-RICH_HTML='<title>RichPage</title><div id="rich" contenteditable="true" aria-label="Editor">edit me</div><button id="s" type="button">Send</button>'
+RICH_HTML='<title>RichPage</title><div id="rich" contenteditable="true" aria-label="Editor"><b>edit</b> me</div><button id="s" type="button">Send</button><script>window.richEvents=[];document.getElementById("rich").addEventListener("beforeinput",e=>richEvents.push("beforeinput:"+e.inputType));document.getElementById("rich").addEventListener("input",e=>richEvents.push("input:"+e.inputType))</script>'
 RICH_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$RICH_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-rich "$RICH_URL" 2>/dev/null > /dev/null
+RICH_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-rich 2>/dev/null)
+RICH_REF=$(echo "$RICH_SNAP" | grep "Editor" | grep -o '@[0-9]*' | head -1)
+RICH_FILL=$(CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-rich "$RICH_REF" "hello rich" 2>/dev/null)
+check "fill replaces contenteditable text" '"observedText": "hello rich"' "$RICH_FILL"
+check "fill identifies contenteditable route" '"contenteditable": true' "$RICH_FILL"
+RICH_STATE=$(CHROMUX_PROFILE=$PROFILE node "$CT" run tab-rich "return await page('({text:document.getElementById(\"rich\").innerText,events:richEvents})')" 2>/dev/null)
+check "contenteditable fill emits beforeinput" "beforeinput:insertText" "$RICH_STATE"
+check "contenteditable fill emits input" "input:insertText" "$RICH_STATE"
+CHROMUX_PROFILE=$PROFILE node "$CT" type tab-rich " plus" 2>/dev/null > /dev/null
+RICH_TYPED=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-rich "document.getElementById('rich').innerText" 2>/dev/null)
+check "type preserves insertion semantics after contenteditable fill" "hello rich plus" "$RICH_TYPED"
 if CHROMUX_PROFILE=$PROFILE node "$CT" run tab-rich --file "$(dirname "$0")/snippets/_builtin/form-flow.js" --arg fields='{"#rich":"hello"}' --arg submit='#s' >/tmp/chromux-rich-out-$$.txt 2>&1; then
   echo "  ✗ form-flow silently accepted an unfillable contenteditable field"
   FAIL=$((FAIL+1))
@@ -600,6 +717,164 @@ check "fill reaches into iframe" "frame text" "$FRAME_VALUE"
 FRAME_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-frame "#fb" 2>/dev/null)
 check "click reaches into iframe" "42" "$FRAME_CLICK"
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-frame 2>/dev/null > /dev/null
+
+REACH_FIXTURE_INFO="/tmp/chromux-browser-reach-info-$$.json"
+REACH_FIXTURE_LOG="/tmp/chromux-browser-reach-fixture-$$.log"
+node benchmarks/browser-reach-fixture.mjs >"$REACH_FIXTURE_INFO" 2>"$REACH_FIXTURE_LOG" &
+REACH_FIXTURE_PID=$!
+for _ in $(seq 1 50); do
+  if [ -s "$REACH_FIXTURE_INFO" ]; then break; fi
+  sleep 0.1
+done
+if [ ! -s "$REACH_FIXTURE_INFO" ]; then
+  echo "  ✗ cross-site fixture failed to start"
+  cat "$REACH_FIXTURE_LOG" 2>/dev/null || true
+  FAIL=$((FAIL+1))
+else
+  REACH_PARENT=$(node -e 'const fs=require("fs");console.log(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).parentUrl)' "$REACH_FIXTURE_INFO")
+  REACH_GRADE=$(node -e 'const fs=require("fs");console.log(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).gradeUrl)' "$REACH_FIXTURE_INFO")
+  REACH_ORIGIN=$(node -e 'const fs=require("fs");const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));console.log(new URL(v.gradeUrl).origin)' "$REACH_FIXTURE_INFO")
+  REACH_CANVAS=$(node -e 'const fs=require("fs");console.log(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).canvasUrl)' "$REACH_FIXTURE_INFO")
+  REACH_CANVAS_GRADE=$(node -e 'const fs=require("fs");console.log(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).canvasGradeUrl)' "$REACH_FIXTURE_INFO")
+  # Tier 1 deliberately avoids target attachment, so prove its opaque geometry
+  # and focused input path in a cross-origin renderer without OOPIF isolation.
+  CHROMUX_EXTRA_CHROME_ARGS="--disable-site-isolation-trials" node "$CT" launch "$OPAQUE_PROFILE" --headless 2>/dev/null > /dev/null
+  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" open tab-opaque "$REACH_PARENT" 2>/dev/null > /dev/null
+  sleep 0.25
+  OPAQUE_SNAP=$(CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" snapshot tab-opaque 2>/dev/null)
+  check "snapshot exposes opaque cross-origin frame ref" "cross-origin opaque" "$OPAQUE_SNAP"
+  check "opaque frame snapshot exposes origin only" "origin=$REACH_ORIGIN" "$OPAQUE_SNAP"
+  check "opaque frame snapshot exposes CSS rect" "rect=\[" "$OPAQUE_SNAP"
+  if echo "$OPAQUE_SNAP" | grep -q "fixture-secret\|frame-child\|Private frame field"; then
+    echo "  ✗ opaque frame snapshot leaked path, query, or child field data"
+    FAIL=$((FAIL+1))
+  else
+    echo "  ✓ opaque frame snapshot redacts path, query, and child field data"
+    PASS=$((PASS+1))
+  fi
+  OPAQUE_REF=$(echo "$OPAQUE_SNAP" | grep "cross-origin opaque" | grep -o '@[0-9]*' | head -1)
+  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" click tab-opaque "$OPAQUE_REF" --no-verify 2>/dev/null > /dev/null
+  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" type tab-opaque "opaque typed" --no-verify 2>/dev/null > /dev/null
+  OPAQUE_GRADE=""
+  for _ in $(seq 1 20); do
+    OPAQUE_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_GRADE" 2>/dev/null || true)
+    if echo "$OPAQUE_GRADE" | grep -q "opaque typed"; then break; fi
+    sleep 0.1
+  done
+  check "opaque frame coordinate click plus type completes graded write" "opaque typed" "$OPAQUE_GRADE"
+  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" close tab-opaque 2>/dev/null > /dev/null
+  node "$CT" kill "$OPAQUE_PROFILE" 2>/dev/null > /dev/null
+
+  OOPIF_OPEN=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-oopif "$REACH_PARENT" --oopif 2>/dev/null)
+  check "OOPIF opt-in reports enabled routing" '"enabled": true' "$OOPIF_OPEN"
+  check "OOPIF opt-in attaches isolated frame" '"attachedFrames": 1' "$OOPIF_OPEN"
+  OOPIF_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-oopif 2>/dev/null)
+  check "OOPIF snapshot exposes namespaced child ref" '@f[0-9]*g[0-9]*:[0-9]* textbox "Private frame field"' "$OOPIF_SNAP"
+  if echo "$OOPIF_SNAP" | grep -q "fixture-secret\|frame-child\|opaque typed"; then
+    echo "  ✗ OOPIF snapshot leaked path, query, or frame field value"
+    FAIL=$((FAIL+1))
+  else
+    echo "  ✓ OOPIF snapshot redacts path, query, and frame field value"
+    PASS=$((PASS+1))
+  fi
+  OOPIF_REF=$(echo "$OOPIF_SNAP" | grep "Private frame field" | grep -o '@[A-Za-z0-9:]*' | head -1)
+  OOPIF_NAV_REF=$(echo "$OOPIF_SNAP" | grep "Navigate child" | grep -o '@[A-Za-z0-9:]*' | head -1)
+  OOPIF_WAIT_TEXT=$(CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-text tab-oopif "Opaque child ready" 3000 2>/dev/null)
+  check "wait-for-text searches opted-in OOPIF targets" '"searchedOopif": true' "$OOPIF_WAIT_TEXT"
+  OOPIF_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-oopif "$OOPIF_REF" --no-verify 2>/dev/null)
+  check "namespaced click routes to OOPIF child" '"namespace": "f' "$OOPIF_CLICK"
+  OOPIF_FILL=$(CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-oopif "$OOPIF_REF" "oopif filled" --no-verify 2>/dev/null)
+  check "namespaced fill routes to OOPIF child" '"filled": "@f' "$OOPIF_FILL"
+  OOPIF_WAIT=$(CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-selector tab-oopif "$OOPIF_REF" 3000 2>/dev/null)
+  check "namespaced wait routes to OOPIF child" '"frame": "f' "$OOPIF_WAIT"
+  OOPIF_GRADE=""
+  for _ in $(seq 1 20); do
+    OOPIF_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_GRADE" 2>/dev/null || true)
+    if echo "$OOPIF_GRADE" | grep -q "oopif filled"; then break; fi
+    sleep 0.1
+  done
+  check "OOPIF fill reaches machine-grade endpoint" "oopif filled" "$OOPIF_GRADE"
+  CHROMUX_PROFILE=$PROFILE node "$CT" click tab-oopif "$OOPIF_NAV_REF" --no-verify 2>/dev/null > /dev/null
+  sleep 0.4
+  OOPIF_NAV_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-oopif 2>/dev/null)
+  OOPIF_NEW_REF=$(echo "$OOPIF_NAV_SNAP" | grep "Navigated frame field" | grep -o '@[A-Za-z0-9:]*' | head -1)
+  check "OOPIF frame navigation produces new generation ref" '@f[0-9]*g[0-9]*:[0-9]* textbox "Navigated frame field"' "$OOPIF_NAV_SNAP"
+  if [ "$OOPIF_REF" = "$OOPIF_NEW_REF" ]; then
+    echo "  ✗ OOPIF ref generation did not change after navigation"
+    FAIL=$((FAIL+1))
+  else
+    echo "  ✓ OOPIF ref generation changes after navigation"
+    PASS=$((PASS+1))
+  fi
+  if CHROMUX_PROFILE=$PROFILE node "$CT" click tab-oopif "$OOPIF_REF" --no-verify >/tmp/chromux-oopif-stale-$$.txt 2>&1; then
+    echo "  ✗ old OOPIF ref survived navigation"
+    FAIL=$((FAIL+1))
+  else
+    check "old OOPIF ref is stale after navigation" "stale or detached" "$(cat /tmp/chromux-oopif-stale-$$.txt)"
+  fi
+  CHROMUX_PROFILE=$PROFILE node "$CT" run tab-oopif "return await js('document.getElementById(\"opaque-frame\").remove();true')" 2>/dev/null > /dev/null
+  sleep 0.4
+  OOPIF_LIST=$(CHROMUX_PROFILE=$PROFILE node "$CT" list 2>/dev/null)
+  check "OOPIF detach removes child session" '"attachedFrames": 0' "$OOPIF_LIST"
+  check "OOPIF detach increments cleanup count" '"detachedTotal": 1' "$OOPIF_LIST"
+  check "OOPIF lifecycle leaves no pending setup" '"pending": 0' "$OOPIF_LIST"
+  if CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-oopif "$OOPIF_NEW_REF" "stale" --no-verify >/tmp/chromux-oopif-detached-$$.txt 2>&1; then
+    echo "  ✗ detached OOPIF ref remained actionable"
+    FAIL=$((FAIL+1))
+  else
+    check "detached OOPIF ref is invalidated" "stale or detached" "$(cat /tmp/chromux-oopif-detached-$$.txt)"
+  fi
+  CHROMUX_PROFILE=$PROFILE node "$CT" close tab-oopif 2>/dev/null > /dev/null
+  rm -f /tmp/chromux-oopif-stale-$$.txt /tmp/chromux-oopif-detached-$$.txt
+
+  echo ""
+  echo "--- Test 5c.1h: Canvas crops and image-space actions at DPR 1 and 2 ---"
+  for CANVAS_DPR in 1 2; do
+    node -e 'fetch(process.argv[1].replace(/canvas-grade$/, "canvas-reset"), {method:"POST"})' "$REACH_CANVAS_GRADE" 2>/dev/null
+    CANVAS_SESSION="tab-canvas-dpr$CANVAS_DPR"
+    CANVAS_FULL="/tmp/chromux-canvas-full-$CANVAS_DPR-$$.png"
+    CANVAS_REGION="/tmp/chromux-canvas-region-$CANVAS_DPR-$$.png"
+    CHROMUX_PROFILE=$PROFILE node "$CT" open "$CANVAS_SESSION" "$REACH_CANVAS" 2>/dev/null > /dev/null
+    CHROMUX_PROFILE=$PROFILE node "$CT" cdp "$CANVAS_SESSION" Emulation.setDeviceMetricsOverride "{\"width\":800,\"height\":600,\"deviceScaleFactor\":$CANVAS_DPR,\"mobile\":false}" 2>/dev/null > /dev/null
+    CANVAS_META=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot "$CANVAS_SESSION" "$CANVAS_FULL" --ref '#reach-canvas' 2>/dev/null)
+    check "canvas DPR $CANVAS_DPR ref crop reports measured DPR" "\"devicePixelRatio\": $CANVAS_DPR" "$CANVAS_META"
+    check "canvas DPR $CANVAS_DPR ref crop is bounded to element" '"source": "ref"' "$CANVAS_META"
+    check "canvas DPR $CANVAS_DPR ref crop is not viewport-clipped" '"clipped": false' "$CANVAS_META"
+    CANVAS_POINTS=$(printf '%s' "$CANVAS_META" | node -e '
+      let raw=""; process.stdin.on("data",c=>raw+=c); process.stdin.on("end",()=>{
+        const value=JSON.parse(raw); const rect=value.crop.cssRect; const map=value.coordinateSpace.cssToImage; const vv=value.coordinateSpace.visualViewport;
+        const css=(x,y)=>({x:rect.x+x*rect.width/600,y:rect.y+y*rect.height/360});
+        const image=p=>({x:Math.round((p.x-vv.offsetLeft)*map.scaleX),y:Math.round((p.y-vv.offsetTop)*map.scaleY)});
+        const points=[[480,70],[300,180],[100,280],[500,280]].map(([x,y])=>image(css(x,y)));
+        const region=css(260,140); const expectedWidth=Math.round(rect.width*map.scaleX);
+        console.log([...points.flatMap(p=>[p.x,p.y]),region.x,region.y,80*rect.width/600,80*rect.height/360,expectedWidth].join(" "));
+      });')
+    read -r CANVAS_HOVER_X CANVAS_HOVER_Y CANVAS_CLICK_X CANVAS_CLICK_Y CANVAS_DRAG_X CANVAS_DRAG_Y CANVAS_DROP_X CANVAS_DROP_Y CANVAS_REGION_X CANVAS_REGION_Y CANVAS_REGION_W CANVAS_REGION_H CANVAS_EXPECTED_WIDTH <<< "$CANVAS_POINTS"
+    check "canvas DPR $CANVAS_DPR ref crop image width follows measured scale" "\"width\": $CANVAS_EXPECTED_WIDTH" "$CANVAS_META"
+    CANVAS_REGION_META=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot "$CANVAS_SESSION" "$CANVAS_REGION" --region "$CANVAS_REGION_X" "$CANVAS_REGION_Y" "$CANVAS_REGION_W" "$CANVAS_REGION_H" 2>/dev/null)
+    check "canvas DPR $CANVAS_DPR region crop reports region source" '"source": "region"' "$CANVAS_REGION_META"
+    CHROMUX_PROFILE=$PROFILE node "$CT" hover "$CANVAS_SESSION" --xy "$CANVAS_HOVER_X" "$CANVAS_HOVER_Y" --space image --no-verify 2>/dev/null > /dev/null
+    CHROMUX_PROFILE=$PROFILE node "$CT" click "$CANVAS_SESSION" --xy "$CANVAS_CLICK_X" "$CANVAS_CLICK_Y" --space image --no-verify 2>/dev/null > /dev/null
+    CHROMUX_PROFILE=$PROFILE node "$CT" drag "$CANVAS_SESSION" --xy "$CANVAS_DRAG_X" "$CANVAS_DRAG_Y" --to-xy "$CANVAS_DROP_X" "$CANVAS_DROP_Y" --space image --drag-mode pointer --steps 12 --no-verify 2>/dev/null > /dev/null
+    CANVAS_GRADE=""
+    for _ in $(seq 1 20); do
+      CANVAS_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_CANVAS_GRADE" 2>/dev/null || true)
+      if echo "$CANVAS_GRADE" | grep -q '"hover"' && echo "$CANVAS_GRADE" | grep -q '"click"' && echo "$CANVAS_GRADE" | grep -q '"drag"'; then break; fi
+      sleep 0.1
+    done
+    check "canvas DPR $CANVAS_DPR image-space hover reaches target" '"hover"' "$CANVAS_GRADE"
+    check "canvas DPR $CANVAS_DPR image-space click reaches target" '"click"' "$CANVAS_GRADE"
+    check "canvas DPR $CANVAS_DPR image-space drag reaches target" '"drag"' "$CANVAS_GRADE"
+    CHROMUX_PROFILE=$PROFILE node "$CT" close "$CANVAS_SESSION" 2>/dev/null > /dev/null
+    rm -f "$CANVAS_FULL" "$CANVAS_REGION"
+  done
+fi
+kill "$REACH_FIXTURE_PID" 2>/dev/null || true
+wait "$REACH_FIXTURE_PID" 2>/dev/null || true
+REACH_FIXTURE_PID=""
+rm -f "$REACH_FIXTURE_INFO" "$REACH_FIXTURE_LOG"
+REACH_FIXTURE_INFO=""
+REACH_FIXTURE_LOG=""
 
 SHADOW_HTML='<title>ShadowPage</title><div id="host"></div><p id="out">idle</p><script>const r=document.getElementById("host").attachShadow({mode:"open"});r.innerHTML="<button id=\"sbtn\">Shadow button</button>";r.getElementById("sbtn").addEventListener("click",()=>{document.getElementById("out").textContent="shadow clicked"});</script>'
 SHADOW_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$SHADOW_HTML")"
