@@ -3,7 +3,6 @@ set -e
 
 CT="$(cd "$(dirname "$0")" && pwd)/chromux.mjs"
 PROFILE="test-$$"
-OPAQUE_PROFILE="$PROFILE-opaque"
 COLD_PROFILE="$PROFILE-cold"
 LIVE_LOCK_PROFILE="$PROFILE-live-lock"
 STALE_LOCK_PROFILE="$PROFILE-stale-lock"
@@ -54,12 +53,11 @@ cleanup() {
   rm -f "$REACH_FIXTURE_INFO" "$REACH_FIXTURE_LOG"
   if [ -n "$RELATIVE_SHOT_DIR" ]; then rm -rf "$RELATIVE_SHOT_DIR"; fi
   node "$CT" kill "$PROFILE" 2>/dev/null || true
-  node "$CT" kill "$OPAQUE_PROFILE" 2>/dev/null || true
   node "$CT" kill "$COLD_PROFILE" 2>/dev/null || true
   node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null || true
   node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null || true
-  chmod -R u+rwX "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$OPAQUE_PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
-  rm -rf "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$OPAQUE_PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
+  chmod -R u+rwX "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+  rm -rf "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
   if [ "$CHROMUX_TEST_OWNS_HOME" = "1" ]; then
     rm -rf "$CHROMUX_HOME"
   fi
@@ -327,7 +325,7 @@ rm -f /tmp/chromux-xy-out-$$.txt
 # --- Test 5c.0a: screenshot coordinate metadata, DPR conversion, and crops ---
 echo ""
 echo "--- Test 5c.0a: Screenshot coordinate metadata and DPR-safe actions ---"
-COORD_HTML='<title>CoordinatePage</title><style>html,body{margin:0}.target{position:absolute;left:40px;top:30px;width:100px;height:80px}</style><button id="target" class="target" aria-label="Coordinate target" onclick="document.title=&quot;image-clicked&quot;">Coordinate target</button>'
+COORD_HTML='<title>CoordinatePage</title><style>html,body{margin:0;min-height:1400px}.target{position:absolute;left:40px;top:30px;width:100px;height:80px}.offscreen{position:absolute;left:55px;top:1000px;width:120px;height:70px;background:rgb(23,177,91)}</style><button id="target" class="target" aria-label="Coordinate target" onclick="document.title=&quot;image-clicked&quot;">Coordinate target</button><button id="offscreen" class="offscreen" aria-label="Offscreen coordinate target" onclick="document.title=&quot;offscreen-clicked&quot;">Offscreen target</button>'
 COORD_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$COORD_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-coord "$COORD_URL" 2>/dev/null > /dev/null
 CHROMUX_PROFILE=$PROFILE node "$CT" cdp tab-coord Emulation.setDeviceMetricsOverride '{"width":400,"height":300,"deviceScaleFactor":1,"mobile":false}' 2>/dev/null > /dev/null
@@ -363,6 +361,35 @@ COORD_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-coord 2>/dev/null)
 COORD_REF=$(echo "$COORD_SNAP" | grep "Coordinate target" | grep -o '@[0-9]*' | head -1)
 REF_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-ref-$$.png --ref "$COORD_REF" 2>/dev/null)
 check "ref screenshot crop reports crop source" '"source": "ref"' "$REF_SHOT"
+OFFSCREEN_REF=$(echo "$COORD_SNAP" | grep "Offscreen coordinate target" | grep -o '@[0-9]*' | head -1)
+OFFSCREEN_REF_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-ref-offscreen-$$.png --ref "$OFFSCREEN_REF" 2>/dev/null)
+check "offscreen ref screenshot scrolls a reachable target into view" '"source": "ref"' "$OFFSCREEN_REF_SHOT"
+OFFSCREEN_META=$(printf '%s' "$OFFSCREEN_REF_SHOT" | node -e '
+  let raw="";process.stdin.on("data",chunk=>raw+=chunk);process.stdin.on("end",()=>{
+    const value=JSON.parse(raw);const rect=value.crop.cssRect;const image=value.coordinateSpace.image;
+    console.log([value.coordinateSpace.scroll.y,rect.x,rect.y,rect.width,rect.height,Math.floor(image.width/2),Math.floor(image.height/2)].join(" "));
+  });')
+read -r OFFSCREEN_SCROLL OFFSCREEN_X OFFSCREEN_Y OFFSCREEN_W OFFSCREEN_H OFFSCREEN_CLICK_X OFFSCREEN_CLICK_Y <<< "$OFFSCREEN_META"
+if [ "${OFFSCREEN_SCROLL%.*}" -gt 0 ]; then
+  echo "  ✓ offscreen ref crop records post-scroll viewport metadata"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ offscreen ref crop retained stale scroll metadata: $OFFSCREEN_SCROLL"
+  FAIL=$((FAIL+1))
+fi
+OFFSCREEN_REGION_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-region-offscreen-$$.png --region "$OFFSCREEN_X" "$OFFSCREEN_Y" "$OFFSCREEN_W" "$OFFSCREEN_H" 2>/dev/null)
+check "offscreen ref comparison region reports crop source" '"source": "region"' "$OFFSCREEN_REGION_SHOT"
+if cmp -s /tmp/chromux-ref-offscreen-$$.png /tmp/chromux-region-offscreen-$$.png; then
+  echo "  ✓ offscreen ref crop pixels match the post-scroll visible region"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ offscreen ref crop pixels do not match the post-scroll visible region"
+  FAIL=$((FAIL+1))
+fi
+CHROMUX_PROFILE=$PROFILE node "$CT" click tab-coord --xy "$OFFSCREEN_CLICK_X" "$OFFSCREEN_CLICK_Y" --space image --no-verify 2>/dev/null > /dev/null
+OFFSCREEN_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title" 2>/dev/null)
+check "offscreen ref crop local image coordinates reach the scrolled target" "offscreen-clicked" "$OFFSCREEN_TITLE"
+CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "scrollTo(0,0);document.title='CoordinatePage'" 2>/dev/null > /dev/null
 CHROMUX_PROFILE=$PROFILE node "$CT" cdp tab-coord Emulation.setPageScaleFactor '{"pageScaleFactor":1.5}' 2>/dev/null > /dev/null
 ZOOM_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-zoom-$$.png 2>/dev/null)
 check "zoomed screenshot records visual viewport scale" '"scale": 1.5' "$ZOOM_SHOT"
@@ -371,7 +398,7 @@ check "zoomed image-space click reports converted CSS coordinates" '"css":' "$ZO
 ZOOM_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title" 2>/dev/null)
 check "image-space click reaches target at visual viewport scale 1.5" "image-clicked" "$ZOOM_TITLE"
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-coord 2>/dev/null > /dev/null
-rm -f /tmp/chromux-dpr1-$$.png /tmp/chromux-dpr2-$$.png /tmp/chromux-region-$$.png /tmp/chromux-ref-$$.png /tmp/chromux-zoom-$$.png
+rm -f /tmp/chromux-dpr1-$$.png /tmp/chromux-dpr2-$$.png /tmp/chromux-region-$$.png /tmp/chromux-ref-$$.png /tmp/chromux-ref-offscreen-$$.png /tmp/chromux-region-offscreen-$$.png /tmp/chromux-zoom-$$.png
 
 # --- Test 5c.0b: hover and real CDP drag paths ---
 echo ""
@@ -739,12 +766,11 @@ else
   REACH_ORIGIN=$(node -e 'const fs=require("fs");const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));console.log(new URL(v.gradeUrl).origin)' "$REACH_FIXTURE_INFO")
   REACH_CANVAS=$(node -e 'const fs=require("fs");console.log(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).canvasUrl)' "$REACH_FIXTURE_INFO")
   REACH_CANVAS_GRADE=$(node -e 'const fs=require("fs");console.log(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).canvasGradeUrl)' "$REACH_FIXTURE_INFO")
-  # Tier 1 deliberately avoids target attachment, so prove its opaque geometry
-  # and focused input path in a cross-origin renderer without OOPIF isolation.
-  CHROMUX_EXTRA_CHROME_ARGS="--disable-site-isolation-trials" node "$CT" launch "$OPAQUE_PROFILE" --headless 2>/dev/null > /dev/null
-  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" open tab-opaque "$REACH_PARENT" 2>/dev/null > /dev/null
+  # Tier 1 deliberately avoids target attachment. Prove its opaque geometry
+  # and focused input path with normal Chrome site isolation still enabled.
+  CHROMUX_PROFILE=$PROFILE node "$CT" open tab-opaque "$REACH_PARENT" 2>/dev/null > /dev/null
   sleep 0.25
-  OPAQUE_SNAP=$(CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" snapshot tab-opaque 2>/dev/null)
+  OPAQUE_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-opaque 2>/dev/null)
   check "snapshot exposes opaque cross-origin frame ref" "cross-origin opaque" "$OPAQUE_SNAP"
   check "opaque frame snapshot exposes origin only" "origin=$REACH_ORIGIN" "$OPAQUE_SNAP"
   check "opaque frame snapshot exposes CSS rect" "rect=\[" "$OPAQUE_SNAP"
@@ -756,17 +782,16 @@ else
     PASS=$((PASS+1))
   fi
   OPAQUE_REF=$(echo "$OPAQUE_SNAP" | grep "cross-origin opaque" | grep -o '@[0-9]*' | head -1)
-  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" click tab-opaque "$OPAQUE_REF" --no-verify 2>/dev/null > /dev/null
-  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" type tab-opaque "opaque typed" --no-verify 2>/dev/null > /dev/null
+  CHROMUX_PROFILE=$PROFILE node "$CT" click tab-opaque "$OPAQUE_REF" --no-verify 2>/dev/null > /dev/null
+  CHROMUX_PROFILE=$PROFILE node "$CT" type tab-opaque "opaque typed" --no-verify 2>/dev/null > /dev/null
   OPAQUE_GRADE=""
   for _ in $(seq 1 20); do
     OPAQUE_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_GRADE" 2>/dev/null || true)
     if echo "$OPAQUE_GRADE" | grep -q "opaque typed"; then break; fi
     sleep 0.1
   done
-  check "opaque frame coordinate click plus type completes graded write" "opaque typed" "$OPAQUE_GRADE"
-  CHROMUX_PROFILE=$OPAQUE_PROFILE node "$CT" close tab-opaque 2>/dev/null > /dev/null
-  node "$CT" kill "$OPAQUE_PROFILE" 2>/dev/null > /dev/null
+  check "normal site-isolated opaque frame coordinate click plus type completes graded write" "opaque typed" "$OPAQUE_GRADE"
+  CHROMUX_PROFILE=$PROFILE node "$CT" close tab-opaque 2>/dev/null > /dev/null
 
   OOPIF_OPEN=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-oopif "$REACH_PARENT" --oopif 2>/dev/null)
   check "OOPIF opt-in reports enabled routing" '"enabled": true' "$OOPIF_OPEN"
@@ -1566,7 +1591,22 @@ else
 fi
 DOC_CHECK=$(node benchmarks/chromux-doc-check.mjs 2>/dev/null)
 check "doc check passed" '"ok": true' "$DOC_CHECK"
-rm -f "$BENCH_OUT" "$BENCH_URLS" "${BENCH_OUT%.json}.png" "${BENCH_OUT%.json}-run-receipt.json" "${BENCH_OUT%.json}-batch.jsonl" /tmp/chromux-benchmark-smoke-$$.err
+TOKEN_BENCH_OUT="/tmp/chromux-token-suite-$$.json"
+if TOKEN_BENCH=$(node benchmarks/chromux-token-benchmark.mjs --out "$TOKEN_BENCH_OUT" 2>&1); then
+  check "full suite payload benchmark records the report schema" '"schema": "chromux.token-benchmark.v1"' "$TOKEN_BENCH"
+  check "full suite enforces named payload budgets" "Payload budgets: all within limits" "$TOKEN_BENCH"
+  if [ -s "$TOKEN_BENCH_OUT" ]; then
+    echo "  ✓ full suite payload benchmark wrote a report artifact"
+    PASS=$((PASS+1))
+  else
+    echo "  ✗ full suite payload benchmark report is missing"
+    FAIL=$((FAIL+1))
+  fi
+else
+  echo "  ✗ full suite payload benchmark failed: $TOKEN_BENCH"
+  FAIL=$((FAIL+1))
+fi
+rm -f "$BENCH_OUT" "$BENCH_URLS" "$TOKEN_BENCH_OUT" "${BENCH_OUT%.json}.png" "${BENCH_OUT%.json}-run-receipt.json" "${BENCH_OUT%.json}-batch.jsonl" /tmp/chromux-benchmark-smoke-$$.err
 
 # Cancel the EXIT trap since kill already cleaned up
 trap - EXIT

@@ -4344,15 +4344,19 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     const { session, path: savePath, region, ref, space = 'css' } = body;
     const s = getSession(sessions, session);
     touchSession(s);
-    const captured = await captureCoordinateSpace(s.cdp);
-    let output = captured.buffer;
+    let captured = null;
+    let output = null;
     let crop = null;
     if (region || ref) {
       if (region && ref) throw httpErr(400, 'Use either screenshot --region or --ref, not both');
       let cssRect;
       if (ref) {
         cssRect = await resolveDeepElementRect(s.cdp, ref, 'Screenshot');
+        // Ref resolution may scroll a reachable offscreen element into view.
+        // Capture viewport and scroll metadata only after that movement.
+        captured = await captureCoordinateSpace(s.cdp);
       } else {
+        captured = await captureCoordinateSpace(s.cdp);
         const values = region.map(Number);
         if (values.length !== 4 || values.some(value => !Number.isFinite(value))) {
           throw httpErr(400, 'region must contain numeric x, y, width, and height');
@@ -4399,6 +4403,9 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         clipped: visibleRect.x !== cssRect.x || visibleRect.y !== cssRect.y
           || visibleRect.width !== cssRect.width || visibleRect.height !== cssRect.height,
       };
+    } else {
+      captured = await captureCoordinateSpace(s.cdp);
+      output = captured.buffer;
     }
     const p = savePath || `/tmp/chromux-${session}-${Date.now()}.png`;
     let resolved;
