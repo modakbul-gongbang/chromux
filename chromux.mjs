@@ -2027,13 +2027,18 @@ async function reconcileOopifRouting(s) {
       removeOopifTarget(state, { sessionId: child.sessionId, targetId: child.targetId });
       return;
     }
-    if (targetInfo?.type !== 'iframe' || targetInfo.url !== '') {
-      child.unresponsiveSince = null;
+    if (targetInfo?.type !== 'iframe') {
+      removeOopifTarget(state, { sessionId: child.sessionId, targetId: child.targetId });
       return;
     }
     const now = Date.now();
     child.unresponsiveSince ||= now;
-    if (now - child.unresponsiveSince < 1500) return;
+    // Linux Chrome can retain the last committed target URL after Page.crash,
+    // while macOS commonly clears it. An empty URL is strong crash evidence;
+    // otherwise require a longer run of failed probes so a navigation or busy
+    // renderer is not mislabeled from one transient timeout.
+    const crashAfterMs = targetInfo.url === '' ? 1500 : 5000;
+    if (now - child.unresponsiveSince < crashAfterMs) return;
     removeOopifTarget(state, {
       sessionId: child.sessionId,
       targetId: child.targetId,
