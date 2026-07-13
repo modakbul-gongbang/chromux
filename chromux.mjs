@@ -1831,8 +1831,18 @@ const SNAPSHOT_JS = `((FILTER, CLICKABLE, REDACT_FIELDS) => {
     }
     if (tag === 'a' && el.href) {
       const href = el.getAttribute('href');
-      if (href && !href.startsWith('javascript:') && !href.startsWith('#'))
-        line += ' -> ' + href.substring(0, 80);
+      if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
+        let shownHref = href;
+        if (REDACT_FIELDS) {
+          try {
+            const parsed = new URL(href, el.ownerDocument.location.href);
+            shownHref = parsed.origin && parsed.origin !== 'null' ? parsed.origin : 'opaque';
+          } catch {
+            shownHref = 'opaque';
+          }
+        }
+        line += ' -> ' + shownHref.substring(0, 80);
+      }
     }
     return line + '\\n' + children;
   }
@@ -2000,17 +2010,30 @@ async function reconcileOopifRouting(s) {
   await Promise.all(children.map(async (child) => {
     await child.ready;
     if (!state.children.has(child.sessionId)) return;
-    const responds = async () => {
-      try {
-        await s.cdp.send('Runtime.evaluate', { expression: 'true' }, 750, child.sessionId);
-        return true;
-      } catch {
-        return false;
-      }
-    };
-    if (await responds()) return;
-    await sleep(50);
-    if (!state.children.has(child.sessionId) || await responds()) return;
+    try {
+      await s.cdp.send('Runtime.evaluate', { expression: 'true' }, 500, child.sessionId);
+      child.unresponsiveSince = null;
+      return;
+    } catch {}
+
+    // A navigation transition, debugger pause, or busy renderer can reject a
+    // short Runtime probe without having crashed. Chrome clears the target URL
+    // after Page.crash, so require that crash-shaped state to persist before
+    // reconciling a missed crash event.
+    let targetInfo;
+    try {
+      ({ targetInfo } = await s.cdp.send('Target.getTargetInfo', { targetId: child.targetId }, 1000));
+    } catch {
+      removeOopifTarget(state, { sessionId: child.sessionId, targetId: child.targetId });
+      return;
+    }
+    if (targetInfo?.type !== 'iframe' || targetInfo.url !== '') {
+      child.unresponsiveSince = null;
+      return;
+    }
+    const now = Date.now();
+    child.unresponsiveSince ||= now;
+    if (now - child.unresponsiveSince < 1500) return;
     removeOopifTarget(state, {
       sessionId: child.sessionId,
       targetId: child.targetId,
@@ -2077,44 +2100,30 @@ async function captureSessionSnapshot(s, filter = null, clickable = 'auto', time
 
 async function resolveOopifActionPoint(s, routed, action) {
   await routed.child.ready;
-  const result = await s.cdp.send('Runtime.evaluate', {
-    expression: `((sel, action) => {
-      const el = document.querySelector(sel);
-      if (!el) throw new Error(action + ' target is stale: ' + sel);
-      el.scrollIntoView?.({ block: 'center', inline: 'center' });
-      const style = getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden') {
-        throw new Error(action + ' target is hidden: ' + sel);
-      }
-      const x = rect.left + rect.width / 2;
-      const y = rect.top + rect.height / 2;
-      const hit = document.elementFromPoint(x, y);
-      if (!hit || (hit !== el && !el.contains(hit) && !hit.contains(el))) {
-        throw new Error(action + ' target is covered: ' + sel);
-      }
-      return { x, y };
-    })(${JSON.stringify(routed.selector)}, ${JSON.stringify(action)})`,
-    returnByValue: true,
-  }, 5000, routed.child.sessionId);
-  if (result.exceptionDetails) {
-    const description = (result.exceptionDetails.exception?.description || `${action} failed`).split('\n')[0];
-    throw httpErr(400, `${description}. Take a fresh OOPIF snapshot.`);
-  }
-  return result.result?.value;
+  const geometry = await resolveDeepElementRect(
+    s.cdp,
+    routed.selector,
+    action,
+    routed.child.sessionId,
+  );
+  return { x: geometry.centerX, y: geometry.centerY };
+}
+
+function mouseButtonMask(button) {
+  return { left: 1, right: 2, middle: 4, back: 8, forward: 16 }[button] || 0;
 }
 
 async function clickOopifRef(s, rawRef, routed, button = 'left', clicks = 1) {
   const point = await resolveOopifActionPoint(s, routed, 'OOPIF click');
   const clickCount = Number.isFinite(Number(clicks)) ? Number(clicks) : 1;
   await s.cdp.send('Input.dispatchMouseEvent', {
-    type: 'mouseMoved', x: point.x, y: point.y, button: 'none',
+    type: 'mouseMoved', x: point.x, y: point.y, button: 'none', pointerType: 'mouse',
   }, 5000, routed.child.sessionId);
   await s.cdp.send('Input.dispatchMouseEvent', {
-    type: 'mousePressed', x: point.x, y: point.y, button, clickCount,
+    type: 'mousePressed', x: point.x, y: point.y, button, buttons: mouseButtonMask(button), clickCount, pointerType: 'mouse',
   }, 5000, routed.child.sessionId);
   await s.cdp.send('Input.dispatchMouseEvent', {
-    type: 'mouseReleased', x: point.x, y: point.y, button, clickCount,
+    type: 'mouseReleased', x: point.x, y: point.y, button, buttons: 0, clickCount, pointerType: 'mouse',
   }, 5000, routed.child.sessionId);
   return {
     clicked: rawRef,
@@ -2126,29 +2135,47 @@ async function fillOopifRef(s, rawRef, routed, text) {
   await routed.child.ready;
   const prepared = await s.cdp.send('Runtime.evaluate', {
     expression: `((sel, txt) => {
-      const el = document.querySelector(sel);
+      ${DEEP_QUERY_JS}
+      const el = deepQuery(sel);
       if (!el) throw new Error('OOPIF fill target is stale: ' + sel);
       el.focus();
+      const view = el.ownerDocument.defaultView || window;
       if (el.isContentEditable) {
-        const selection = getSelection();
-        const range = document.createRange();
+        const selection = view.getSelection();
+        const range = el.ownerDocument.createRange();
         range.selectNodeContents(el);
         selection.removeAllRanges();
         selection.addRange(range);
         return { contenteditable: true };
       }
       if (!('value' in el)) throw new Error('OOPIF target is not fillable: ' + sel);
-      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      if (el.tagName === 'SELECT') {
+        const opts = Array.from(el.options);
+        const match = opts.find(o => o.value === txt)
+          || opts.find(o => o.textContent.trim() === txt)
+          || opts.find(o => o.textContent.trim().toLowerCase() === txt.toLowerCase());
+        if (!match) {
+          const known = opts.slice(0, 20).map(o => o.value + ' (' + o.textContent.trim() + ')').join(', ');
+          throw new Error('No option matching "' + txt + '" in ' + sel + '. Options: ' + known);
+        }
+        const selectSetter = Object.getOwnPropertyDescriptor(view.HTMLSelectElement.prototype, 'value')?.set;
+        if (selectSetter) selectSetter.call(el, match.value);
+        else el.value = match.value;
+        el.dispatchEvent(new view.Event('input', { bubbles: true }));
+        el.dispatchEvent(new view.Event('change', { bubbles: true }));
+        return { value: el.value, selectedLabel: match.textContent.trim() };
+      }
+      const proto = el.tagName === 'TEXTAREA' ? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
         || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
       if (setter) setter.call(el, txt);
       else el.value = txt;
       try {
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: txt }));
+        el.dispatchEvent(new view.InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: txt }));
       } catch {
-        el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new view.Event('input', { bubbles: true, cancelable: true }));
       }
-      el.dispatchEvent(new Event('change', { bubbles: true }));
+      el.dispatchEvent(new view.Event('change', { bubbles: true }));
       return { contenteditable: false };
     })(${JSON.stringify(routed.selector)}, ${JSON.stringify(text)})`,
     returnByValue: true,
@@ -2159,6 +2186,22 @@ async function fillOopifRef(s, rawRef, routed, text) {
   }
   if (prepared.result?.value?.contenteditable) {
     await s.cdp.send('Input.insertText', { text }, 5000, routed.child.sessionId);
+    const observed = await s.cdp.send('Runtime.evaluate', {
+      expression: `((sel) => {
+        ${DEEP_QUERY_JS}
+        const el = deepQuery(sel);
+        if (!el || !el.isContentEditable) throw new Error('OOPIF contenteditable target changed during fill: ' + sel);
+        return el.innerText;
+      })(${JSON.stringify(routed.selector)})`,
+      returnByValue: true,
+    }, 5000, routed.child.sessionId);
+    if (observed.exceptionDetails) {
+      const description = (observed.exceptionDetails.exception?.description || 'OOPIF contenteditable fill verification failed').split('\n')[0];
+      throw httpErr(400, description);
+    }
+    if (observed.result?.value !== text) {
+      throw httpErr(400, `OOPIF contenteditable fill was rejected: expected ${JSON.stringify(text)}, observed ${JSON.stringify(observed.result?.value ?? '')}`);
+    }
   }
   return {
     filled: rawRef,
@@ -2972,10 +3015,10 @@ function pointToCss(x, y, space, coordinateSpace) {
   };
 }
 
-async function resolveDeepElementRect(cdp, selector, action = 'Action') {
+async function resolveDeepElementRect(cdp, selector, action = 'Action', sessionId = null, scrollIntoView = true) {
   const sel = refToSelector(String(selector || ''));
   const result = await cdp.send('Runtime.evaluate', {
-    expression: `((sel, action) => {
+    expression: `((sel, action, shouldScroll) => {
       ${DEEP_QUERY_JS}
       function describe(node) {
         if (!node) return 'unknown';
@@ -2985,22 +3028,41 @@ async function resolveDeepElementRect(cdp, selector, action = 'Action') {
           : '';
         return node.tagName.toLowerCase() + id + cls;
       }
+      function composedContains(ancestor, node) {
+        let current = node;
+        while (current) {
+          if (current === ancestor) return true;
+          current = current.parentNode || current.host || null;
+        }
+        return false;
+      }
       const el = deepQuery(sel);
       if (!el) throw new Error(action + ' target not found or stale: ' + sel);
-      el.scrollIntoView?.({ block: 'center', inline: 'center' });
+      if (shouldScroll) el.scrollIntoView?.({ block: 'center', inline: 'center' });
       const view = el.ownerDocument.defaultView || window;
       const rect = el.getBoundingClientRect();
       if (!deepVisible(el)) throw new Error(action + ' target is hidden: ' + sel);
       const lx = rect.left + rect.width / 2;
       const ly = rect.top + rect.height / 2;
       if (lx < 0 || ly < 0 || lx >= view.innerWidth || ly >= view.innerHeight) {
-        throw new Error(action + ' target outside viewport after scroll: ' + sel);
+        throw new Error(action + ' target outside ' + (shouldScroll ? 'viewport after scroll: ' : 'the current viewport: ') + sel);
       }
       const rootNode = el.getRootNode();
+      let shadowHost = rootNode.host || null;
+      while (shadowHost) {
+        const hostRoot = shadowHost.getRootNode();
+        const hostHitBase = hostRoot.elementFromPoint ? hostRoot : shadowHost.ownerDocument;
+        const hostHit = hostHitBase.elementFromPoint(lx, ly);
+        if (!hostHit) throw new Error(action + ' target shadow host has no element at its center: ' + sel);
+        if (!composedContains(shadowHost, hostHit) && !composedContains(hostHit, shadowHost)) {
+          throw new Error(action + ' target shadow host is covered: ' + sel + ' hit ' + describe(hostHit));
+        }
+        shadowHost = hostRoot.host || null;
+      }
       const hitBase = rootNode.elementFromPoint ? rootNode : el.ownerDocument;
       const hit = hitBase.elementFromPoint(lx, ly);
       if (!hit) throw new Error(action + ' target has no element at its center: ' + sel);
-      if (hit !== el && !el.contains(hit) && !hit.contains(el)) {
+      if (!composedContains(el, hit) && !composedContains(hit, el)) {
         throw new Error(action + ' target is covered: ' + sel + ' hit ' + describe(hit));
       }
       let left = rect.left;
@@ -3042,9 +3104,9 @@ async function resolveDeepElementRect(cdp, selector, action = 'Action') {
         centerY,
         draggable: el.draggable === true,
       };
-    })(${JSON.stringify(sel)}, ${JSON.stringify(action)})`,
+    })(${JSON.stringify(sel)}, ${JSON.stringify(action)}, ${JSON.stringify(scrollIntoView)})`,
     returnByValue: true,
-  });
+  }, 10000, sessionId);
   if (result.exceptionDetails) {
     const description = (result.exceptionDetails.exception?.description || `${action} failed`).split('\n')[0];
     throw httpErr(400, `${description}. Run chromux snapshot again for a fresh ref and inspect overlays.`);
@@ -3052,9 +3114,9 @@ async function resolveDeepElementRect(cdp, selector, action = 'Action') {
   return result.result?.value;
 }
 
-async function resolveActionTarget(cdp, target, action, coordinateSpace = null) {
+async function resolveActionTarget(cdp, target, action, coordinateSpace = null, { scrollIntoView = true } = {}) {
   if (target?.selector) {
-    const geometry = await resolveDeepElementRect(cdp, target.selector, action);
+    const geometry = await resolveDeepElementRect(cdp, target.selector, action, null, scrollIntoView);
     return {
       x: geometry.centerX,
       y: geometry.centerY,
@@ -3094,8 +3156,8 @@ async function resolveActionTarget(cdp, target, action, coordinateSpace = null) 
 }
 
 async function dispatchPointerDrag(cdp, start, end, steps, holdMs) {
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x, y: start.y, button: 'none' });
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: start.x, y: start.y, button: 'left', buttons: 1, clickCount: 1 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x, y: start.y, button: 'none', pointerType: 'mouse' });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: start.x, y: start.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
   if (holdMs > 0) await sleep(holdMs);
   for (let index = 1; index <= steps; index++) {
     const progress = index / steps;
@@ -3105,27 +3167,36 @@ async function dispatchPointerDrag(cdp, start, end, steps, holdMs) {
       y: start.y + (end.y - start.y) * progress,
       button: 'left',
       buttons: 1,
+      pointerType: 'mouse',
     });
     await sleep(16);
   }
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: end.x, y: end.y, button: 'left', buttons: 0, clickCount: 1 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: end.x, y: end.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' });
 }
 
 async function dispatchHtml5Drag(cdp, start, end, steps, holdMs) {
   await cdp.send('Input.setInterceptDrags', { enabled: true });
+  let mousePressed = false;
+  let mousePoint = start;
   try {
     const intercepted = cdp.waitForEvent('Input.dragIntercepted', 3000).catch(() => null);
-    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x, y: start.y, button: 'none' });
-    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: start.x, y: start.y, button: 'left', buttons: 1, clickCount: 1 });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: start.x, y: start.y, button: 'none', pointerType: 'mouse' });
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: start.x, y: start.y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
+    mousePressed = true;
     if (holdMs > 0) await sleep(holdMs);
     for (let index = 1; index <= steps; index++) {
       const progress = index / steps;
-      await cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseMoved',
+      mousePoint = {
         x: start.x + (end.x - start.x) * progress,
         y: start.y + (end.y - start.y) * progress,
+      };
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: mousePoint.x,
+        y: mousePoint.y,
         button: 'left',
         buttons: 1,
+        pointerType: 'mouse',
       });
       await sleep(16);
     }
@@ -3136,8 +3207,15 @@ async function dispatchHtml5Drag(cdp, start, end, steps, holdMs) {
     await cdp.send('Input.dispatchDragEvent', { type: 'dragEnter', x: end.x, y: end.y, data: event.data });
     await cdp.send('Input.dispatchDragEvent', { type: 'dragOver', x: end.x, y: end.y, data: event.data });
     await cdp.send('Input.dispatchDragEvent', { type: 'drop', x: end.x, y: end.y, data: event.data });
-    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: end.x, y: end.y, button: 'left', buttons: 0, clickCount: 1 }).catch(() => {});
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: end.x, y: end.y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+    mousePressed = false;
   } finally {
+    if (mousePressed) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased', x: mousePoint.x, y: mousePoint.y,
+        button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse',
+      }).catch(() => {});
+    }
     await cdp.send('Input.setInterceptDrags', { enabled: false }).catch(() => {});
   }
 }
@@ -3274,6 +3352,8 @@ async function typeFocusedText(cdp, text) {
     await cdp.send('Input.insertText', { text });
     return;
   }
+  // Chrome can acknowledge a cross-renderer click before child focus settles.
+  await sleep(50);
   for (const char of String(text)) {
     await cdp.send('Input.dispatchKeyEvent', { type: 'char', text: char });
   }
@@ -3744,8 +3824,16 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     await s.cdp.send('Page.bringToFront', {});
     const usesImageSpace = from?.space === 'image' || to?.space === 'image';
     const coordinateSpace = usesImageSpace ? s.lastImageCoordinateSpace : null;
-    const start = await resolveActionTarget(s.cdp, from, 'Drag source', coordinateSpace);
-    const end = await resolveActionTarget(s.cdp, to, 'Drag destination', start.coordinateSpace);
+    let start = await resolveActionTarget(s.cdp, from, 'Drag source', coordinateSpace);
+    let end = await resolveActionTarget(s.cdp, to, 'Drag destination', start.coordinateSpace);
+    // Resolving a selector may scroll. Refresh both selector geometries without
+    // further scrolling so stale pre-scroll coordinates can never be dispatched.
+    if (from?.selector) {
+      start = await resolveActionTarget(s.cdp, from, 'Drag source', start.coordinateSpace, { scrollIntoView: false });
+    }
+    if (to?.selector) {
+      end = await resolveActionTarget(s.cdp, to, 'Drag destination', end.coordinateSpace, { scrollIntoView: false });
+    }
     const selectedMode = mode === 'auto' ? (start.geometry?.draggable ? 'html5' : 'pointer') : mode;
     if (selectedMode === 'html5') await dispatchHtml5Drag(s.cdp, start, end, steps, holdMs);
     else await dispatchPointerDrag(s.cdp, start, end, steps, holdMs);
@@ -3812,10 +3900,10 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         throw httpErr(400, `xy outside viewport: [${x}, ${y}] not within ${width}x${height}`);
       }
       await s.cdp.send('Input.dispatchMouseEvent', {
-        type: 'mousePressed', x, y, button, clickCount,
+        type: 'mousePressed', x, y, button, buttons: mouseButtonMask(button), clickCount, pointerType: 'mouse',
       });
       await s.cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseReleased', x, y, button, clickCount,
+        type: 'mouseReleased', x, y, button, buttons: 0, clickCount, pointerType: 'mouse',
       });
       await sleep(100);
       const xyVerifyMs = resolveVerifyMs(body, settings);
@@ -3952,6 +4040,9 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
           x,
           y,
           hit: describe(hit),
+          opaqueFrame: /^(IFRAME|FRAME)$/.test(el.tagName) && (() => {
+            try { return !el.contentDocument; } catch { return true; }
+          })(),
         };
       })(${JSON.stringify(targetLabel)})`,
       returnByValue: true, awaitPromise: false,
@@ -3966,13 +4057,17 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     if (point) {
       const clickCount = Number.isFinite(Number(clicks)) ? Number(clicks) : 1;
       await s.cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseMoved', x: point.x, y: point.y, button: 'none',
+        type: 'mouseMoved', x: point.x, y: point.y, button: 'none', pointerType: 'mouse',
+      });
+      // Entering an OOPIF can require one renderer turn before Chrome routes
+      // the following press into the child. Settle the move instead of
+      // duplicating the click, which could trigger the child control twice.
+      if (point.opaqueFrame) await sleep(100);
+      await s.cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed', x: point.x, y: point.y, button, buttons: mouseButtonMask(button), clickCount, pointerType: 'mouse',
       });
       await s.cdp.send('Input.dispatchMouseEvent', {
-        type: 'mousePressed', x: point.x, y: point.y, button, clickCount,
-      });
-      await s.cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseReleased', x: point.x, y: point.y, button, clickCount,
+        type: 'mouseReleased', x: point.x, y: point.y, button, buttons: 0, clickCount, pointerType: 'mouse',
       });
     }
     await sleep(500);
@@ -4119,6 +4214,9 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         throw httpErr(400, (observed.exceptionDetails.exception?.description || 'contenteditable fill verification failed').split('\n')[0]);
       }
       fillDetails = observed.result?.value || { contenteditable: true };
+      if (fillDetails.observedText !== text) {
+        throw httpErr(400, `Contenteditable fill was rejected: expected ${JSON.stringify(text)}, observed ${JSON.stringify(fillDetails.observedText ?? '')}`);
+      }
     }
     let picked = null;
     let pickEffect = null;
@@ -4398,6 +4496,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     touchSession(s);
     if (isHeadless) await s.cdp.send('Page.bringToFront');
     let captured = null;
+    let inputCoordinateSpace = null;
     let output = null;
     let crop = null;
     if (region || ref) {
@@ -4409,6 +4508,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         // Capture viewport and scroll metadata only after that movement.
         captured = await captureCoordinateSpace(s.cdp);
       } else {
+        if (space === 'image') inputCoordinateSpace = s.lastImageCoordinateSpace;
         captured = await captureCoordinateSpace(s.cdp);
         const values = region.map(Number);
         if (values.length !== 4 || values.some(value => !Number.isFinite(value))) {
@@ -4417,12 +4517,13 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
         let [x, y, width, height] = values;
         if (width <= 0 || height <= 0) throw httpErr(400, 'screenshot region width and height must be positive');
         if (space === 'image') {
-          const start = pointToCss(x, y, space, captured.coordinateSpace);
-          const end = pointToCss(x + width - 1, y + height - 1, space, captured.coordinateSpace);
+          const sourceSpace = inputCoordinateSpace || captured.coordinateSpace;
+          const start = pointToCss(x, y, space, sourceSpace);
+          const end = pointToCss(x + width - 1, y + height - 1, space, sourceSpace);
           x = start.x;
           y = start.y;
-          width = end.x - start.x + captured.coordinateSpace.imageToCss.scaleX;
-          height = end.y - start.y + captured.coordinateSpace.imageToCss.scaleY;
+          width = end.x - start.x + sourceSpace.imageToCss.scaleX;
+          height = end.y - start.y + sourceSpace.imageToCss.scaleY;
         } else if (space !== 'css') {
           throw httpErr(400, `Unknown coordinate space "${space}"; use css or image`);
         }

@@ -357,6 +357,13 @@ CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title='CoordinatePa
 REGION_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-region-$$.png --region 40 30 100 80 2>/dev/null)
 check "CSS screenshot region reports crop source" '"source": "region"' "$REGION_SHOT"
 check "DPR 2 CSS screenshot region produces scaled image width" '"width": 200' "$REGION_SHOT"
+CHAINED_REGION_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-region-chained-$$.png --region 0 0 20 20 --space image 2>/dev/null)
+CHAINED_REGION_META=$(printf '%s' "$CHAINED_REGION_SHOT" | node -e '
+  let raw="";process.stdin.on("data",chunk=>raw+=chunk);process.stdin.on("end",()=>{
+    const value=JSON.parse(raw);const rect=value.crop.cssRect;
+    console.log([rect.x,rect.y,rect.width,rect.height,value.image.width].join(","));
+  });')
+check "image-space crop reuses the most recent crop-local mapping" "40,30,10,10,20" "$CHAINED_REGION_META"
 COORD_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-coord 2>/dev/null)
 COORD_REF=$(echo "$COORD_SNAP" | grep "Coordinate target" | grep -o '@[0-9]*' | head -1)
 REF_SHOT=$(CHROMUX_PROFILE=$PROFILE node "$CT" screenshot tab-coord /tmp/chromux-ref-$$.png --ref "$COORD_REF" 2>/dev/null)
@@ -398,12 +405,12 @@ check "zoomed image-space click reports converted CSS coordinates" '"css":' "$ZO
 ZOOM_TITLE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-coord "document.title" 2>/dev/null)
 check "image-space click reaches target at visual viewport scale 1.5" "image-clicked" "$ZOOM_TITLE"
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-coord 2>/dev/null > /dev/null
-rm -f /tmp/chromux-dpr1-$$.png /tmp/chromux-dpr2-$$.png /tmp/chromux-region-$$.png /tmp/chromux-ref-$$.png /tmp/chromux-ref-offscreen-$$.png /tmp/chromux-region-offscreen-$$.png /tmp/chromux-zoom-$$.png
+rm -f /tmp/chromux-dpr1-$$.png /tmp/chromux-dpr2-$$.png /tmp/chromux-region-$$.png /tmp/chromux-region-chained-$$.png /tmp/chromux-ref-$$.png /tmp/chromux-ref-offscreen-$$.png /tmp/chromux-region-offscreen-$$.png /tmp/chromux-zoom-$$.png
 
 # --- Test 5c.0b: hover and real CDP drag paths ---
 echo ""
 echo "--- Test 5c.0b: Hover, pointer drag, and native HTML5 drag ---"
-ACTION_HTML='<title>InputActions</title><style>body{margin:0}.hover{position:absolute;left:20px;top:20px;width:100px;height:40px}.tip{display:none;position:absolute;top:65px}.hover:hover+.tip{display:block}.sort{position:absolute;left:20px;top:120px;width:160px;margin:0;padding:0;list-style:none}.sortItem{height:44px;line-height:44px;padding:0 10px;box-sizing:border-box}.source{background:#9cf}.dest{background:#cfc}.htmlsrc{position:absolute;left:20px;top:240px;width:80px;height:50px;background:#fc9}.htmldest{position:absolute;left:220px;top:240px;width:100px;height:70px;background:#ccf}.covered{position:absolute;left:340px;top:20px;width:60px;height:40px}.cover{position:absolute;left:335px;top:15px;width:70px;height:50px;background:#fff;z-index:2}#out{position:absolute;left:220px;top:120px}</style><button id="hover" class="hover">Hover me</button><p class="tip">Tooltip shown</p><ol id="pointerSort" class="sort"><li id="pointer" class="sortItem source" role="button">Pointer item</li><li id="pointerDest" class="sortItem dest" role="button">Pointer target</li></ol><div id="htmlsrc" class="htmlsrc" role="button" draggable="true">HTML source</div><div id="htmldest" class="htmldest" role="button">HTML target</div><button id="hidden" style="display:none">Hidden</button><button id="covered" class="covered">Covered</button><div class="cover">cover</div><p id="out">idle</p><script>const out=document.getElementById("out");const sort=document.getElementById("pointerSort");const pointer=document.getElementById("pointer");const pointerDest=document.getElementById("pointerDest");let down=false;pointer.addEventListener("pointerdown",e=>{down=true;pointer.setPointerCapture(e.pointerId)});pointer.addEventListener("pointermove",e=>{if(down&&e.clientY>=pointerDest.getBoundingClientRect().top+pointerDest.offsetHeight/2){sort.appendChild(pointer);out.textContent="sorted:"+Array.from(sort.children,el=>el.id).join(",")}});pointer.addEventListener("pointerup",()=>down=false);pointer.addEventListener("pointercancel",()=>down=false);document.getElementById("htmldest").addEventListener("dragover",e=>e.preventDefault());document.getElementById("htmldest").addEventListener("drop",e=>{e.preventDefault();out.textContent="html5 dropped"})</script>'
+ACTION_HTML='<title>InputActions</title><style>body{margin:0}.hover{position:absolute;left:20px;top:20px;width:100px;height:40px}.tip{display:none;position:absolute;top:65px}.hover:hover+.tip{display:block}.sort{position:absolute;left:20px;top:120px;width:160px;margin:0;padding:0;list-style:none}.sortItem{height:44px;line-height:44px;padding:0 10px;box-sizing:border-box}.source{background:#9cf}.dest{background:#cfc}.htmlsrc{position:absolute;left:20px;top:240px;width:80px;height:50px;background:#fc9}.htmldest{position:absolute;left:220px;top:240px;width:100px;height:70px;background:#ccf}.badsrc{position:absolute;left:350px;top:240px;width:80px;height:50px;background:#fcc}.covered{position:absolute;left:340px;top:20px;width:60px;height:40px}.cover{position:absolute;left:335px;top:15px;width:70px;height:50px;background:#fff;z-index:2}#out{position:absolute;left:220px;top:120px}</style><button id="hover" class="hover">Hover me</button><p class="tip">Tooltip shown</p><ol id="pointerSort" class="sort"><li id="pointer" class="sortItem source" role="button">Pointer item</li><li id="pointerDest" class="sortItem dest" role="button">Pointer target</li></ol><div id="htmlsrc" class="htmlsrc" role="button" draggable="true">HTML source</div><div id="htmldest" class="htmldest" role="button">HTML target</div><div id="badsrc" class="badsrc" role="button">Bad source</div><button id="hidden" style="display:none">Hidden</button><button id="covered" class="covered">Covered</button><div class="cover">cover</div><p id="out">idle</p><script>const out=document.getElementById("out");const sort=document.getElementById("pointerSort");const pointer=document.getElementById("pointer");const pointerDest=document.getElementById("pointerDest");let down=false;pointer.addEventListener("pointerdown",e=>{down=true;pointer.setPointerCapture(e.pointerId)});pointer.addEventListener("pointermove",e=>{if(down&&e.clientY>=pointerDest.getBoundingClientRect().top+pointerDest.offsetHeight/2){sort.appendChild(pointer);out.textContent="sorted:"+Array.from(sort.children,el=>el.id).join(",")}});pointer.addEventListener("pointerup",()=>down=false);pointer.addEventListener("pointercancel",()=>down=false);document.getElementById("htmldest").addEventListener("dragover",e=>e.preventDefault());document.getElementById("htmldest").addEventListener("drop",e=>{e.preventDefault();out.textContent="html5 dropped"});window.badDrag={pointerup:0,captured:false};const bad=document.getElementById("badsrc");bad.addEventListener("pointerdown",e=>{bad.setPointerCapture(e.pointerId)});bad.addEventListener("gotpointercapture",()=>badDrag.captured=true);bad.addEventListener("lostpointercapture",()=>badDrag.captured=false);bad.addEventListener("pointerup",()=>badDrag.pointerup+=1)</script>'
 ACTION_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$ACTION_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-actions "$ACTION_URL" 2>/dev/null > /dev/null
 ACTION_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-actions 2>/dev/null)
@@ -447,8 +454,30 @@ HTML5_DRAG=$(CHROMUX_PROFILE=$PROFILE node "$CT" drag tab-actions '#htmlsrc' --t
 check "draggable source auto-selects native HTML5 mode" '"mode": "html5"' "$HTML5_DRAG"
 check "native HTML5 drag changes fixture state" "html5 dropped" "$HTML5_DRAG"
 check "drag response confirms no synthetic fallback" '"syntheticFallback": false' "$HTML5_DRAG"
+if CHROMUX_PROFILE=$PROFILE node "$CT" drag tab-actions '#badsrc' --to '#htmldest' --drag-mode html5 >/tmp/chromux-html5-failed-$$.txt 2>&1; then
+  echo "  ✗ forced HTML5 drag unexpectedly succeeded for a non-draggable source"
+  FAIL=$((FAIL+1))
+else
+  check "failed native HTML5 drag reports no interception" "did not start" "$(cat /tmp/chromux-html5-failed-$$.txt)"
+fi
+BAD_DRAG_STATE=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-actions "JSON.stringify(badDrag)" 2>/dev/null)
+check "failed native HTML5 drag releases pointer capture" '"pointerup":1,"captured":false' "$BAD_DRAG_STATE"
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-actions 2>/dev/null > /dev/null
-rm -f /tmp/chromux-hover-hidden-$$.txt /tmp/chromux-hover-covered-$$.txt /tmp/chromux-hover-stale-$$.txt /tmp/chromux-hover-out-$$.txt
+rm -f /tmp/chromux-hover-hidden-$$.txt /tmp/chromux-hover-covered-$$.txt /tmp/chromux-hover-stale-$$.txt /tmp/chromux-hover-out-$$.txt /tmp/chromux-html5-failed-$$.txt
+
+DRAG_SCROLL_HTML='<title>DragScroll</title><style>body{margin:0;min-height:1800px}#source,#dest{position:absolute;left:20px;width:100px;height:50px}#source{top:20px}#dest{top:1500px}</style><button id="source">Far source</button><button id="dest">Far destination</button><script>window.sourceDown=0;document.getElementById("source").addEventListener("pointerdown",()=>sourceDown+=1)</script>'
+DRAG_SCROLL_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$DRAG_SCROLL_HTML")"
+CHROMUX_PROFILE=$PROFILE node "$CT" open tab-drag-scroll "$DRAG_SCROLL_URL" 2>/dev/null > /dev/null
+if CHROMUX_PROFILE=$PROFILE node "$CT" drag tab-drag-scroll '#source' --to '#dest' --drag-mode pointer >/tmp/chromux-drag-scroll-$$.txt 2>&1; then
+  echo "  ✗ drag with separated offscreen endpoints unexpectedly reported success"
+  FAIL=$((FAIL+1))
+else
+  check "drag rejects endpoints that cannot share the current viewport" "current viewport" "$(cat /tmp/chromux-drag-scroll-$$.txt)"
+fi
+DRAG_SCROLL_EVENTS=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-drag-scroll "window.sourceDown" 2>/dev/null)
+check "rejected offscreen drag dispatches no stale source event" "0" "$DRAG_SCROLL_EVENTS"
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-drag-scroll 2>/dev/null > /dev/null
+rm -f /tmp/chromux-drag-scroll-$$.txt
 
 # --- Test 5c.1: text input shortcuts ---
 echo ""
@@ -631,7 +660,7 @@ CHROMUX_PROFILE=$PROFILE node "$CT" click tab-noop "#noop" 2>/dev/null > /dev/nu
 NOOP_VERIFY=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-noop "#noop" 2>/dev/null)
 check "no-change verify is time-qualified, not definitive" "may still be updating" "$NOOP_VERIFY"
 check "no-change verify warns before retrying" "BEFORE retrying" "$NOOP_VERIFY"
-RICH_HTML='<title>RichPage</title><div id="rich" contenteditable="true" aria-label="Editor"><b>edit</b> me</div><button id="s" type="button">Send</button><script>window.richEvents=[];document.getElementById("rich").addEventListener("beforeinput",e=>richEvents.push("beforeinput:"+e.inputType));document.getElementById("rich").addEventListener("input",e=>richEvents.push("input:"+e.inputType))</script>'
+RICH_HTML='<title>RichPage</title><div id="rich" contenteditable="true" aria-label="Editor"><b>edit</b> me</div><div id="blocked" contenteditable="true" aria-label="Blocked editor">original</div><button id="s" type="button">Send</button><script>window.richEvents=[];document.getElementById("rich").addEventListener("beforeinput",e=>richEvents.push("beforeinput:"+e.inputType));document.getElementById("rich").addEventListener("input",e=>richEvents.push("input:"+e.inputType));document.getElementById("blocked").addEventListener("beforeinput",e=>e.preventDefault())</script>'
 RICH_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$RICH_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-rich "$RICH_URL" 2>/dev/null > /dev/null
 RICH_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-rich 2>/dev/null)
@@ -645,6 +674,14 @@ check "contenteditable fill emits input" "input:insertText" "$RICH_STATE"
 CHROMUX_PROFILE=$PROFILE node "$CT" type tab-rich " plus" 2>/dev/null > /dev/null
 RICH_TYPED=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-rich "document.getElementById('rich').innerText" 2>/dev/null)
 check "type preserves insertion semantics after contenteditable fill" "hello rich plus" "$RICH_TYPED"
+if CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-rich '#blocked' "should not land" >/tmp/chromux-rich-blocked-$$.txt 2>&1; then
+  echo "  ✗ cancelled contenteditable insertion unexpectedly reported success"
+  FAIL=$((FAIL+1))
+else
+  check "cancelled contenteditable insertion fails loudly" "fill was rejected" "$(cat /tmp/chromux-rich-blocked-$$.txt)"
+fi
+BLOCKED_RICH_TEXT=$(CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-rich "document.getElementById('blocked').innerText" 2>/dev/null)
+check "cancelled contenteditable insertion preserves prior text" "original" "$BLOCKED_RICH_TEXT"
 if CHROMUX_PROFILE=$PROFILE node "$CT" run tab-rich --file "$(dirname "$0")/snippets/_builtin/form-flow.js" --arg fields='{"#rich":"hello"}' --arg submit='#s' >/tmp/chromux-rich-out-$$.txt 2>&1; then
   echo "  ✗ form-flow silently accepted an unfillable contenteditable field"
   FAIL=$((FAIL+1))
@@ -652,7 +689,7 @@ else
   RICH_ERR=$(cat /tmp/chromux-rich-out-$$.txt)
   check "form-flow fails loudly on unfillable field" "not fillable via value" "$RICH_ERR"
 fi
-rm -f /tmp/chromux-rich-out-$$.txt
+rm -f /tmp/chromux-rich-out-$$.txt /tmp/chromux-rich-blocked-$$.txt
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-slow 2>/dev/null > /dev/null
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-noop 2>/dev/null > /dev/null
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-rich 2>/dev/null > /dev/null
@@ -798,7 +835,7 @@ else
   check "OOPIF opt-in attaches isolated frame" '"attachedFrames": 1' "$OOPIF_OPEN"
   OOPIF_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-oopif 2>/dev/null)
   check "OOPIF snapshot exposes namespaced child ref" '@f[0-9]*g[0-9]*:[0-9]* textbox "Private frame field"' "$OOPIF_SNAP"
-  if echo "$OOPIF_SNAP" | grep -q "fixture-secret\|frame-child\|opaque typed"; then
+  if echo "$OOPIF_SNAP" | grep -q "fixture-secret\|frame-child\|account/private\|link-secret\|opaque typed"; then
     echo "  ✗ OOPIF snapshot leaked path, query, or frame field value"
     FAIL=$((FAIL+1))
   else
@@ -807,6 +844,10 @@ else
   fi
   OOPIF_REF=$(echo "$OOPIF_SNAP" | grep "Private frame field" | grep -o '@[A-Za-z0-9:]*' | head -1)
   OOPIF_NAV_REF=$(echo "$OOPIF_SNAP" | grep "Navigate child" | grep -o '@[A-Za-z0-9:]*' | head -1)
+  OOPIF_SHADOW_BUTTON_REF=$(echo "$OOPIF_SNAP" | grep "Shadow child button" | grep -o '@[A-Za-z0-9:]*' | head -1)
+  OOPIF_SHADOW_INPUT_REF=$(echo "$OOPIF_SNAP" | grep "Shadow child field" | grep -o '@[A-Za-z0-9:]*' | head -1)
+  OOPIF_NESTED_INPUT_REF=$(echo "$OOPIF_SNAP" | grep "Nested frame field" | grep -o '@[A-Za-z0-9:]*' | head -1)
+  OOPIF_SELECT_REF=$(echo "$OOPIF_SNAP" | grep "Frame mode" | grep -o '@[A-Za-z0-9:]*' | head -1)
   OOPIF_WAIT_TEXT=$(CHROMUX_PROFILE=$PROFILE node "$CT" wait-for-text tab-oopif "Opaque child ready" 3000 2>/dev/null)
   check "wait-for-text searches opted-in OOPIF targets" '"searchedOopif": true' "$OOPIF_WAIT_TEXT"
   OOPIF_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-oopif "$OOPIF_REF" --no-verify 2>/dev/null)
@@ -822,7 +863,41 @@ else
     sleep 0.1
   done
   check "OOPIF fill reaches machine-grade endpoint" "oopif filled" "$OOPIF_GRADE"
+  CHROMUX_PROFILE=$PROFILE node "$CT" click tab-oopif "$OOPIF_SHADOW_BUTTON_REF" --no-verify 2>/dev/null > /dev/null
+  OOPIF_SHADOW_CLICK_GRADE=""
+  for _ in $(seq 1 20); do
+    OOPIF_SHADOW_CLICK_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_GRADE" 2>/dev/null || true)
+    if echo "$OOPIF_SHADOW_CLICK_GRADE" | grep -q "shadow-clicked"; then break; fi
+    sleep 0.1
+  done
+  check "OOPIF namespaced click pierces child shadow DOM" "shadow-clicked" "$OOPIF_SHADOW_CLICK_GRADE"
+  CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-oopif "$OOPIF_SHADOW_INPUT_REF" "deep value" --no-verify 2>/dev/null > /dev/null
+  OOPIF_SHADOW_FILL_GRADE=""
+  for _ in $(seq 1 20); do
+    OOPIF_SHADOW_FILL_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_GRADE" 2>/dev/null || true)
+    if echo "$OOPIF_SHADOW_FILL_GRADE" | grep -q "shadow:deep value"; then break; fi
+    sleep 0.1
+  done
+  check "OOPIF namespaced fill pierces child shadow DOM" "shadow:deep value" "$OOPIF_SHADOW_FILL_GRADE"
+  CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-oopif "$OOPIF_NESTED_INPUT_REF" "nested value" --no-verify 2>/dev/null > /dev/null
+  OOPIF_NESTED_FILL_GRADE=""
+  for _ in $(seq 1 20); do
+    OOPIF_NESTED_FILL_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_GRADE" 2>/dev/null || true)
+    if echo "$OOPIF_NESTED_FILL_GRADE" | grep -q "nested:nested value"; then break; fi
+    sleep 0.1
+  done
+  check "OOPIF namespaced fill pierces a child same-origin iframe" "nested:nested value" "$OOPIF_NESTED_FILL_GRADE"
+  CHROMUX_PROFILE=$PROFILE node "$CT" fill tab-oopif "$OOPIF_SELECT_REF" "Beta" --no-verify 2>/dev/null > /dev/null
+  OOPIF_SELECT_GRADE=""
+  for _ in $(seq 1 20); do
+    OOPIF_SELECT_GRADE=$(node -e 'fetch(process.argv[1]).then(r=>r.text()).then(console.log)' "$REACH_GRADE" 2>/dev/null || true)
+    if echo "$OOPIF_SELECT_GRADE" | grep -q 'select:b'; then break; fi
+    sleep 0.1
+  done
+  check "OOPIF namespaced fill supports native select labels" "select:b" "$OOPIF_SELECT_GRADE"
   CHROMUX_PROFILE=$PROFILE node "$CT" click tab-oopif "$OOPIF_NAV_REF" --no-verify 2>/dev/null > /dev/null
+  OOPIF_NAV_LIST=$(CHROMUX_PROFILE=$PROFILE node "$CT" list 2>/dev/null)
+  check "OOPIF navigation transition is not misclassified as a crash" '"crashedTotal": 0' "$OOPIF_NAV_LIST"
   sleep 0.4
   OOPIF_NAV_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-oopif 2>/dev/null)
   OOPIF_NEW_REF=$(echo "$OOPIF_NAV_SNAP" | grep "Navigated frame field" | grep -o '@[A-Za-z0-9:]*' | head -1)
@@ -940,7 +1015,7 @@ rm -f "$REACH_FIXTURE_INFO" "$REACH_FIXTURE_LOG"
 REACH_FIXTURE_INFO=""
 REACH_FIXTURE_LOG=""
 
-SHADOW_HTML='<title>ShadowPage</title><div id="host"></div><p id="out">idle</p><script>const r=document.getElementById("host").attachShadow({mode:"open"});r.innerHTML="<button id=\"sbtn\">Shadow button</button>";r.getElementById("sbtn").addEventListener("click",()=>{document.getElementById("out").textContent="shadow clicked"});</script>'
+SHADOW_HTML='<title>ShadowPage</title><div id="host"></div><div id="shadow-cover" style="display:none;position:fixed;inset:0;z-index:9999"></div><p id="out">idle</p><script>const r=document.getElementById("host").attachShadow({mode:"open"});r.innerHTML="<button id=\"sbtn\">Shadow button</button>";r.getElementById("sbtn").addEventListener("click",()=>{document.getElementById("out").textContent="shadow clicked"});</script>'
 SHADOW_URL="data:text/html,$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$SHADOW_HTML")"
 CHROMUX_PROFILE=$PROFILE node "$CT" open tab-shadow "$SHADOW_URL" 2>/dev/null > /dev/null
 SHADOW_SNAP=$(CHROMUX_PROFILE=$PROFILE node "$CT" snapshot tab-shadow 2>/dev/null)
@@ -948,6 +1023,14 @@ check "snapshot pierces open shadow DOM" "Shadow button" "$SHADOW_SNAP"
 SHADOW_REF=$(echo "$SHADOW_SNAP" | grep "Shadow button" | grep -o '@[0-9]*' | head -1)
 SHADOW_CLICK=$(CHROMUX_PROFILE=$PROFILE node "$CT" click tab-shadow "$SHADOW_REF" 2>/dev/null)
 check "click reaches into shadow DOM" "shadow clicked" "$SHADOW_CLICK"
+CHROMUX_PROFILE=$PROFILE node "$CT" eval tab-shadow 'document.getElementById("shadow-cover").style.display="block"' 2>/dev/null > /dev/null
+if CHROMUX_PROFILE=$PROFILE node "$CT" click tab-shadow "$SHADOW_REF" --no-verify >/tmp/chromux-shadow-covered-$$.txt 2>&1; then
+  echo "  ✗ shadow target click ignored a covering light-DOM overlay"
+  FAIL=$((FAIL+1))
+else
+  check "shadow target rejects covering light-DOM overlay" "target is covered" "$(cat /tmp/chromux-shadow-covered-$$.txt)"
+fi
+rm -f /tmp/chromux-shadow-covered-$$.txt
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-shadow 2>/dev/null > /dev/null
 
 DIALOG_HTML='<title>DialogPage</title><button id="warn">Warn</button><p id="r">idle</p><a href="/x">x</a><a href="/y">y</a><a href="/z">z</a><script>document.getElementById("warn").addEventListener("click",()=>{const ok=confirm("Really do it?");document.getElementById("r").textContent=ok?"confirmed":"declined"});</script>'
@@ -1589,6 +1672,18 @@ else
   echo "  ✓ benchmark temp URL file cleaned up"
   PASS=$((PASS+1))
 fi
+WEBGAMES_POLICY=$(node --input-type=module -e '
+  import { webgamesCommandAllowed, webgamesPasswordMatches } from "./benchmarks/webgames.mjs";
+  console.log(JSON.stringify({
+    help: webgamesCommandAllowed("help"),
+    screenshot: webgamesCommandAllowed("screenshot"),
+    eval: webgamesCommandAllowed("eval"),
+    exact: webgamesPasswordMatches("canvas-catch-easy", "EasyCircleMaster2024"),
+    fake: webgamesPasswordMatches("canvas-catch-easy", "anything"),
+  }));')
+check "WebGames policy allows CLI help and visual screenshot commands" '"help":true,"screenshot":true' "$WEBGAMES_POLICY"
+check "WebGames policy blocks runtime eval commands" '"eval":false' "$WEBGAMES_POLICY"
+check "WebGames machine grade requires the exact pinned password" '"exact":true,"fake":false' "$WEBGAMES_POLICY"
 DOC_CHECK=$(node benchmarks/chromux-doc-check.mjs 2>/dev/null)
 check "doc check passed" '"ok": true' "$DOC_CHECK"
 TOKEN_BENCH_OUT="/tmp/chromux-token-suite-$$.json"

@@ -32,7 +32,15 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startFixtureServer, closeFixtureServer, nonBrowserAccess, orderCode, navCode, stepValue, feedStats, inventoryStats, signupCode, shopProduct, shopCode, slowOrderCode, embedCode } from './fixtures.mjs';
 import { cloneMiniwob, startMiniwobServer, miniwobSucceeded } from './miniwob.mjs';
-import { WEBGAMES_BENCHMARK_TASKS, prepareWebgames, startWebgamesServer, webgamesSucceeded } from './webgames.mjs';
+import {
+  WEBGAMES_BENCHMARK_TASKS,
+  WEBGAMES_VISUAL_COMMANDS,
+  prepareWebgames,
+  startWebgamesServer,
+  webgamesCommandAllowed,
+  webgamesPasswordMatches,
+  webgamesSucceeded,
+} from './webgames.mjs';
 
 const MODULE_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const CHROMUX = path.join(MODULE_DIR, 'chromux.mjs');
@@ -128,9 +136,14 @@ function buildTools(runRoot, toolsDir) {
       bin: 'chromux',
       stateDir: path.join(runRoot, 'state-chromux'),
       setupShim(shimDir) {
-        makeShim(shimDir, 'chromux', `if [ "\${CHROMUX_BENCH_VISUAL_ONLY:-0}" = "1" ] && { [ "$1" = "run" ] || [ "$1" = "cdp" ]; }; then
-  printf '%s\n' "Visual benchmark policy: chromux $1 is disabled; use screenshot and browser input actions." >&2
-  exit 64
+        makeShim(shimDir, 'chromux', `if [ "\${CHROMUX_BENCH_VISUAL_ONLY:-0}" = "1" ]; then
+  case "$1" in
+    ${WEBGAMES_VISUAL_COMMANDS.join('|')}) ;;
+    *)
+      printf '%s\n' "Visual benchmark policy: chromux $1 is disabled; use screenshot and browser input actions." >&2
+      exit 64
+      ;;
+  esac
 fi
 exec "${process.execPath}" "${CHROMUX}" "$@"`);
       },
@@ -324,7 +337,7 @@ function buildTasks() {
       mission: base => `Open ${base}/canvas-catch-easy and complete the upstream WebGames Canvas Catch (Easy) challenge by dragging the blue circle into the orange target. Use screenshots and browser input actions only; do not inspect source code, scripts, runtime variables, storage, or network responses for the answer. Report the password shown only after the page records success.\nANSWER JSON shape: {"password": "<password shown after success>"}`,
       grade({ answer, fixture }) {
         if (!webgamesSucceeded(fixture.state, 'canvas-catch-easy')) return { ok: false, reason: 'WebGames recorded no canvas-catch-easy completion' };
-        if (!String(answer?.password ?? '').trim()) return { ok: false, reason: 'no completion password reported' };
+        if (!webgamesPasswordMatches('canvas-catch-easy', answer?.password)) return { ok: false, reason: 'reported password did not match the pinned canvas-catch-easy completion password' };
         return { ok: true };
       },
     },
@@ -336,7 +349,7 @@ function buildTasks() {
       mission: base => `Open ${base}/map-panner-easy and complete the upstream WebGames Map Panner (Easy) challenge by dragging the map until the treasure is found. Use screenshots and browser input actions only; do not inspect source code, scripts, runtime variables, storage, or network responses for the answer. Report the password shown only after the page records success.\nANSWER JSON shape: {"password": "<password shown after success>"}`,
       grade({ answer, fixture }) {
         if (!webgamesSucceeded(fixture.state, 'map-panner-easy')) return { ok: false, reason: 'WebGames recorded no map-panner-easy completion' };
-        if (!String(answer?.password ?? '').trim()) return { ok: false, reason: 'no completion password reported' };
+        if (!webgamesPasswordMatches('map-panner-easy', answer?.password)) return { ok: false, reason: 'reported password did not match the pinned map-panner-easy completion password' };
         return { ok: true };
       },
     },
@@ -348,7 +361,7 @@ function buildTasks() {
       mission: base => `Open ${base}/slider-symphony-easy and complete the upstream WebGames Slider Symphony (Easy) challenge by aligning both moving boxes with their dashed targets. Adjust each range slider with pointer drags, using screenshots to compare the solid box and dashed target positions. Do not use fill on range inputs. Use screenshots and browser input actions only; do not inspect source code, scripts, runtime variables, storage, or network responses for the answer. Report the password shown only after the page records success.\nANSWER JSON shape: {"password": "<password shown after success>"}`,
       grade({ answer, fixture }) {
         if (!webgamesSucceeded(fixture.state, 'slider-symphony-easy')) return { ok: false, reason: 'WebGames recorded no slider-symphony-easy completion' };
-        if (!String(answer?.password ?? '').trim()) return { ok: false, reason: 'no completion password reported' };
+        if (!webgamesPasswordMatches('slider-symphony-easy', answer?.password)) return { ok: false, reason: 'reported password did not match the pinned slider-symphony-easy completion password' };
         return { ok: true };
       },
     },
@@ -627,7 +640,7 @@ async function runAgentSession({ tool, task, rep, model, maxTurns, timeoutMs, sh
       } catch {}
     }
     if (task.kind === 'webgames') {
-      const shortcut = (record.commands || []).find(command => /^(run|cdp)\s/.test(command));
+      const shortcut = (record.commands || []).find(command => !webgamesCommandAllowed(command.split(/\s/, 1)[0]));
       if (shortcut) {
         record.ok = false;
         record.failureKind = 'source-shortcut';

@@ -28,6 +28,7 @@ const docs = {
   readme: read('README.md'),
   benchmark: read('docs/benchmark-2026-07.md'),
   agentCompare: read('benchmarks/agent-compare-benchmark.mjs'),
+  webgames: read('benchmarks/webgames.mjs'),
   install: read('install.md'),
   chromuxSkill: read('skills/chromux/SKILL.md'),
   workSkill: read('skills/chromux-work/SKILL.md'),
@@ -149,10 +150,15 @@ assertContains(checks, 'README OOPIF opt-in', docs.readme, 'Target.setAutoAttach
 assertContains(checks, 'README OOPIF close cleanup', docs.readme, 'CDP transport cleanup with zero attached frames');
 assertContains(checks, 'README opaque redaction', docs.readme, 'never includes child paths');
 assertContains(checks, 'README canvas workflow', docs.readme, 'Canvas and other visual-only surfaces');
-assertContains(checks, 'README reach payload', docs.readme, 'measured OOPIF attach overhead');
+assertContains(checks, 'README OOPIF payload', docs.readme, '`open --oopif` / namespaced snapshot | ~226 / ~152 tok');
+assertContains(checks, 'README OOPIF attach payload', docs.readme, 'measured OOPIF attach overhead over default open | ~137 tok');
 assertContains(checks, 'README full screenshot payload', docs.readme, 'full canvas screenshot metadata | ~245 tok');
 assertContains(checks, 'README crop screenshot payload', docs.readme, 'bounded canvas crop metadata | ~323 tok');
 assertContains(checks, 'README WebGames reach tasks', docs.readme, 'webgames-canvas-target,webgames-drag-drop,webgames-slider');
+assertContains(checks, 'README WebGames visual command policy', docs.readme, 'snapshot, fill, eval, run, cdp, network, and watch are blocked');
+assertContains(checks, 'WebGames visual allowlist', docs.webgames, 'WEBGAMES_VISUAL_COMMANDS');
+assertContains(checks, 'WebGames visual help allowlist', docs.webgames, "'help'");
+assertContains(checks, 'WebGames exact password grade', docs.agentCompare, 'webgamesPasswordMatches');
 assertContains(checks, 'README shadow reach', docs.readme, 'closed shadow roots');
 assertContains(checks, 'README dialog policy', docs.readme, '--dialog accept|dismiss');
 assertContains(checks, 'README popup adoption', docs.readme, 'newSession');

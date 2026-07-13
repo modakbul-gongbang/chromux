@@ -76,14 +76,22 @@ function childPage({ navigated = false } = {}) {
   return `<!doctype html>
 <meta charset="utf-8">
 <title>${navigated ? 'Navigated Child' : 'Opaque Child'}</title>
-<style>html,body{position:relative;margin:0;width:100%;height:100%;overflow:hidden;font-family:sans-serif}input{position:absolute;inset:0;width:100%;height:100%;box-sizing:border-box;font:24px sans-serif;padding:20px}button{position:absolute;right:8px;bottom:8px;z-index:1}p{position:absolute;left:8px;bottom:8px;z-index:1;margin:0;pointer-events:none}</style>
+<style>html,body{position:relative;margin:0;width:100%;height:100%;overflow:hidden;font-family:sans-serif}#frame-input{position:absolute;inset:0;width:100%;height:100%;box-sizing:border-box;font:24px sans-serif;padding:20px}#shadow-host{position:absolute;left:8px;top:8px;z-index:2;width:150px;height:62px;background:#fff}#frame-select{position:absolute;right:8px;top:8px;z-index:2}#nested-frame{position:absolute;right:8px;top:42px;z-index:2;width:145px;height:50px;border:1px solid #555}a{position:absolute;left:8px;top:78px;z-index:2;background:#fff}button{position:absolute;right:8px;bottom:8px;z-index:1}p{position:absolute;left:8px;bottom:8px;z-index:1;margin:0;pointer-events:none}</style>
 <input id="frame-input" aria-label="${label}" autocomplete="off">
+<div id="shadow-host"></div>
+<select id="frame-select" aria-label="Frame mode"><option value="a">Alpha</option><option value="b">Beta</option></select>
+<iframe id="nested-frame" title="Nested child" src="/frame-nested"></iframe>
+<a href="/account/private?token=link-secret">Private child link</a>
 ${navigation}
 <script>
+const grade = value => fetch('/grade', { method: 'POST', body: value }).catch(() => {});
 const input = document.getElementById('frame-input');
-input.addEventListener('input', () => {
-  fetch('/grade', { method: 'POST', body: input.value }).catch(() => {});
-});
+input.addEventListener('input', () => grade(input.value));
+const shadow = document.getElementById('shadow-host').attachShadow({ mode: 'open' });
+shadow.innerHTML = '<button id="shadow-button" type="button">Shadow child button</button><input id="shadow-input" aria-label="Shadow child field">';
+shadow.getElementById('shadow-button').addEventListener('click', () => grade('shadow-clicked'));
+shadow.getElementById('shadow-input').addEventListener('input', event => grade('shadow:' + event.target.value));
+document.getElementById('frame-select').addEventListener('change', event => grade('select:' + event.target.value));
 </script>`;
 }
 
@@ -104,6 +112,13 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/frame-child-next') {
     return html(res, childPage({ navigated: true }));
+  }
+  if (url.pathname === '/frame-nested') {
+    return html(res, `<!doctype html>
+<meta charset="utf-8">
+<style>html,body{margin:0}input{box-sizing:border-box;width:100%;height:46px}</style>
+<input id="nested-input" aria-label="Nested frame field">
+<script>document.getElementById('nested-input').addEventListener('input', event => fetch('/grade', { method:'POST', body:'nested:' + event.target.value }).catch(() => {}));</script>`);
   }
   if (url.pathname === '/grade' && req.method === 'POST') {
     let body = '';

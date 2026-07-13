@@ -479,6 +479,7 @@ Image-space hover, click, and drag use the session's most recent screenshot mapp
 Do not derive the mapping from DPR alone because browser zoom, visual viewport scale, and clipping can change the relationship.
 `fill` updates ordinary fields through native setters and framework-visible events.
 For a standards-based contenteditable root, `fill` selects and replaces its contents through browser input events, while `type` preserves insertion semantics at the current selection.
+The command fails if the editor cancels insertion or the observed text does not equal the requested replacement.
 Mentions, slash commands, IME composition, and editor-specific nested markup remain conditional and require flow-specific verification.
 
 Canvas and other visual-only surfaces do not gain DOM refs for their internal objects.
@@ -492,6 +493,7 @@ sensitive by autocomplete/name/id heuristics (`cc-number`, `one-time-code`,
 card/CVC/SSN/PIN patterns); values in other plain text fields appear as-is.
 Cross-origin child DOM is unreachable without explicit `--oopif`, and closed shadow roots remain unreachable.
 Default opaque frame output is origin-only and never includes child paths, queries, or field values.
+Opted-in namespaced OOPIF snapshots expose child labels and roles, but field values remain redacted and link destinations are reduced to origins.
 Clickable auto-detection
 evaluates the current viewport — controls far below the fold may need a
 scroll (or `--clickable`) before they get refs. Verify diffs skip the
@@ -600,8 +602,8 @@ The PNG remains a separate visual artifact read by the agent when needed.
 | full canvas screenshot metadata | ~245 tok | 300 tok |
 | bounded canvas crop metadata | ~323 tok | 400 tok |
 | default opaque-frame open / snapshot | ~89 / ~47 tok | 500 / 250 tok |
-| `open --oopif` / namespaced snapshot | ~169 / ~84 tok | 650 / 400 tok |
-| measured OOPIF attach overhead over default open | ~80 tok | 200 tok |
+| `open --oopif` / namespaced snapshot | ~226 / ~152 tok | 650 / 400 tok |
+| measured OOPIF attach overhead over default open | ~137 tok | 200 tok |
 
 The screenshot metadata rows include the action-ready mapping for the returned full or cropped PNG.
 
@@ -628,7 +630,9 @@ node benchmarks/agent-compare-benchmark.mjs \
 node benchmarks/agent-compare-benchmark.mjs --smoke   # cheap harness check
 
 # Focused browser-reach proof against a pinned Apache-2.0 WebGames commit.
-# The three non-timed tasks are machine-graded and default to a $5 total guard.
+# The three non-timed tasks require exact completion passwords and default to
+# a $5 total guard. Visual sessions allow CLI help, screenshots, browser input,
+# and lifecycle commands; snapshot, fill, eval, run, cdp, network, and watch are blocked.
 node benchmarks/agent-compare-benchmark.mjs \
   --model claude-sonnet-5 --tools chromux \
   --tasks webgames-canvas-target,webgames-drag-drop,webgames-slider \

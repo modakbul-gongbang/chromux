@@ -12,6 +12,27 @@ export const WEBGAMES_REPO = 'https://github.com/convergence-ai/webgames.git';
 export const WEBGAMES_COMMIT = '309866f64642b864414ca2c7ff956e59e01d3317';
 export const WEBGAMES_LICENSE = 'Apache-2.0';
 
+export const WEBGAMES_VISUAL_COMMANDS = Object.freeze([
+  'help',
+  'open',
+  'screenshot',
+  'hover',
+  'click',
+  'drag',
+  'type',
+  'press',
+  'scroll',
+  'wait',
+  'close',
+  'list',
+]);
+
+const WEBGAMES_COMPLETION_PASSWORDS = Object.freeze({
+  'canvas-catch-easy': 'EasyCircleMaster2024',
+  'map-panner-easy': 'CARTOGRAPHEREASY2024',
+  'slider-symphony-easy': 'SMOOTHANDEASY',
+});
+
 export const WEBGAMES_BENCHMARK_TASKS = Object.freeze([
   {
     benchmarkId: 'webgames-canvas-target',
@@ -185,4 +206,13 @@ export function startWebgamesServer(distRoot) {
 
 export function webgamesSucceeded(state, upstreamTaskId) {
   return state.completions.some(event => event.taskId === upstreamTaskId);
+}
+
+export function webgamesCommandAllowed(command) {
+  return WEBGAMES_VISUAL_COMMANDS.includes(String(command || '').trim());
+}
+
+export function webgamesPasswordMatches(upstreamTaskId, password) {
+  const expected = WEBGAMES_COMPLETION_PASSWORDS[upstreamTaskId];
+  return Boolean(expected) && String(password ?? '').trim() === expected;
 }
