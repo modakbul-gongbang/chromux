@@ -490,6 +490,7 @@ function buildTasks() {
 function missionPrompt(tool, taskText, task) {
   const visualRule = task.kind === 'webgames'
     ? `\n- For visual evidence, run \`${tool.bin} screenshot <session>\` without a destination path, then use the Read tool on the returned \`/tmp/chromux-*.png\` path. Read must not be used on source code or benchmark files.
+- Invoke \`${tool.bin}\` directly, one command per Bash call. Do not run \`command -v\`, \`which\`, shell pipelines, command substitutions, or any other shell probe.
 - For this visual benchmark, do not use \`${tool.bin} run\`, \`${tool.bin} cdp\`, or DOM/runtime inspection as a shortcut.`
     : '';
   return `Complete the following browser task using ONLY the \`${tool.bin}\` CLI (already installed and on PATH) for all web access. Strict rules:
@@ -547,7 +548,7 @@ async function runAgentSession({ tool, task, rep, model, maxTurns, timeoutMs, sh
 
   const webgamesToolPolicy = task.kind === 'webgames' ? {
     availableTools: ['Bash', 'Read'],
-    allowedTools: ['Bash(chromux *)', 'Read(/tmp/chromux-*.png)'],
+    allowedTools: ['Bash(chromux *)', 'Read(//tmp/chromux-*.png)'],
     permissionMode: 'dontAsk',
     safeMode: true,
     sessionPersistence: false,
@@ -607,6 +608,7 @@ async function runAgentSession({ tool, task, rep, model, maxTurns, timeoutMs, sh
     upstreamTaskId: task.upstreamTaskId || null,
     category: task.category || null,
     toolPolicy: webgamesToolPolicy,
+    permissionDenials: parsed?.permission_denials ?? [],
   };
   if (record.tokens) {
     record.tokens.total = record.tokens.input + record.tokens.output + record.tokens.cacheRead + record.tokens.cacheCreation;

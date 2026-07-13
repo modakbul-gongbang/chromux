@@ -159,7 +159,7 @@ assertContains(checks, 'README WebGames visual command policy', docs.readme, 'sn
 assertContains(checks, 'WebGames visual allowlist', docs.webgames, 'WEBGAMES_VISUAL_COMMANDS');
 assertContains(checks, 'WebGames visual help allowlist', docs.webgames, "'help'");
 assertContains(checks, 'WebGames exact password grade', docs.agentCompare, 'webgamesPasswordMatches');
-assertContains(checks, 'WebGames Read permission scope', docs.agentCompare, 'Read(/tmp/chromux-*.png)');
+assertContains(checks, 'WebGames Read permission scope', docs.agentCompare, 'Read(//tmp/chromux-*.png)');
 assertContains(checks, 'WebGames safe mode', docs.agentCompare, "'--safe-mode'");
 assertContains(checks, 'WebGames hashed answers', docs.webgames, 'WEBGAMES_COMPLETION_PASSWORD_HASHES');
 assertContains(checks, 'README shadow reach', docs.readme, 'closed shadow roots');
