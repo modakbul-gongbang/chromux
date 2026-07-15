@@ -37,44 +37,32 @@ chromux batch --file urls.txt --workers 10 --out results.jsonl
 
 ## Why this is the best browser tool for agents
 
-Most "AI browser" tools hand your agent a stranger's browser: a bundled
-Chromium with a bot-shaped fingerprint, logged into nothing, reading
-20,000-token page dumps, rediscovering every flow from scratch — and paying
-for a model call at every step. Your agent deserves better. chromux hands it
-**your** browser, and six design bets do the rest:
+Most AI browser tools give your agent **a browser**. chromux gives it
+**judgment** — on your real, logged-in Chrome. Every answer it hands back is a
+decision the agent would otherwise have to guess: *did that work, am I stuck,
+can I trust this, have I been here before.* Cheap, certain, and wiser every run.
+Six design bets do the rest:
 
-1. **Your real Chrome, your real logins.** No cloud browser to
-   re-authenticate, no extension bridge to babysit, no fingerprint that
-   screams "bot". chromux drives real, persistent Chrome profiles over raw
-   CDP — log in once, run unattended forever, on macOS, Linux, native
-   Windows, WSL, servers, and CI.
-2. **~47 tokens to verify an action.** Observation payloads are the product:
-   on a measured 200-story feed page, full HTML is ~20,400 tokens,
-   `snapshot --interactive` is ~7,200 — and checking what an action changed
-   with `snapshot --diff` is **~47 tokens**. Extractions can be held to a
-   JSON-schema contract with `--schema`, so drift fails loudly. Reproduce it
-   all with the checked-in token benchmark (table below).
-3. **It gets smarter every run.** Site notes (`chromux note`) remember
-   selectors, quirks, and wait behavior per host and surface automatically on
-   the next visit. Working flows freeze with `chromux script save` and replay
-   with **zero model calls** — `open` even tells the next agent the script
-   exists. When a site changes, the failed replay hands back the script path
-   and a repair hint: fix once, replay forever. Most tools start every
-   session from zero; chromux compounds.
-4. **Parallel by architecture, not by luck.** One daemon per profile, N
-   isolated tab sessions: ten agents browse the same logged-in profile
-   concurrently without stepping on each other. `batch` pools workers over
-   URL queues with retries and per-host backoff; `pause`/`resume` is the
-   one-command kill switch for a whole wave.
-5. **Reach into the whole page.** Shadow DOM, same-origin iframes, cross-origin
-   OOPIFs (`open --oopif`), JS dialogs, popups, upload/download, `drag`/`hover`,
-   and DPR-correct visual pixel clicks (`click --xy --space image`) for canvas
-   and WebGL. Accessibility-tree precision when the tree has it; real pointer
-   and vision coordinates when it doesn't — the same tool covers both.
-6. **Zero dependencies. Zero LLM. Zero cloud.** One file on Node.js ≥ 22
-   built-ins. chromux is the deterministic hand; your coding agent is the
-   brain — no per-step token bills, no vendor lock-in, no data leaving your
-   machine.
+1. **Your browser, awake.** Your real, logged-in Chrome — not a cloud stranger
+   wearing a bot's fingerprint. Log in once; it runs unattended forever,
+   anywhere a shell runs: macOS, Linux, native Windows, WSL, servers, and CI.
+2. **It answers back.** Every action reports whether it *actually* changed
+   anything, so the agent confirms like a human glancing at the screen — and
+   when it's going in circles, chromux says so instead of letting it thrash.
+   Extractions can be held to a contract so drift fails loudly, and sensitive
+   fields mask themselves so the agent knows what not to read.
+3. **It gets wiser, not just bigger.** It remembers every site it touches and
+   freezes proven flows to replay for free — then grades those memories by what
+   still works, so trust compounds and dead flows fade. Most tools restart from
+   zero each session; chromux carries what it learned.
+4. **Many hands, one identity.** Ten agents share one logged-in profile in their
+   own tabs, never colliding — parallelism by architecture, not luck.
+5. **The whole page, not the easy half.** Shadow DOM, cross-origin frames,
+   canvas, dialogs, popups, upload/download, drag — where the accessibility tree
+   ends, real pixels and pointers begin.
+6. **No brain of its own — by design.** chromux is the deterministic hand; your
+   coding agent is the brain. No per-step token bill, no vendor lock-in, nothing
+   leaving your machine.
 
 ## How it compares
 
