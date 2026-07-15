@@ -34,6 +34,13 @@ profiles through raw CDP. Keep the public command surface small and let
   `benchmarks/chromux-token-benchmark.mjs`, and the README Token Footprint
   table refreshed when numbers move materially.
 
+## High-Risk Change Scope
+
+- Treat OOPIF target multiplexing and CDP session routing as a standalone
+  high-risk change set. Do not bundle it with multiple other browser surfaces
+  unless the user explicitly approves the combined scope after a time and
+  verification-cost estimate.
+
 ## Validation
 
 Run focused checks after changes:
@@ -63,6 +70,16 @@ egress, the suite still runs fully with three adjustments:
 - serve the external hosts from a local HTTPS fixture and map them with
   `--host-resolver-rules="MAP example.com 127.0.0.1, ..."` plus
   `--ignore-certificate-errors` (test-profile only).
+
+## Verification Cadence
+
+- Use the smallest focused probe during implementation. Reserve `./test.sh`
+  for coherent milestones, batched source-changing review fixes, and the frozen
+  final HEAD instead of rerunning it after every small edit.
+- Run cost-bearing agent benchmarks only after the product HEAD is frozen and
+  required local checks pass. Randomized tasks must use a recorded deterministic
+  seed; a fixed-coordinate replay against a randomized task is diagnostic
+  evidence, not a passing result.
 
 ## Release / Publish
 
