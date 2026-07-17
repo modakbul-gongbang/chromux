@@ -1531,9 +1531,16 @@ async function closeInitialTabs(port) {
 // speaking chrome.debugger. The bridge below is a wire-level CDP facade: it
 // emulates the DevTools HTTP endpoints (/json/*) and per-target WebSocket
 // URLs that the rest of chromux already talks to, backed by a single
-// token-authenticated relay WebSocket from the MV3 extension. The daemon
-// then runs against the facade port unchanged — same commands, same
-// response schema, no per-command transport branching.
+// relay WebSocket from the MV3 extension. The daemon then runs against the
+// facade port unchanged — same commands, same response schema, no
+// per-command transport branching.
+//
+// Trust model: the bridge binds 127.0.0.1 and trusts local processes (the
+// same model as Chrome's own remote-debugging port). What it must NOT trust
+// is web content: pages can open WebSockets and no-cors fetches to loopback
+// without any CORS preflight, so every bridge request that carries a web
+// Origin header is rejected. The extension's service worker presents a
+// chrome-extension:// Origin; the CLI and other local clients send none.
 
 function isLiveProfile(name) { return name === LIVE_PROFILE; }
 
@@ -1552,27 +1559,25 @@ function writeLiveConfig(cfg) {
   return cfg;
 }
 
-function ensureLiveConfig({ rotateToken = false } = {}) {
+function ensureLiveConfig() {
   const cfg = readLiveConfig() || {};
   let changed = false;
   if (!Number.isInteger(cfg.port) || cfg.port <= 0 || cfg.port > 65535) {
     cfg.port = LIVE_DEFAULT_PORT;
     changed = true;
   }
-  if (!cfg.token || rotateToken) {
-    cfg.token = crypto.randomBytes(24).toString('hex');
+  if (cfg.token !== undefined) {
+    delete cfg.token;
     changed = true;
   }
   if (changed) writeLiveConfig(cfg);
   return cfg;
 }
 
-function liveTokenMatches(candidate) {
-  const expected = readLiveConfig()?.token || '';
-  if (!expected || !candidate) return false;
-  const a = Buffer.from(String(candidate));
-  const b = Buffer.from(expected);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+// Reject requests that originate from web content (see trust model above).
+function bridgeOriginAllowed(origin) {
+  if (!origin) return true;
+  return /^(chrome|moz|safari-web)-extension:/i.test(String(origin));
 }
 
 function liveDisconnectedMessage(bridge) {
@@ -1743,12 +1748,7 @@ function acceptWebSocket(req, socket) {
 
 // --- Live bridge server (CDP facade + extension relay) ---
 
-async function startLiveBridge(facadePort) {
-  if (!readLiveConfig()?.token) {
-    console.error('live profile is not paired. Run: chromux pair');
-    process.exit(1);
-  }
-
+async function startLiveBridge(facadePort, daemonPort = null) {
   const bridge = {
     relay: null,
     relaySeq: 0,
@@ -1756,7 +1756,6 @@ async function startLiveBridge(facadePort) {
     connectedAt: null,
     lastDisconnect: null,
     killSwitchAt: null,
-    pairingUntil: 0,
     tabs: new Map(),
     createdByChromux: new Set(),
     pageConns: new Map(),
@@ -2167,11 +2166,16 @@ async function startLiveBridge(facadePort) {
       res.end(typeof value === 'string' ? value : JSON.stringify(value));
     };
     try {
+      if (!bridgeOriginAllowed(req.headers.origin)) {
+        send(403, { error: 'requests from web origins are not allowed' });
+        return;
+      }
       if (url.pathname === '/json/version') {
         send(200, {
           Browser: 'chromux-live-bridge',
           'Protocol-Version': '1.3',
           webSocketDebuggerUrl: `ws://127.0.0.1:${facadePort}/devtools/browser/live`,
+          chromuxDaemonPort: daemonPort,
         });
         return;
       }
@@ -2186,21 +2190,11 @@ async function startLiveBridge(facadePort) {
         });
         return;
       }
-      // Auto-pairing: `chromux pair` opens a short loopback window during which
-      // the extension can fetch the port+token without a manual paste. The
-      // token still gates every ongoing relay connection (D-09); only its
-      // delivery is automated. Window is user-initiated and short.
-      if (url.pathname === '/pair/open' && req.method === 'POST') {
-        bridge.pairingUntil = Date.now() + 60000;
-        send(200, { ok: true, until: bridge.pairingUntil });
-        return;
-      }
-      if (url.pathname === '/pair') {
-        if (Date.now() < (bridge.pairingUntil || 0)) {
-          send(200, { port: facadePort, token: readLiveConfig()?.token || '' });
-        } else {
-          send(403, { error: 'no pairing window open; run: chromux pair' });
-        }
+      // Last-resort recovery hook: lets a CLI that lost this daemon's endpoint
+      // record (deleted .state) clear the facade port for a clean cold start.
+      if (url.pathname === '/shutdown' && req.method === 'POST') {
+        send(200, { ok: true });
+        setTimeout(() => process.exit(0), 50);
         return;
       }
       if (url.pathname === '/relay/detach-all' && req.method === 'POST') {
@@ -2245,12 +2239,12 @@ async function startLiveBridge(facadePort) {
   server.on('upgrade', (req, socket) => {
     const url = new URL(req.url, 'http://x');
     if (!req.headers['sec-websocket-key']) { socket.destroy(); return; }
+    if (!bridgeOriginAllowed(req.headers.origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     if (url.pathname === '/relay') {
-      if (!liveTokenMatches(url.searchParams.get('token'))) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-        socket.destroy();
-        return;
-      }
       adoptRelayConnection(acceptWebSocket(req, socket));
       return;
     }
@@ -6352,49 +6346,50 @@ async function cmdKill(profileName) {
 // Live mode CLI
 // ============================================================
 
-async function cmdPair(args) {
-  const rotate = args.includes('--new-token');
-  const cfg = ensureLiveConfig({ rotateToken: rotate });
+async function cmdPair() {
+  const cfg = ensureLiveConfig();
   const installed = fs.existsSync(path.join(EXTENSION_DIR, 'manifest.json'));
 
-  // Bring up the live bridge (facade) and open a short auto-pairing window so
-  // the extension can fetch the token over loopback without a manual paste.
-  let autoPairing = false;
+  // Bring up the live bridge (facade), then give the extension's reconnect
+  // loop a moment to attach. There is no token: the extension connects on its
+  // own whenever both sides are up.
+  let bridgeUp = false;
   const prevProfile = process.env.CHROMUX_PROFILE;
   process.env.CHROMUX_PROFILE = LIVE_PROFILE;
   try {
     await ensureDaemon(LIVE_PROFILE);
-    await cdpFetch(cfg.port, '/pair/open', 'POST');
-    autoPairing = true;
+    bridgeUp = true;
   } catch {
-    // Facade not reachable — fall back to the manual popup paste flow.
+    // Bridge not reachable — setup instructions below still apply.
   } finally {
     if (prevProfile === undefined) delete process.env.CHROMUX_PROFILE;
     else process.env.CHROMUX_PROFILE = prevProfile;
   }
 
+  let connected = false;
+  if (bridgeUp) {
+    for (let i = 0; i < 30; i++) {
+      const status = await liveBridgeStatus(cfg.port);
+      if (status?.extensionConnected) { connected = true; break; }
+      await sleep(500);
+    }
+  }
+
   const out = {
-    paired: true,
     port: cfg.port,
-    token: cfg.token,
+    bridgeUp,
+    extensionConnected: connected,
     extensionPath: installed ? EXTENSION_DIR : null,
-    autoPairing,
-    setup: autoPairing
-      ? [
+    setup: connected
+      ? ['Extension connected. Run live commands with CHROMUX_PROFILE=live, e.g. CHROMUX_PROFILE=live chromux open work https://example.com']
+      : [
           installed
             ? `1. Load the extension once at chrome://extensions (Developer mode -> Load unpacked -> select:\n     ${EXTENSION_DIR}), or reload it if already loaded.`
             : '1. Extension folder not found next to chromux.mjs — reinstall chromux from the repo checkout.',
-          '2. That\'s it — a 60s pairing window is open and the extension connects automatically. The popup should show "Connected" within a few seconds (no token paste needed).',
-          '3. Run live commands with CHROMUX_PROFILE=live, e.g. CHROMUX_PROFILE=live chromux open work https://example.com',
-        ]
-      : [
-          installed
-            ? `1. Open chrome://extensions, enable "Developer mode", click "Load unpacked", and select:\n     ${EXTENSION_DIR}`
-            : '1. Extension folder not found next to chromux.mjs — reinstall chromux from the repo checkout.',
-          '2. Automatic pairing could not start the bridge. Open the extension popup, paste the token below into "Pair with chromux", and click "Pair & connect".',
+          '2. That\'s it — the extension connects automatically within ~30s (no token). The popup should show "Connected".',
           '3. Run live commands with CHROMUX_PROFILE=live, e.g. CHROMUX_PROFILE=live chromux open work https://example.com',
         ],
-    note: 'Keep the token private; it authorizes local control of your browser. Re-run "chromux pair --new-token" to rotate it.',
+    note: 'The bridge only accepts local, non-web-origin connections; the extension popup has a kill switch to block it.',
   };
   console.log(JSON.stringify(out, null, 2));
   return out;
@@ -7470,7 +7465,10 @@ async function liveBridgeStatus(port) {
 }
 
 function launchUserChrome() {
-  const override = process.env.CHROMUX_LIVE_LAUNCH_CMD;
+  // The live browser may not be Google Chrome (any Chromium-based browser can
+  // host the extension); a launch override makes cold starts open the right
+  // one. Env var wins over the persistent config.json "liveLaunchCmd" key.
+  const override = process.env.CHROMUX_LIVE_LAUNCH_CMD || loadConfig().liveLaunchCmd;
   if (override) {
     const parts = override.split(' ').filter(Boolean);
     spawn(parts[0], parts.slice(1), { detached: true, stdio: 'ignore', env: chromeLaunchEnv() }).unref();
@@ -7490,11 +7488,32 @@ function launchUserChrome() {
 // up once the daemon is spawned against this port; relay connection (and the
 // Chrome launch it needs) is handled separately at first browser command.
 async function ensureLiveReady() {
-  if (!readLiveConfig()?.token) {
-    console.error('live profile is not paired yet. Run: chromux pair');
-    process.exit(1);
-  }
   return ensureLiveConfig().port;
+}
+
+// Self-heal: if the facade port already hosts a live bridge but this profile's
+// endpoint record was lost (e.g. a deleted .state file), re-adopt the running
+// daemon instead of dying on a facade-port bind conflict at cold start. A
+// bridge that cannot be re-adopted is shut down so the cold start can bind.
+async function adoptOrphanLiveDaemon(profileName, facadePort) {
+  let version;
+  try { version = await cdpFetch(facadePort, '/json/version'); } catch { return null; }
+  if (version?.Browser !== 'chromux-live-bridge') return null;
+  const daemonPort = Number(version.chromuxDaemonPort);
+  if (Number.isInteger(daemonPort) && daemonPort > 0) {
+    const endpoint = daemonEndpointForPort(daemonPort);
+    try {
+      await cliReq('GET', '/health', null, endpoint, 3000);
+      writeDaemonEndpointState(profileName, daemonPort);
+      return endpoint;
+    } catch {}
+  }
+  await cdpFetch(facadePort, '/shutdown', 'POST').catch(() => {});
+  for (let i = 0; i < 20; i++) {
+    await sleep(100);
+    try { await cdpFetch(facadePort, '/json/version'); } catch { return null; }
+  }
+  return null;
 }
 
 // Before the first browser command on the live profile, make sure the
@@ -7547,6 +7566,8 @@ async function ensureDaemon(profileName) {
     let port;
     if (isLiveProfile(profileName)) {
       port = await ensureLiveReady();
+      const adopted = await adoptOrphanLiveDaemon(profileName, port);
+      if (adopted) return adopted;
     } else {
       port = await resolveProfilePort(profileName);
       if (!port) {
@@ -7694,7 +7715,7 @@ async function runLoggedProfileCommand(cmd, args, profile, fn) {
 
 async function runCli(cmd, args) {
   // Live-mode setup commands (no daemon needed)
-  if (cmd === 'pair') return cmdPair(args);
+  if (cmd === 'pair') return cmdPair();
   if (cmd === 'tabs') return cmdLiveTabs(args);
 
   // Profile-level commands (no daemon needed)
@@ -8419,10 +8440,10 @@ Live mode (your real Chrome via the chromux extension):
   Two routes to a browser: an isolated profile ("agent's browser", the default)
   and the reserved "live" profile ("your browser"). Pick live when the task
   needs your own logged-in session; pick a profile for isolated/parallel work.
-  chromux pair                       Set up live mode: start the bridge and open
-                                     a short auto-pairing window so the extension
-                                     connects on its own (no token paste needed)
-  chromux pair --new-token           Rotate the pairing token
+  chromux pair                       Set up live mode: start the bridge and wait
+                                     for the extension to connect on its own
+                                     (no token — load the extension once and
+                                     it reconnects automatically from then on)
   chromux tabs                       List your Chrome's tabs (id/title/url/active)
   CHROMUX_PROFILE=live chromux open <s> <url>   Work in a new tab in your Chrome
   CHROMUX_PROFILE=live chromux open <s> --tab active|<tabId>|<match>
@@ -8590,7 +8611,7 @@ if (cmd === '--daemon') {
   // Live profile: the CDP endpoint is the in-process facade backed by the
   // extension relay, not a launched Chrome. Start it before the daemon so
   // the daemon's CDP reachability check passes.
-  if (isLiveProfile(profileName)) await startLiveBridge(port);
+  if (isLiveProfile(profileName)) await startLiveBridge(port, daemonPort);
   await startDaemon(profileName, port, daemonPort);
 } else if (!cmd || cmd === 'help' || cmd === '--help') {
   console.log(HELP);

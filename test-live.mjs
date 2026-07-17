@@ -4,17 +4,16 @@
 //
 // Usage: node test-live.mjs --suite parity|safety [--keep]
 //
-// The harness loads extension/ into a test browser, bootstraps the pairing
-// token into the extension's chrome.storage via CDP (a real user runs
-// "chromux pair" + popup instead), then exercises the live CLI surface end to
-// end. It never touches the user's real Chrome — it launches its own.
+// The harness loads extension/ into a test browser, points the extension at
+// the test facade port via chrome.storage over CDP (a real user's extension
+// uses the default port), then exercises the live CLI surface end to end. It
+// never touches the user's real Chrome — it launches its own.
 
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
-import crypto from 'node:crypto';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -35,7 +34,6 @@ fs.mkdirSync(downloadsDir, { recursive: true });
 
 const LIVE_PORT = 47750; // fixed test facade port (distinct from default)
 const DEBUG_PORT = 9977;
-const token = crypto.randomBytes(24).toString('hex');
 
 const env = {
   ...process.env,
@@ -129,19 +127,19 @@ async function swEval(expr, awaitPromise = true) {
   return r?.result?.value;
 }
 
-// Inject pairing config and keep the SW alive + reconnecting for the test.
+// Point the extension at the test port and keep the SW alive for the test.
 async function cdpBootstrap() {
   swConn = await openSwConn();
-  await swEval(`chrome.storage.local.set({ port: ${LIVE_PORT}, token: ${JSON.stringify(token)}, enabled: true }).then(() => 'set')`);
+  await swEval(`chrome.storage.local.set({ port: ${LIVE_PORT}, enabled: true }).then(() => 'set')`);
   // Keepalive: evaluate periodically so the SW never suspends mid-test.
   swConn.keepalive = setInterval(() => { swEval('Date.now()', false).catch(() => {}); }, 1000);
 }
 
 async function nudgeExtensionConnect() {
-  // Re-assert pairing config (survives SW reloads) and force a connect. A real
+  // Re-assert config (survives SW reloads) and force a connect. A real
   // user's popup/alarm plays this role.
-  await swEval(`chrome.storage.local.set({ port: ${LIVE_PORT}, token: ${JSON.stringify(token)}, enabled: true }).then(()=>'set')`);
-  await swEval(`new Promise(r => chrome.runtime.sendMessage({type:'pair', port:${LIVE_PORT}, token:${JSON.stringify(token)}}, () => r('ok')))`);
+  await swEval(`chrome.storage.local.set({ port: ${LIVE_PORT}, enabled: true }).then(()=>'set')`);
+  await swEval(`new Promise(r => chrome.runtime.sendMessage({type:'pair', port:${LIVE_PORT}}, () => r('ok')))`);
 }
 
 // Fixture server runs in its own process. The harness drives the CLI with
@@ -200,7 +198,7 @@ async function waitForRelay(timeoutMs = 30000) {
     if (Date.now() - lastNudge > 2000) { lastNudge = Date.now(); await nudgeExtensionConnect().catch(() => {}); }
     await sleep(400);
   }
-  const diag = await swEval(`(async()=>{const c=await chrome.storage.local.get(['port','token','enabled']);return JSON.stringify({cfg:{port:c.port,hasToken:!!c.token,enabled:c.enabled},wsState: (typeof ws!=='undefined'&&ws)?ws.readyState:'none'});})()`).catch(() => 'diag-failed');
+  const diag = await swEval(`(async()=>{const c=await chrome.storage.local.get(['port','enabled']);return JSON.stringify({cfg:{port:c.port,enabled:c.enabled},wsState: (typeof ws!=='undefined'&&ws)?ws.readyState:'none'});})()`).catch(() => 'diag-failed');
   throw new Error('extension relay did not connect; SW diag=' + diag);
 }
 
@@ -213,9 +211,9 @@ async function cleanup() {
   if (!keep) { try { fs.rmSync(workRoot, { recursive: true, force: true }); } catch {} }
 }
 
-// Configure pairing on the chromux side (writes live.json with our fixed port).
+// Point the chromux side at our fixed test facade port (writes live.json).
 function pairChromux() {
-  fs.writeFileSync(path.join(chromuxHome, 'live.json'), JSON.stringify({ port: LIVE_PORT, token }) + '\n', { mode: 0o600 });
+  fs.writeFileSync(path.join(chromuxHome, 'live.json'), JSON.stringify({ port: LIVE_PORT }) + '\n', { mode: 0o600 });
 }
 
 async function bringUpLive() {
@@ -272,15 +270,55 @@ async function paritySuite() {
   r = runCli(['show', 'p1'], { allowFail: true });
   if (r.status !== 0 && /cannot open DevTools|debugger client/.test(r.stderr)) ok('unsupported show errors clearly'); else fail('unsupported show errors clearly', (r.stderr || r.stdout).slice(0, 200));
 
-  // pairing token enforcement: bad token is rejected by facade
-  const badReject = await new Promise((resolve) => {
-    const { WebSocket } = globalThis;
-    const ws = new WebSocket(`ws://127.0.0.1:${LIVE_PORT}/relay?token=wrong`);
-    ws.addEventListener('open', () => { resolve(false); ws.close(); });
-    ws.addEventListener('error', () => resolve(true));
-    setTimeout(() => resolve(true), 2000);
+  // Origin enforcement: web pages can reach 127.0.0.1 without CORS preflight,
+  // so any bridge request carrying a web Origin must be refused — on the
+  // relay, on the facade control WebSocket, and on the HTTP endpoints.
+  let s = await wsUpgradeStatus(LIVE_PORT, '/relay', 'https://evil.example');
+  if (s === 403) ok('relay rejects web-origin WebSocket'); else fail('relay rejects web-origin WebSocket', `status=${s}`);
+
+  s = await wsUpgradeStatus(LIVE_PORT, '/devtools/browser/live', 'http://evil.example');
+  if (s === 403) ok('facade rejects web-origin WebSocket'); else fail('facade rejects web-origin WebSocket', `status=${s}`);
+
+  s = await wsUpgradeStatus(LIVE_PORT, '/devtools/browser/live', null);
+  if (s === 101) ok('facade accepts local no-origin WebSocket'); else fail('facade accepts local no-origin WebSocket', `status=${s}`);
+
+  s = await httpStatusWithOrigin(LIVE_PORT, '/json/version', 'https://evil.example');
+  if (s === 403) ok('bridge HTTP rejects web origin'); else fail('bridge HTTP rejects web origin', `status=${s}`);
+
+  s = await httpStatusWithOrigin(LIVE_PORT, '/json/version', 'chrome-extension://abcdefghijklmnop');
+  if (s === 200) ok('bridge HTTP allows extension origin'); else fail('bridge HTTP allows extension origin', `status=${s}`);
+}
+
+// Raw upgrade probe: Node's WebSocket client cannot set an Origin header, so
+// speak the handshake directly. Resolves the HTTP status (101 = accepted).
+function wsUpgradeStatus(port, urlPath, origin) {
+  return new Promise((resolve) => {
+    const headers = {
+      Connection: 'Upgrade',
+      Upgrade: 'websocket',
+      'Sec-WebSocket-Version': '13',
+      'Sec-WebSocket-Key': Buffer.from('0123456789abcdef').toString('base64'),
+    };
+    if (origin) headers.Origin = origin;
+    const req = http.request({ host: '127.0.0.1', port, path: urlPath, headers });
+    req.on('upgrade', (_res, socket) => { socket.destroy(); resolve(101); });
+    req.on('response', (res) => { res.resume(); resolve(res.statusCode); });
+    req.on('error', () => resolve(-1));
+    req.setTimeout(3000, () => { req.destroy(); resolve(-2); });
+    req.end();
   });
-  if (badReject) ok('bad pairing token rejected'); else fail('bad pairing token rejected', 'accepted a wrong token');
+}
+
+function httpStatusWithOrigin(port, urlPath, origin) {
+  return new Promise((resolve) => {
+    const req = http.request({ host: '127.0.0.1', port, path: urlPath, headers: { Origin: origin } }, (res) => {
+      res.resume();
+      resolve(res.statusCode);
+    });
+    req.on('error', () => resolve(-1));
+    req.setTimeout(3000, () => { req.destroy(); resolve(-2); });
+    req.end();
+  });
 }
 
 async function safetySuite() {
@@ -309,6 +347,15 @@ async function safetySuite() {
   await sleep(500);
   const userTabAliveAfter = await swEval(`chrome.tabs.get(${userTabId}).then(()=>true).catch(()=>false)`);
   if (userTabAliveBefore && userTabAliveAfter) ok('close on attached tab detaches (tab survives)'); else fail('close on attached tab detaches (tab survives)', `tab alive before=${userTabAliveBefore} after=${userTabAliveAfter}`);
+
+  // orphan recovery: lose the live daemon's endpoint record (.state) while the
+  // daemon keeps running; the next command must re-adopt the running daemon
+  // via the facade's advertised daemon port instead of dying on a bind conflict.
+  fs.rmSync(path.join(chromuxHome, 'profiles', 'live', '.state'), { force: true });
+  r = runCli(['tabs', '--json'], { allowFail: true });
+  let readopted;
+  try { readopted = JSON.parse(r.stdout); } catch { readopted = null; }
+  if (r.status === 0 && Array.isArray(readopted)) ok('orphan daemon re-adopted after lost .state'); else fail('orphan daemon re-adopted after lost .state', (r.stderr || r.stdout).slice(0, 200));
 
   // auto-reconnect: drop the relay (simulates a worker restart / network blip)
   // and confirm the bridge recovers on its own and a command works again.

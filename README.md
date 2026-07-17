@@ -286,9 +286,9 @@ changes.
 # One-time setup: load the unpacked extension once at chrome://extensions
 # (Developer mode → Load unpacked → select extension/), then run:
 chromux pair
-# This starts the bridge and opens a short auto-pairing window; the extension
-# fetches the token over loopback and connects on its own — no token to paste.
-# (The popup also has a manual token box as a fallback.)
+# This starts the bridge and waits for the extension to attach. There is no
+# token: the extension connects automatically whenever both sides are up,
+# including after browser or daemon restarts.
 
 # List your Chrome's tabs
 chromux tabs
@@ -306,12 +306,12 @@ CHROMUX_PROFILE=live chromux kill live
 Live mode uses `chrome.debugger`, so it is a CDP subset with deliberate safety
 semantics: `close` on a tab you attached detaches it rather than closing your
 tab, `kill live` never terminates your Chrome, and `show`, `launch --headless`,
-and `chrome://` pages are unsupported (each returns a clear error). Pairing is a
-one-time token exchange stored at `~/.chromux/live.json` (mode `0600`); the
-token still locks every relay connection — `chromux pair` only automates its
-delivery through a short loopback window, so nothing is weakened. The extension
-popup shows the attached tabs and a kill switch. Distribution is the unpacked
-extension shipped in this repo — there is no Web Store listing.
+and `chrome://` pages are unsupported (each returns a clear error). There is no
+pairing token: the bridge binds `127.0.0.1` and trusts local processes (the
+same model as Chrome's own remote-debugging port), while every request that
+carries a web `Origin` header is rejected so web pages cannot reach the bridge.
+The extension popup shows the attached tabs and a kill switch. Distribution is
+the unpacked extension shipped in this repo — there is no Web Store listing.
 
 ## Commands
 

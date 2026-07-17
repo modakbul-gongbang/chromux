@@ -380,23 +380,21 @@ exists without raw inline code or secrets, and the profile is killed at the end.
 ## Live Mode Setup (optional: your real Chrome)
 
 Isolated profiles are the default. To let an agent work in your own logged-in
-Chrome, install the bundled unpacked extension once and pair it:
+Chrome, install the bundled unpacked extension once:
 
 1. In your real Chrome, open `chrome://extensions`, enable "Developer mode",
    click "Load unpacked", and select the `extension/` folder in the repo
    checkout (next to `chromux.mjs`).
-2. Run `chromux pair`. It starts the live bridge and opens a short (60s)
-   auto-pairing window; the extension fetches the token over loopback and
-   connects on its own. The popup should show "Connected" within a few seconds
-   — no token to paste.
+2. Run `chromux pair`. It starts the live bridge and waits for the extension
+   to attach. There is no token: the extension connects automatically whenever
+   both sides are up, including after browser or daemon restarts. The popup
+   should show "Connected" within a few seconds.
 
 ```bash
 chromux pair
 ```
 
-If auto-pairing cannot start the bridge, `chromux pair` prints the token and you
-can paste it into the popup's "Pair with chromux" box as a fallback. After
-pairing, drive live mode with the reserved `live` profile:
+After setup, drive live mode with the reserved `live` profile:
 
 ```bash
 chromux tabs                                   # list your Chrome's tabs
@@ -405,11 +403,17 @@ CHROMUX_PROFILE=live chromux open work --tab active   # attach the tab you're on
 CHROMUX_PROFILE=live chromux kill live         # detach all; your Chrome stays open
 ```
 
-The pairing token lives in `~/.chromux/live.json` (mode `0600`) and authorizes
-local control of your browser — keep it private and rotate it with
-`chromux pair --new-token`. Live mode uses `chrome.debugger`, so `show`,
-`launch --headless`, and `chrome://` pages are unsupported. Distribution is the
-unpacked extension in this repo; there is no Web Store listing.
+The bridge binds `127.0.0.1` and trusts local processes (the same model as
+Chrome's own remote-debugging port); requests carrying a web `Origin` header
+are rejected so web pages cannot reach it. The extension popup has a kill
+switch that blocks the bridge until re-enabled. Live mode uses
+`chrome.debugger`, so `show`, `launch --headless`, and `chrome://` pages are
+unsupported. Distribution is the unpacked extension in this repo; there is no
+Web Store listing. If your live browser is not Google Chrome (e.g. a
+Chromium-based browser like Dia or Brave), set `"liveLaunchCmd"` in
+`$CHROMUX_HOME/config.json` (e.g. `"open -a Dia"`), or the
+`CHROMUX_LIVE_LAUNCH_CMD` env var for a one-off override, so cold starts
+launch the right browser.
 
 ## Builtin Helper Material
 

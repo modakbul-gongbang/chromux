@@ -207,9 +207,11 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
   assertContains(checks, 'readme live kill semantics', docs.readme, 'kill live` never terminates your Chrome');
   assertContains(checks, 'install live pair', docs.install, 'chromux pair');
   assertContains(checks, 'install live load unpacked', docs.install, 'Load unpacked');
-  assertContains(checks, 'help live auto-pairing', docs.help, 'auto-pairing window');
-  assertContains(checks, 'readme live auto-pairing', docs.readme, 'auto-pairing window');
-  assertContains(checks, 'install live auto-pairing', docs.install, 'auto-pairing window');
+  assertContains(checks, 'help live tokenless', docs.help, 'no token');
+  assertContains(checks, 'readme live tokenless', docs.readme, 'There is no\npairing token');
+  assertContains(checks, 'readme live origin rejection', docs.readme, 'web `Origin` header');
+  assertContains(checks, 'install live tokenless', docs.install, 'There is no token');
+  assertContains(checks, 'install live origin rejection', docs.install, 'web `Origin` header');
   assertContains(checks, 'chromux skill live mode', docs.chromuxSkill, 'CHROMUX_PROFILE=live');
   assertContains(checks, 'chromux skill live unsupported', docs.chromuxSkill, 'live unsupported');
   assertContains(checks, 'work skill live profile', docs.workSkill, 'reserved `live` profile');
@@ -217,8 +219,8 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
 
 {
   const pkg = JSON.parse(read('package.json'));
-  const ok = pkg.version === '0.20.1' && !pkg.dependencies;
-  checks.push({ label: 'package remains zero-dependency at 0.20.1', needle: '0.20.1 with no dependencies', ok });
+  const ok = pkg.version === '0.21.0' && !pkg.dependencies;
+  checks.push({ label: 'package remains zero-dependency at 0.21.0', needle: '0.21.0 with no dependencies', ok });
   if (!ok) throw new Error(`package contract drift: version=${pkg.version}, dependencies=${JSON.stringify(pkg.dependencies)}`);
 }
 

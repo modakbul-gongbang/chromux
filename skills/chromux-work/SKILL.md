@@ -114,8 +114,9 @@ an attached tab only detaches it, `kill live` never closes the user's Chrome,
 and `show`/`launch --headless`/`chrome://` are unsupported. Live runs on the
 user's real session — prefer new tabs, avoid destructive actions, and never
 switch a task to `live` without a reason that needs the user's own session. If
-live commands error with "not paired", tell the user to run `chromux pair`
-(auto-pairing connects the extension on its own) instead of retrying.
+live commands error with "extension not connected", tell the user to run
+`chromux pair` (the extension connects on its own, no token) instead of
+retrying.
 
 Launch or reuse the selected profile. Headed mode with background tab creation
 is the pragmatic default when login state and anti-bot behavior matter. New

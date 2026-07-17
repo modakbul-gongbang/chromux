@@ -233,10 +233,11 @@ session (SSO, 2FA, an already-open page) or the user says "do this on the page
 I'm looking at". Otherwise use an isolated profile.
 
 - Setup is one-time: the user loads the unpacked extension once, then
-  `chromux pair` opens a short auto-pairing window and the extension connects on
-  its own (no token paste). If `CHROMUX_PROFILE=live` commands error with "not
-  paired" or "extension not connected", tell the user to run `chromux pair` (and
-  load/reload the extension) rather than retrying blindly.
+  `chromux pair` starts the bridge and the extension connects on its own — no
+  token, and it reconnects automatically after browser or daemon restarts. If
+  `CHROMUX_PROFILE=live` commands error with "extension not connected", tell
+  the user to run `chromux pair` (and load/reload the extension) rather than
+  retrying blindly.
 - Same command surface, different profile: `CHROMUX_PROFILE=live chromux open
   <s> <url>` creates a visible new tab in the user's Chrome; add `--tab
   active|<tabId>|<url-or-title-match>` to attach an existing tab instead. Use

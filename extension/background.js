@@ -1,7 +1,9 @@
 // chromux live bridge — MV3 service worker.
 //
-// Connects to the local chromux live daemon's facade over a token-locked
+// Connects to the local chromux live daemon's facade over a loopback
 // WebSocket and relays chrome.debugger CDP traffic for the user's real tabs.
+// There is no pairing token: the bridge only accepts local, non-web-origin
+// connections, and this worker's chrome-extension:// Origin is its identity.
 // The facade speaks a small JSON envelope protocol (op/result for calls,
 // event for pushes) so the Node side never needs a CDP client for live tabs.
 //
@@ -21,10 +23,9 @@ let pingTimer = null;
 const attached = new Map();
 
 async function getConfig() {
-  const cfg = await chrome.storage.local.get(["port", "token", "enabled"]);
+  const cfg = await chrome.storage.local.get(["port", "enabled"]);
   return {
     port: cfg.port || 47700,
-    token: cfg.token || "",
     enabled: cfg.enabled !== false,
   };
 }
@@ -233,47 +234,13 @@ function onDebuggerDetach(source, reason) {
   }
 }
 
-const DEFAULT_PORT = 47700;
-let autoPairTimer = null;
-
-// Auto-pairing: while the extension has no token, poll the live bridge's /pair
-// endpoint on the default port. `chromux pair` opens a short window during which
-// it returns the token; storing it triggers connect() via storage.onChanged.
-async function tryAutoPair() {
-  const cfg = await getConfig();
-  if (cfg.token) return true;
-  try {
-    const res = await fetch(`http://127.0.0.1:${DEFAULT_PORT}/pair`, { cache: "no-store" });
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data && data.token) {
-      await chrome.storage.local.set({ port: data.port || DEFAULT_PORT, token: data.token, enabled: true });
-      return true;
-    }
-  } catch {
-    // Bridge not up or no pairing window open — keep polling.
-  }
-  return false;
-}
-
-function startAutoPairPolling() {
-  if (autoPairTimer) return;
-  tryAutoPair();
-  autoPairTimer = setInterval(async () => {
-    const cfg = await getConfig();
-    if (cfg.token) { clearInterval(autoPairTimer); autoPairTimer = null; return; }
-    tryAutoPair();
-  }, 3000);
-}
-
 async function connect() {
   if (connecting || (ws && ws.readyState === WebSocket.OPEN)) return;
   const cfg = await getConfig();
-  if (!cfg.token) { startAutoPairPolling(); return; }
   if (!cfg.enabled) return;
   connecting = true;
   try {
-    const socket = new WebSocket(`ws://127.0.0.1:${cfg.port}/relay?token=${encodeURIComponent(cfg.token)}`);
+    const socket = new WebSocket(`ws://127.0.0.1:${cfg.port}/relay`);
     ws = socket;
     socket.addEventListener("open", () => {
       connecting = false;
@@ -314,7 +281,7 @@ function scheduleReconnect() {
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null;
     const cfg = await getConfig();
-    if (cfg.enabled && cfg.token && !(ws && ws.readyState === WebSocket.OPEN)) connect();
+    if (cfg.enabled && !(ws && ws.readyState === WebSocket.OPEN)) connect();
   }, RECONNECT_MS);
 }
 
@@ -346,11 +313,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onStartup.addListener(() => connect());
 chrome.runtime.onInstalled.addListener(() => connect());
 
-// Re-connect as soon as pairing config lands (the CLI writes port/token and
-// the popup toggles enabled). Keeps "chromux pair" -> connected hands-free.
+// Re-connect as soon as config changes (port override or re-enable).
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.token || changes.port || (changes.enabled && changes.enabled.newValue)) {
+  if (changes.port || (changes.enabled && changes.enabled.newValue)) {
     if (!(changes.enabled && changes.enabled.newValue === false)) connect();
   }
 });
@@ -384,7 +350,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sendResponse({
         connected: !!ws && ws.readyState === WebSocket.OPEN,
         enabled: cfg.enabled,
-        hasToken: !!cfg.token,
         port: cfg.port,
         attachedTabs: tabs,
       });
@@ -402,7 +367,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return;
     }
     if (msg.type === "pair") {
-      await chrome.storage.local.set({ port: msg.port, token: msg.token, enabled: true });
+      // Compat name; sets the bridge port override and (re-)enables.
+      await chrome.storage.local.set({ port: msg.port || 47700, enabled: true });
       await connect();
       sendResponse({ ok: true });
       return;
