@@ -14,6 +14,29 @@
   <img alt="license" src="https://img.shields.io/badge/license-MIT-black">
 </p>
 
+## Try it in one paste
+
+Paste this to any coding agent with shell access:
+
+> Follow install.md in https://github.com/team-attention/chromux to install
+> chromux, then pull three sources at once - Tesla's price from Google, SK hynix's
+> from Naver, and Bloomberg's top headlines - one headed tab each, and show me what
+> each returns.
+
+Three sources, one Chrome, three tabs in parallel:
+
+```json
+{ "g": "Tesla stock price - Google Search",
+  "n": "sk하이닉스 주가 : 네이버 검색",
+  "b": "Bloomberg Asia" }
+```
+
+Each tab hands its data back as token-cheap `@refs`. That per-tab isolation is the
+point: N tabs that never collide. Prefer to run it yourself? See
+[Quick Start](#quick-start).
+
+## What it looks like
+
 ```bash
 git clone https://github.com/team-attention/chromux && cd chromux && npm install -g .
 
@@ -135,12 +158,16 @@ repo-local skills with Codex, Claude Code, or Hermes:
 
 ## Quick Start
 
-The fastest path is to let your agent set everything up and try it on a real task.
+### Fastest: let your agent set it up
+
 In Claude Code, Codex, or any agent with shell access:
 
 1. **Install** — paste this to your agent:
-   > Clone https://github.com/team-attention/chromux, run `npm install -g .` in it,
-   > then follow install.md to register the `chromux` and `chromux-work` skills.
+   > Follow install.md in https://github.com/team-attention/chromux to install
+   > chromux and register the `chromux` and `chromux-work` skills.
+
+   install.md handles the clone, `npm install -g .`, skill registration, and a
+   smoke test end to end.
 2. **Load the skill** — in a fresh session, invoke the `chromux` skill
    (`/chromux` in Claude Code), or just ask for browser work and let it trigger.
 3. **First task** — give it a real search to run through a real browser:
@@ -151,7 +178,37 @@ The agent launches its own isolated Chrome profile, runs the search, snapshots
 the results into token-cheap @refs, clicks through, and verifies each step —
 the same loop it will use on your actual work.
 
-### By hand
+### By hand: three parallel searches in one paste
+
+Install the CLI, then open one real Chrome and pull three sources at once:
+
+```bash
+git clone https://github.com/team-attention/chromux && cd chromux && npm install -g .
+
+chromux launch demo                     # real Chrome window (headed, so sites serve real content)
+CHROMUX_PROFILE=demo chromux open g "https://www.google.com/search?q=Tesla+stock+price" &
+CHROMUX_PROFILE=demo chromux open n "https://search.naver.com/search.naver?query=sk하이닉스+주가" &
+CHROMUX_PROFILE=demo chromux open b "https://www.bloomberg.com/" &
+wait
+CHROMUX_PROFILE=demo chromux list                     # three independent tabs, no collision
+CHROMUX_PROFILE=demo chromux snapshot b --interactive # Bloomberg headlines as token-cheap @refs
+chromux kill demo                                     # clean up: stop Chrome + daemon
+```
+
+`list` returns three independent sessions, one per source:
+
+```json
+{ "g": { "title": "Tesla stock price - Google Search" },
+  "n": { "title": "sk하이닉스 주가 : 네이버 검색" },
+  "b": { "title": "Bloomberg Asia" } }
+```
+
+`snapshot b --interactive` then hands back Bloomberg's headlines as clickable
+`@refs` (`@44 link "<headline>" -> /news/articles/...`). (A fresh `--headless`
+profile can trip bot checks; headed and logged-in profiles get real content -
+that's why chromux drives real Chrome.)
+
+### More commands, by hand
 
 ```bash
 # Launch Chrome with an isolated profile (auto-finds Chrome, auto-assigns port)
@@ -328,7 +385,11 @@ CHROMUX_PROFILE=live chromux kill live
 Live mode uses `chrome.debugger`, so it is a CDP subset with deliberate safety
 semantics: `close` on a tab you attached detaches it rather than closing your
 tab, `kill live` never terminates your Chrome, and `show`, `launch --headless`,
-and `chrome://` pages are unsupported (each returns a clear error). There is no
+and `chrome://` pages are unsupported (each returns a clear error). While a tab
+is attached it sits in a green "chromux" tab group, so the tab strip always
+shows which tabs an agent is driving; on detach the tab returns to its previous
+group (or no group). Chromium-based browsers without tab-group APIs simply skip
+this badge. There is no
 pairing token: the bridge binds `127.0.0.1` and trusts local processes (the
 same model as Chrome's own remote-debugging port), while every request that
 carries a web `Origin` header is rejected so web pages cannot reach the bridge.
