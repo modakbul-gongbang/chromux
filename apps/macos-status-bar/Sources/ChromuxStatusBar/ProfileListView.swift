@@ -82,23 +82,6 @@ struct ProfileListView: View {
             }
         }
         .listStyle(.sidebar)
-        .confirmationDialog(
-            "Delete Profiles",
-            isPresented: Binding(
-                get: { model.pendingDeleteNames != nil },
-                set: { if !$0 { model.cancelPendingDelete() } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                Task { await model.confirmPendingDelete() }
-            }
-            Button("Cancel", role: .cancel) {
-                model.cancelPendingDelete()
-            }
-        } message: {
-            Text(DeleteSummary.confirmationMessage(names: model.pendingDeleteNames ?? []))
-        }
     }
 
     private func toggleBulk(_ name: String) {

@@ -1,11 +1,33 @@
 import SwiftUI
+import AppKit
 import ChromuxStatusBarCore
+
+/// The menu bar status item label ("cx"). It is the one SwiftUI view that is
+/// reliably alive for the whole process, so it is used to (1) capture the
+/// environment `openWindow` action into the model and (2) open the dashboard
+/// once at launch, since the `Window` scene does not auto-present (R1).
+struct MenuBarLabel: View {
+    @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Text("cx")
+            .font(.system(size: 13, weight: .bold, design: .monospaced))
+            .onAppear {
+                let open = { openWindow(id: "main") }
+                model.openMainWindow = open
+                if !model.didAutoOpenAtLaunch {
+                    model.didAutoOpenAtLaunch = true
+                    open()
+                }
+            }
+    }
+}
 
 /// Read-only menu bar dropdown (R2, D20): summary of active profiles only.
 /// No kill/delete controls live here; clicking a row opens the main window.
 struct MenuBarContentView: View {
     @ObservedObject var model: AppModel
-    @Environment(\.openWindow) private var openWindow
 
     // Visibility-gated polling (R6, AC9) is driven by AppDelegate observing
     // NSMenu.didBeginTracking/didEndTracking for this menu, not by SwiftUI
@@ -25,7 +47,7 @@ struct MenuBarContentView: View {
                 ForEach(active) { profile in
                     Button(menuTitle(for: profile)) {
                         model.selectedProfileName = profile.name
-                        openWindow(id: "main")
+                        model.presentMainWindow?()
                     }
                 }
             }
@@ -33,7 +55,7 @@ struct MenuBarContentView: View {
         }
 
         Button("Open chromux") {
-            openWindow(id: "main")
+            model.presentMainWindow?()
         }
         Button("Quit") {
             model.stopServer()

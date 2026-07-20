@@ -16,6 +16,21 @@ final class AppModel: ObservableObject {
     @Published var lastActionMessage: String?
     @Published private(set) var visibleWindowCount: Int = 0
 
+    /// SwiftUI `openWindow(id:"main")`, captured from the environment on first
+    /// window appearance. Used only as a fallback for the very first open before
+    /// any `NSWindow` has been resolved and retained.
+    var openMainWindow: (() -> Void)?
+
+    /// Brings the dashboard window front (re-fronts the retained, hidden
+    /// `NSWindow`). Wired by `AppDelegate`; menu actions call this instead of
+    /// SwiftUI `openWindow` so a hidden window reliably returns.
+    var presentMainWindow: (() -> Void)?
+
+    /// Guards the one-time auto-open of the dashboard at process launch (R1):
+    /// the `Window` scene does not auto-present, so the menu bar label opens it
+    /// once when it first appears.
+    var didAutoOpenAtLaunch = false
+
     private let server = ServerProcess()
     private var client: APIClient?
     private var pollTask: Task<Void, Never>?
@@ -143,12 +158,22 @@ final class AppModel: ObservableObject {
             .filter(selectedForBulk.contains)
     }
 
+    /// Delete a single profile (from the detail pane). Reuses the shared
+    /// confirm/execute path so both single and bulk delete go through one alert.
+    func requestDelete(_ name: String) {
+        pendingDeleteNames = [name]
+    }
+
     func cancelPendingDelete() {
         pendingDeleteNames = nil
     }
 
-    func confirmPendingDelete() async {
-        guard let names = pendingDeleteNames, let client else { return }
+    /// Deletes the given profiles. `names` is passed explicitly (captured by the
+    /// alert's `presenting:` value) rather than read from `pendingDeleteNames`,
+    /// because dismissing the alert clears `pendingDeleteNames` before this
+    /// action runs.
+    func confirmPendingDelete(_ names: [String]) async {
+        guard let client, !names.isEmpty else { return }
         pendingDeleteNames = nil
         do {
             let response = try await client.deleteProfiles(names)
@@ -156,9 +181,27 @@ final class AppModel: ObservableObject {
             let failed = response.results.filter { !$0.removed }.map(\.profile)
             lastActionMessage = DeleteSummary.resultMessage(succeededNames: succeeded, failedNames: failed)
             selectedForBulk.subtract(succeeded)
+            // Optimistically drop the removed profiles so the list updates
+            // instantly; the follow-up refresh (which recomputes disk usage for
+            // every remaining profile and can take several seconds) reconciles.
+            removeProfilesLocally(succeeded)
             await refresh()
         } catch {
             lastActionMessage = "Delete failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func removeProfilesLocally(_ names: [String]) {
+        guard !names.isEmpty, let state = statusState else { return }
+        let removed = Set(names)
+        statusState = StatusState(
+            ok: state.ok,
+            generatedAt: state.generatedAt,
+            chromuxHome: state.chromuxHome,
+            profiles: state.profiles.filter { !removed.contains($0.name) }
+        )
+        if let selectedProfileName, removed.contains(selectedProfileName) {
+            self.selectedProfileName = ProfileLogic.ordered(statusState?.profiles ?? []).first?.name
         }
     }
 }

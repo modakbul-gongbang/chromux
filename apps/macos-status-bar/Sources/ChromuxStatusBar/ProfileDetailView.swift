@@ -49,6 +49,10 @@ struct ProfileDetailView: View {
             Button("Open foreground") { runAction("open-foreground", profile) }
             Button("Stop daemon") { runAction("stop-daemon", profile) }
             Button("Kill profile", role: .destructive) { runAction("kill", profile) }
+            Spacer()
+            // Delete removes the profile from disk (distinct from Kill, which
+            // only stops the running process).
+            Button("Delete profile", role: .destructive) { model.requestDelete(profile.name) }
         }
         .buttonStyle(.bordered)
     }

@@ -11,7 +11,7 @@ struct ChromuxApp: App {
         MenuBarExtra {
             MenuBarContentView(model: appDelegate.model)
         } label: {
-            Text("cx").font(.system(size: 13, weight: .bold, design: .monospaced))
+            MenuBarLabel(model: appDelegate.model)
         }
 
         Window("chromux", id: "main") {
