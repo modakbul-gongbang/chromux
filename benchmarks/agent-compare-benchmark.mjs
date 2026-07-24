@@ -156,7 +156,7 @@ exec "${process.execPath}" "${CHROMUX}" "$@"`);
         };
       },
       skillPath: path.join(MODULE_DIR, 'skills', 'chromux', 'SKILL.md'),
-      initArgs: [['launch', 'bench', '--headless']],
+      initArgs: [['launch', 'bench', '--headless', '--purpose', 'agent-compare-benchmark.mjs fixture profile']],
       teardownArgs: [['kill', 'bench']],
       async version() {
         try {

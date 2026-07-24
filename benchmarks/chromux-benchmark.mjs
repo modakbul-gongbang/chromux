@@ -151,7 +151,7 @@ async function main() {
   let urlsPath = null;
 
   try {
-    metrics.coldLaunchMs = (await checked('cold launch', ['launch', profile, '--headless'], env, commands)).durationMs;
+    metrics.coldLaunchMs = (await checked('cold launch', ['launch', profile, '--headless', '--purpose', 'chromux-benchmark.mjs fixture profile'], env, commands)).durationMs;
     metrics.warmPsMs = (await checked('ps json', ['ps', '--json'], env, commands)).durationMs;
     metrics.openMs = (await checked('open fixture', ['open', 'bench-main', `${baseUrl}/`], env, commands)).durationMs;
     metrics.runExtractMs = (await checked('run page extract', ['run', 'bench-main', '--file', path.join('snippets', '_builtin', 'page-extract.js')], env, commands)).durationMs;

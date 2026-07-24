@@ -80,6 +80,10 @@ function confirmModalOpen() {
   return !$('#confirmModal').hidden;
 }
 
+function anyModalOpen() {
+  return !$('#confirmModal').hidden || !$('#newProfileModal').hidden || !$('#editPurposeModal').hidden;
+}
+
 function confirmDialog(message) {
   return new Promise((resolve) => {
     const overlay = $('#confirmModal');
@@ -242,6 +246,7 @@ function renderProfiles() {
       <button class="profile-main" data-profile="${escapeHtml(profile.name)}">
         <span class="profile-name">${escapeHtml(profile.name)}</span>
         <span class="profile-meta">${escapeHtml(profile.daemon?.status)} daemon / ${escapeHtml(profile.activeTabs)} tabs / ${escapeHtml(fmtBytes(profile.diskUsageBytes))}</span>
+        <span class="profile-purpose-preview">${escapeHtml(profile.purpose || '(no purpose set)')}</span>
       </button>
       ${statusPill(profile.status)}
     </div>
@@ -272,6 +277,8 @@ function factRows(rows) {
 function renderProfileDetail() {
   const profile = selectedProfile();
   $('#selectedName').textContent = profile?.name || 'No profile';
+  $('#selectedPurpose').textContent = profile ? (profile.purpose || '(no purpose set)') : '-';
+  $('#editPurposeButton').disabled = !profile;
   $('#summaryStatus').textContent = profile?.status || '-';
   $('#summaryDaemon').textContent = profile?.daemon?.status || '-';
   $('#summarySessions').textContent = profile?.daemon?.sessions ?? '-';
@@ -343,6 +350,85 @@ async function deleteSelectedProfiles() {
   } catch (err) {
     toast(err.message);
     await refresh();
+  }
+}
+
+function openNewProfileModal() {
+  $('#newProfileName').value = '';
+  $('#newProfilePurpose').value = '';
+  $('#newProfileError').hidden = true;
+  $('#newProfileModal').hidden = false;
+  $('#newProfileName').focus();
+}
+
+function closeNewProfileModal() {
+  $('#newProfileModal').hidden = true;
+}
+
+async function createNewProfile() {
+  const name = $('#newProfileName').value.trim();
+  const purpose = $('#newProfilePurpose').value.trim();
+  const errorEl = $('#newProfileError');
+  errorEl.hidden = true;
+  if (!name) {
+    errorEl.textContent = 'Name is required.';
+    errorEl.hidden = false;
+    return;
+  }
+  if (!purpose) {
+    errorEl.textContent = 'Purpose is required for a new profile.';
+    errorEl.hidden = false;
+    return;
+  }
+  try {
+    await api('/api/profiles', {
+      method: 'POST',
+      body: JSON.stringify({ name, purpose }),
+    });
+    closeNewProfileModal();
+    toast(`Created profile "${name}"`);
+    state.selectedProfile = name;
+    await refresh();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  }
+}
+
+function openEditPurposeModal() {
+  const profile = selectedProfile();
+  if (!profile) return;
+  $('#editPurposeInput').value = profile.purpose || '';
+  $('#editPurposeError').hidden = true;
+  $('#editPurposeModal').hidden = false;
+  $('#editPurposeInput').focus();
+}
+
+function closeEditPurposeModal() {
+  $('#editPurposeModal').hidden = true;
+}
+
+async function saveEditedPurpose() {
+  const profile = selectedProfile();
+  if (!profile) return;
+  const purpose = $('#editPurposeInput').value.trim();
+  const errorEl = $('#editPurposeError');
+  if (!purpose) {
+    errorEl.textContent = 'Purpose must not be empty.';
+    errorEl.hidden = false;
+    return;
+  }
+  try {
+    await api(`/api/profiles/${encodeURIComponent(profile.name)}/purpose`, {
+      method: 'POST',
+      body: JSON.stringify({ purpose }),
+    });
+    closeEditPurposeModal();
+    toast('Purpose saved');
+    await refresh();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
   }
 }
 
@@ -491,6 +577,24 @@ $('#selectAllProfiles').addEventListener('change', (event) => {
   renderProfiles();
 });
 $('#deleteSelectedProfiles').addEventListener('click', deleteSelectedProfiles);
+$('#newProfileButton').addEventListener('click', openNewProfileModal);
+$('#newProfileCancel').addEventListener('click', closeNewProfileModal);
+$('#newProfileCreate').addEventListener('click', createNewProfile);
+$('#newProfileModal').addEventListener('mousedown', (event) => {
+  if (event.target === $('#newProfileModal')) closeNewProfileModal();
+});
+$('#newProfilePurpose').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') createNewProfile();
+});
+$('#editPurposeButton').addEventListener('click', openEditPurposeModal);
+$('#editPurposeCancel').addEventListener('click', closeEditPurposeModal);
+$('#editPurposeSave').addEventListener('click', saveEditedPurpose);
+$('#editPurposeModal').addEventListener('mousedown', (event) => {
+  if (event.target === $('#editPurposeModal')) closeEditPurposeModal();
+});
+$('#editPurposeInput').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') saveEditedPurpose();
+});
 $('#saveRetention').addEventListener('click', saveRetention);
 $$('[data-lifecycle]').forEach(button => {
   button.addEventListener('click', () => runLifecycle(button.dataset.lifecycle));
@@ -504,7 +608,7 @@ refresh().catch(err => toast(err.message));
 const AUTO_REFRESH_MS = 5000;
 let autoRefreshInFlight = false;
 setInterval(async () => {
-  if (document.hidden || confirmModalOpen()) return;
+  if (document.hidden || anyModalOpen()) return;
   if (document.activeElement === $('#profileSearch')) return;
   if (autoRefreshInFlight) return;
   autoRefreshInFlight = true;

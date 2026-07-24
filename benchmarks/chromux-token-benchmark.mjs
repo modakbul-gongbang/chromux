@@ -127,7 +127,7 @@ async function main() {
 
   try {
     reach = await startBrowserReachFixture();
-    const launched = await runChromux(['launch', profile, '--headless']);
+    const launched = await runChromux(['launch', profile, '--headless', '--purpose', 'chromux-token-benchmark.mjs fixture profile']);
     if (!launched.ok) throw new Error(`launch failed: ${launched.stderr}`);
 
     const pages = [

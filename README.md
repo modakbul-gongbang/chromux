@@ -186,7 +186,7 @@ four stores at once:
 ```bash
 git clone https://github.com/modakbul-gongbang/chromux && cd chromux && npm install -g .
 
-chromux launch shop                    # real Chrome window (headed, so stores serve real pages)
+chromux launch shop --purpose "price comparison shopping"   # real Chrome window (headed, so stores serve real pages)
 CHROMUX_PROFILE=shop chromux open az https://www.amazon.com/   # warm up Amazon (heavy JS) first
 CHROMUX_PROFILE=shop chromux wait-for-text az "Amazon" 8000
 
@@ -212,7 +212,7 @@ chromux is built for - a successful `open` is not proof the page is ready. (Fres
 ```bash
 # Launch Chrome with an isolated profile (auto-finds Chrome, auto-assigns port)
 chromux launch
-chromux launch work
+chromux launch work --purpose "day-to-day logged-in browsing"
 
 # First taste: a Google search through a real browser
 chromux open search "https://www.google.com/search?q=zero+dependency+cdp+cli"
@@ -259,7 +259,7 @@ Chrome tab as possible.
 For crawling, use `crawl` mode:
 
 ```bash
-CHROMUX_MODE=crawl chromux launch crawl-news --headless
+CHROMUX_MODE=crawl chromux launch crawl-news --headless --purpose "news crawl worker pool"
 CHROMUX_MODE=crawl CHROMUX_PROFILE=crawl-news chromux open worker-1 https://news.ycombinator.com
 CHROMUX_MODE=crawl CHROMUX_PROFILE=crawl-news chromux open worker-1 https://example.com
 CHROMUX_MODE=crawl CHROMUX_PROFILE=crawl-news chromux close worker-1
@@ -315,20 +315,30 @@ CHROMUX_PROFILE=crawl-news chromux resume
 ## Profile Management
 
 Each profile is an isolated Chrome instance with its own user-data-dir, logins, cookies, and extensions.
+Profile lifecycle is human-managed: creating, deleting, and labeling a profile's
+`purpose` are things a person does (CLI or the `chromux app` dashboard); an agent
+only selects among profiles a human already created, by reading `purpose`.
 
 ```bash
-# Launch named profiles
-chromux launch work
-chromux launch personal
+# Create named profiles (new profiles require a one-line purpose)
+chromux launch work --purpose "day-to-day logged-in browsing"
+chromux launch personal --purpose "personal shopping and accounts"
 
-# See what's running
+# List every known profile, running or not, with its purpose. A stopped
+# profile from before this policy existed shows "(no purpose set)" as a
+# nudge to label or delete it — this is the one cushion for old profile
+# sprawl; ps never hides a stopped profile just because it isn't running.
 chromux ps
-# PROFILE             PORT    PID       STATUS      TABS
-# work                9300    12345     running     3
-# personal            9301    12346     running     1
+# PROFILE             PORT    PID       STATUS      DAEMON  TABS  PURPOSE
+# work                9300    12345     running     ok      3     day-to-day logged-in browsing
+# personal            9301    12346     running     ok      1     personal shopping and accounts
+# old-crawl-2026      -       -         stopped     idle    -     (no purpose set)
 
 # Machine-readable diagnosis for agents and dashboards
 chromux ps --json
+
+# Update an existing profile's purpose
+chromux profile purpose work "day-to-day logged-in browsing, now including email"
 
 # Use a specific profile for tab commands
 chromux --profile work open my-tab https://...
@@ -337,8 +347,16 @@ CHROMUX_PROFILE=personal chromux open other-tab https://...
 # Auto-launch headed Chrome, then keep new tabs in the background by default
 CHROMUX_LAUNCH_MODE=headed chromux open bg-tab https://...
 
-# Default profile is "default" — used when no --profile specified
+# Default profile is "default" — used when no --profile specified, and it is
+# the one exception that still auto-launches with no purpose required
 chromux open my-tab https://...  # → uses "default" profile (auto-launches if needed)
+
+# An unrecognized profile name is never created implicitly: chromux warns and
+# falls back to "default" instead (exit 0). Ask a human to create it first with
+# `chromux launch <name> --purpose "..."` or the dashboard's New profile button.
+CHROMUX_PROFILE=not-created-yet chromux open my-tab https://...
+# → stderr: Profile "not-created-yet" does not exist — chromux no longer creates profiles implicitly.
+#           Falling back to the "default" profile for this command.
 
 # Stop a profile
 chromux kill work
@@ -520,8 +538,10 @@ chromux cdp s Runtime.evaluate '{"expression":"navigator.userAgent","returnByVal
 |---------|-------------|
 | `launch [name]` | Launch Chrome with isolated profile (default: "default") |
 | `launch <name> --port N` | Launch with specific port |
-| `ps` | List running profiles |
-| `ps --json` | List profiles, daemon state, paused state, and resource telemetry as JSON |
+| `launch <name> --purpose "why"` | Required to create a brand-new profile |
+| `profile purpose <name> "text"` | Set/update a profile's purpose |
+| `ps` | List known profiles (running and stopped) with their purpose |
+| `ps --json` | List profiles, purpose, daemon state, paused state, and resource telemetry as JSON |
 | `app [--port N] [--open]` | Serve the local profile/activity companion app |
 | `pause [name]` | Hard-stop new browser work for a profile |
 | `resume [name]` | Allow browser work again for a paused profile |
@@ -805,7 +825,11 @@ chromux status app (local HTTP)
 - **Localhost TCP daemon transport** binds profile daemons to `127.0.0.1` on
   macOS, Linux, and Windows; `.state.port`/`.state.cdpPort` remain Chrome CDP
   ports, while `.state.daemonPort` is the daemon HTTP endpoint
-- **Auto-launch** — `chromux open` auto-launches default profile if needed
+- **Auto-launch** — `chromux open` auto-launches the `default` profile if needed
+- **Human-managed profile lifecycle** — creating, deleting, and labeling a
+  profile's `purpose` are human actions (CLI or `chromux app`); an unrecognized
+  profile name is never created implicitly — it warns and falls back to
+  `default` instead (`default`/`live` stay exempt)
 - **Profile adoption** — `.state` is a cache, not the source of truth; `chromux ps`,
   `launch`, `open`, and `kill` rediscover live Chrome processes from
   `--user-data-dir` + CDP when daemon endpoint or state files drift or disappear
@@ -861,7 +885,7 @@ By default, `chromux open` creates new tabs in the background so a visible heade
 profile does not come to the front for each new session:
 
 ```bash
-chromux launch work
+chromux launch work --purpose "day-to-day logged-in browsing"
 CHROMUX_PROFILE=work chromux open tab https://example.com
 ```
 

@@ -99,7 +99,7 @@ function buildTools(toolsDir, runRoot) {
         CHROMUX_OPEN_BACKGROUND: '1',
       },
       exec(args, opts = {}) { return run(process.execPath, [CHROMUX, ...args], { env: { ...process.env, ...this.env }, ...opts }); },
-      init() { return this.exec(['launch', 'cmp', '--headless'], { timeoutMs: 120_000 }); },
+      init() { return this.exec(['launch', 'cmp', '--headless', '--purpose', 'compare-benchmark.mjs fixture profile'], { timeoutMs: 120_000 }); },
       teardown() { return this.exec(['kill', 'cmp']); },
       session: name => name,
       open(session, url) { return this.exec(['open', session, url]); },

@@ -15,6 +15,7 @@
             <h1>chromux</h1>
             <p id="homePath"></p>
           </div>
+          <button id="newProfileButton" class="icon-button" title="Create a new profile">+</button>
           <button id="refreshButton" class="icon-button" title="Refresh">&#8635;</button>
         </div>
         <p class="sidebar-totals" aria-label="Activity totals"><span id="profileCount">0</span> profiles &middot; <span id="profileDiskTotal">-</span> &middot; <span id="eventCount">0</span> events</p>
@@ -40,6 +41,10 @@
           <div class="topbar-heading">
             <p class="eyebrow">Profile</p>
             <h2 id="selectedName">No profile</h2>
+            <p class="profile-purpose-row">
+              <span id="selectedPurpose" class="profile-purpose">-</span>
+              <button id="editPurposeButton" class="icon-button" title="Edit purpose" disabled>&#9998;</button>
+            </p>
           </div>
           <div id="profileActions" class="actions"></div>
         </header>
@@ -144,6 +149,38 @@
         <div class="modal-actions">
           <button id="confirmModalCancel" class="modal-cancel">Cancel</button>
           <button id="confirmModalConfirm" class="danger">Confirm</button>
+        </div>
+      </div>
+    </div>
+    <div id="newProfileModal" class="modal-overlay" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="newProfileModalTitle">
+        <p id="newProfileModalTitle" class="modal-message">Create a new profile</p>
+        <label class="modal-field">
+          <span>Name</span>
+          <input id="newProfileName" type="text" placeholder="e.g. shopping" autocomplete="off">
+        </label>
+        <label class="modal-field">
+          <span>Purpose</span>
+          <input id="newProfilePurpose" type="text" placeholder="What is this profile for? (required)" autocomplete="off">
+        </label>
+        <p id="newProfileError" class="modal-error" hidden></p>
+        <div class="modal-actions">
+          <button id="newProfileCancel" class="modal-cancel">Cancel</button>
+          <button id="newProfileCreate" class="primary">Create</button>
+        </div>
+      </div>
+    </div>
+    <div id="editPurposeModal" class="modal-overlay" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="editPurposeModalTitle">
+        <p id="editPurposeModalTitle" class="modal-message">Edit purpose</p>
+        <label class="modal-field">
+          <span>Purpose</span>
+          <input id="editPurposeInput" type="text" placeholder="What is this profile for? (required)" autocomplete="off">
+        </label>
+        <p id="editPurposeError" class="modal-error" hidden></p>
+        <div class="modal-actions">
+          <button id="editPurposeCancel" class="modal-cancel">Cancel</button>
+          <button id="editPurposeSave" class="primary">Save</button>
         </div>
       </div>
     </div>

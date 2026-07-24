@@ -356,10 +356,14 @@ duplicate block.
 
 ## First Smoke Test
 
-Run a short local smoke before using chromux in a task:
+Run a short local smoke before using chromux in a task. Profile creation is
+human-managed, so creating a brand-new profile (as below) requires a one-line
+`--purpose`; re-launching an existing profile never re-requires it, and an
+agent should never invent a new profile name on its own (see README's
+"Profile Management" section for the full policy).
 
 ```bash
-chromux launch chromux-smoke --headless
+chromux launch chromux-smoke --headless --purpose "install.md smoke test profile"
 CHROMUX_PROFILE=chromux-smoke chromux open smoke https://example.com
 CHROMUX_PROFILE=chromux-smoke chromux wait-for-text smoke "Example Domain" 5000
 CHROMUX_PROFILE=chromux-smoke chromux run smoke "return await js('document.title')"
@@ -609,7 +613,7 @@ CHROMUX_PROFILE=work chromux resume
 Use a named profile and log in manually once:
 
 ```bash
-chromux launch work
+chromux launch work --purpose "logged-in site work"
 CHROMUX_PROFILE=work chromux open login https://example.com
 chromux show login
 ```

@@ -94,7 +94,7 @@ jobs:
           $env:CHROMUX_HOME = Join-Path $env:RUNNER_TEMP "chromux-home"
           New-Item -ItemType Directory -Force -Path $env:CHROMUX_HOME | Out-Null
           try {
-            node chromux.mjs launch win-ci --headless
+            node chromux.mjs launch win-ci --headless --purpose "CI Windows smoke test profile"
             $env:CHROMUX_PROFILE = "win-ci"
             node chromux.mjs open tab-a https://example.com
 
@@ -128,6 +128,11 @@ jobs:
           }
 
           try {
+            # Profile creation is human-only: create the profile explicitly first so the
+            # simulated stale lock below exercises ensureDaemon's real resume path
+            # instead of the new-name fallback gate.
+            node chromux.mjs launch win-stale --headless --purpose "CI Windows stale-lock smoke test profile"
+            node chromux.mjs kill win-stale
             $env:CHROMUX_PROFILE = "win-stale"
             $runDir = Join-Path $env:CHROMUX_HOME "run"
             New-Item -ItemType Directory -Force -Path $runDir | Out-Null

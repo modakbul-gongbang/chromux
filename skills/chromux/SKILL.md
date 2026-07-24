@@ -15,7 +15,9 @@ Direct control of a real Chrome profile through the `chromux` CLI: tab work,
 multi-step JavaScript, raw CDP, screenshots, diagnostics. One daemon per
 profile; sessions are isolated tabs. Requires Node.js >= 22 and Chrome Stable
 (macOS, Linux, native Windows). `chromux help` is the source of truth for
-syntax. Setup problems: read the repo's `install.md`. Multi-step orchestration
+syntax. Setup problems: read the repo's `install.md`. Profile lifecycle is
+human-managed: pick an existing profile by reading its `purpose` in
+`chromux ps`, never invent a new profile name. Multi-step orchestration
 (profile choice, parallel subagents, cleanup): use the `chromux-work` skill.
 
 ## First Rule

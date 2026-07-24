@@ -122,6 +122,28 @@ function validateName(name) {
 const RUN_DIR = path.join(CHROMUX_HOME, 'run');
 function profileDir(name) { return path.join(PROFILES_DIR, validateName(name)); }
 function statePath(name) { return path.join(profileDir(name), '.state'); }
+function purposePath(name) { return path.join(profileDir(name), '.purpose'); }
+
+// Purpose is a human-set, one-line label describing what a profile is for
+// (e.g. "banking site logins"). It lives inside profileDir so deleting a
+// profile deletes its purpose for free. Agents read it (chromux ps) to pick
+// among existing profiles; they never write it.
+function readProfilePurpose(name) {
+  try {
+    const text = fs.readFileSync(purposePath(name), 'utf8').trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeProfilePurpose(name, purpose) {
+  const trimmed = String(purpose ?? '').trim();
+  if (!trimmed) throw new Error('purpose must not be empty');
+  fs.mkdirSync(profileDir(name), { recursive: true });
+  fs.writeFileSync(purposePath(name), trimmed + '\n', 'utf8');
+  return trimmed;
+}
 function profileStopPath(name) {
   validateName(name);
   fs.mkdirSync(RUN_DIR, { recursive: true, mode: 0o700 });
@@ -1286,6 +1308,7 @@ async function profileInventoryItem(profileName) {
     daemon,
     activeTabs,
     paused,
+    purpose: readProfilePurpose(profileName),
   };
 }
 
@@ -5989,7 +6012,7 @@ async function cmdLaunch(profileName, explicitPort, launchMode = 'headless') {
 }
 
 // ============================================================
-// CLI: ps — list running profiles
+// CLI: ps — list known profiles (running and stopped) with their purpose
 // ============================================================
 
 async function cmdPs(args = []) {
@@ -6004,7 +6027,27 @@ async function cmdPs(args = []) {
   const rows = [];
   for (const name of profiles) {
     const runtime = await resolveProfileRuntime(name);
-    if (!runtime) continue;
+    if (!runtime) {
+      // Not currently running: still list it (with purpose) rather than
+      // hiding it. Surfacing stopped, purpose-less profiles here is the sole
+      // approved cushion for pre-existing profile sprawl (D-08/R6/AC6) — most
+      // over-created profiles sit stopped, not running, so excluding them
+      // would silence the one nudge this feature is supposed to give humans.
+      rows.push({
+        profile: name,
+        port: null,
+        pid: null,
+        status: 'stopped',
+        reason: null,
+        tabs: '-',
+        daemon: 'idle',
+        paused: fs.existsSync(profileStopPath(name)),
+        launchMode: null,
+        resources: null,
+        purpose: readProfilePurpose(name),
+      });
+      continue;
+    }
     const cdpOk = runtime.status === 'running';
 
     // Count tabs via daemon if reachable (short timeout to avoid hang)
@@ -6041,6 +6084,7 @@ async function cmdPs(args = []) {
       paused,
       launchMode: runtime.launchMode || null,
       resources,
+      purpose: readProfilePurpose(name),
     });
   }
 
@@ -6077,6 +6121,7 @@ async function cmdPs(args = []) {
         launchMode: 'live',
         extension,
         resources: null,
+        purpose: null,
       });
     }
   }
@@ -6101,18 +6146,20 @@ async function cmdPs(args = []) {
   }
 
   if (rows.length === 0) {
-    console.log('No running profiles.');
+    console.log('No profiles.');
   } else {
     // Table output
-    console.log('PROFILE'.padEnd(20) + 'PORT'.padEnd(8) + 'PID'.padEnd(10) + 'STATUS'.padEnd(12) + 'DAEMON'.padEnd(8) + 'TABS');
+    console.log('PROFILE'.padEnd(20) + 'PORT'.padEnd(8) + 'PID'.padEnd(10) + 'STATUS'.padEnd(12) + 'DAEMON'.padEnd(8) + 'TABS'.padEnd(6) + 'PURPOSE');
     for (const r of rows) {
+      const purposeText = r.purpose || (isLiveProfile(r.profile) ? '(live profile)' : '(no purpose set)');
       console.log(
         r.profile.padEnd(20) +
         String(r.port || '-').padEnd(8) +
         String(r.pid ?? '-').padEnd(10) +
         r.status.padEnd(12) +
         r.daemon.padEnd(8) +
-        r.tabs +
+        String(r.tabs).padEnd(6) +
+        purposeText +
         (r.extension ? `  (extension: ${r.extension})` : '')
       );
     }
@@ -7435,6 +7482,22 @@ function cliReq(method, urlPath, body, endpoint, timeoutMs = 30000) {
 // Daemon auto-start & profile auto-launch
 // ============================================================
 
+// Profile creation is human-managed: agents select among profiles a human
+// already created rather than having chromux invent a new one on the fly.
+// `default` and `live` stay exempt so a fresh install and live pairing keep
+// working with zero setup. Any other name that has no profileDir yet falls
+// back to `default` (mirrored into CHROMUX_PROFILE so downstream metadata —
+// receipts, activity logs — reflects the profile that actually ran).
+function applyProfileExistenceGate(name) {
+  if (isLiveProfile(name) || name === DEFAULT_PROFILE) return name;
+  if (fs.existsSync(profileDir(name))) return name;
+  process.stderr.write(`Profile "${name}" does not exist — chromux no longer creates profiles implicitly.\n`);
+  process.stderr.write(`Ask a human to create it first: chromux launch ${name} --purpose "<why this profile exists>"\n`);
+  process.stderr.write(`Falling back to the "${DEFAULT_PROFILE}" profile for this command.\n`);
+  process.env.CHROMUX_PROFILE = DEFAULT_PROFILE;
+  return DEFAULT_PROFILE;
+}
+
 async function resolveProfilePort(profileName) {
   const runtime = await resolveProfileRuntime(profileName);
   return runtime?.status === 'running' ? runtime.port : null;
@@ -7569,9 +7632,12 @@ async function ensureDaemon(profileName) {
       const adopted = await adoptOrphanLiveDaemon(profileName, port);
       if (adopted) return adopted;
     } else {
+      const alreadyExisted = fs.existsSync(profileDir(profileName));
       port = await resolveProfilePort(profileName);
       if (!port) {
-        process.stderr.write(`Auto-launching profile [${profileName}]...\n`);
+        process.stderr.write(alreadyExisted
+          ? `Resuming profile [${profileName}] (daemon restart)...\n`
+          : `Auto-launching profile [${profileName}]...\n`);
         await cmdLaunch(profileName, null, autoLaunchMode());
         port = await resolveProfilePort(profileName);
         if (!port) {
@@ -7732,10 +7798,54 @@ async function runCli(cmd, args) {
       console.error('chromux launch --hidden has been removed. Use headed launch; chromux open creates background tabs by default.');
       process.exit(1);
     }
+    const purposeIdx = args.indexOf('--purpose');
+    const purposeArg = purposeIdx >= 0 ? args[purposeIdx + 1] : null;
     const launchMode = args.includes('--headless')
       ? 'headless'
       : 'headed';
-    return runLoggedProfileCommand(cmd, args, name, () => cmdLaunch(name, port, launchMode));
+    // Profile creation is human-only: a brand-new (non-default) profile must
+    // be given a purpose up front so `chromux ps` can tell agents what it is
+    // for. Re-launching an already-existing profile never re-requires it.
+    const isNewProfile = name !== DEFAULT_PROFILE && !fs.existsSync(profileDir(name));
+    if (isNewProfile) {
+      const trimmedPurpose = String(purposeArg ?? '').trim();
+      if (!trimmedPurpose) {
+        console.error(`Profile "${name}" does not exist yet. Creating a new profile requires --purpose "<why this profile exists>".`);
+        console.error(`Example: chromux launch ${name} --purpose "personal shopping accounts"`);
+        process.exit(1);
+      }
+    }
+    return runLoggedProfileCommand(cmd, args, name, async () => {
+      const result = await cmdLaunch(name, port, launchMode);
+      if (isNewProfile) writeProfilePurpose(name, purposeArg);
+      return result;
+    });
+  }
+  if (cmd === 'profile') {
+    const sub = args[0];
+    if (sub === 'purpose') {
+      const name = args[1];
+      const text = args.slice(2).join(' ').trim();
+      if (!name || !text) {
+        console.error('Usage: chromux profile purpose <name> "<text>"');
+        process.exit(1);
+      }
+      validateName(name);
+      if (isLiveProfile(name)) {
+        console.error('The "live" profile has no profileDir and does not store a purpose label.');
+        process.exit(1);
+      }
+      if (!fs.existsSync(profileDir(name))) {
+        console.error(`Profile "${name}" does not exist. Create it first: chromux launch ${name} --purpose "..."`);
+        process.exit(1);
+      }
+      const purpose = writeProfilePurpose(name, text);
+      return runLoggedProfileCommand(cmd, args, name, () => {
+        console.log(JSON.stringify({ profile: name, purpose }, null, 2));
+      });
+    }
+    console.error(`Unknown profile subcommand "${sub}". Usage: chromux profile purpose <name> "<text>"`);
+    process.exit(1);
   }
   if (cmd === 'ps') return runLoggedProfileCommand(cmd, args, getProfile(), () => cmdPs(args));
   if (cmd === 'kill') {
@@ -7762,7 +7872,7 @@ async function runCli(cmd, args) {
   if (cmd === 'app') return cmdApp(args);
 
   // Tab commands (need daemon)
-  const profile = getProfile();
+  const profile = applyProfileExistenceGate(getProfile());
   const tabCommands = new Set([
     'show', 'open', 'snapshot', 'cdp', 'run', 'batch', 'click', 'hover', 'drag', 'fill', 'type',
     'press', 'download', 'wait-for-text', 'wait-for-selector', 'eval',
@@ -8056,6 +8166,33 @@ async function deleteProfiles(profileNames) {
   };
 }
 
+// Profile creation stays human-only: this is the dashboard's write path for
+// it, reusing `chromux launch --purpose` (via runSelfCommand) rather than
+// duplicating profile-creation logic, so CLI and dashboard creation share one
+// code path and one set of guardrails (reserved names, non-empty purpose).
+async function createProfile(name, purpose) {
+  const profileName = requireHttpName(name, 'profile');
+  if (isLiveProfile(profileName) || profileName === DEFAULT_PROFILE) {
+    throw httpErr(400, `"${profileName}" is a reserved profile name and cannot be created through this endpoint`);
+  }
+  if (fs.existsSync(profileDir(profileName))) {
+    throw httpErr(409, `Profile "${profileName}" already exists`);
+  }
+  const trimmedPurpose = String(purpose ?? '').trim();
+  if (!trimmedPurpose) throw httpErr(400, 'purpose is required to create a new profile');
+  const result = await runSelfCommand(['launch', profileName, '--headless', '--purpose', trimmedPurpose]);
+  if (!result.ok) throw httpErr(500, result.stderr || 'Failed to create profile');
+  return { profile: profileName, purpose: trimmedPurpose, launch: result };
+}
+
+async function setProfilePurpose(profileName, purpose) {
+  if (isLiveProfile(profileName)) throw httpErr(400, 'The "live" profile does not store a purpose label');
+  if (!fs.existsSync(profileDir(profileName))) throw httpErr(404, `Profile "${profileName}" does not exist`);
+  const trimmed = String(purpose ?? '').trim();
+  if (!trimmed) throw httpErr(400, 'purpose must not be empty');
+  return { profile: profileName, purpose: writeProfilePurpose(profileName, trimmed) };
+}
+
 async function handleStatusAppApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/state') {
     sendJson(res, 200, await statusAppState());
@@ -8086,6 +8223,22 @@ async function handleStatusAppApi(req, res, url) {
     const body = await readBody(req);
     const result = await deleteProfiles(body.profiles);
     sendJson(res, result.ok ? 200 : 409, result);
+    return true;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/profiles') {
+    const body = await readBody(req);
+    const result = await createProfile(body.name, body.purpose);
+    sendJson(res, 200, { ok: true, ...result });
+    return true;
+  }
+
+  const purposeMatch = url.pathname.match(/^\/api\/profiles\/([^/]+)\/purpose$/);
+  if (req.method === 'POST' && purposeMatch) {
+    const profileName = requireHttpName(decodeURIComponent(purposeMatch[1]), 'profile');
+    const body = await readBody(req);
+    const result = await setProfilePurpose(profileName, body.purpose);
+    sendJson(res, 200, { ok: true, ...result });
     return true;
   }
 
@@ -8217,6 +8370,42 @@ async function runStatusAppSelfTest() {
   const inventory = await collectProfileInventory();
   assertSelfTest(inventory.some(profile => profile.name === 'alpha') && inventory.some(profile => profile.name === 'beta'), 'profile inventory lists known local profiles', checks);
   assertSelfTest(inventory.every(profile => Number.isInteger(profile.diskUsageBytes) && profile.diskUsageBytes >= 0), 'profile inventory reports per-profile disk usage bytes', checks);
+  assertSelfTest(inventory.find(profile => profile.name === 'alpha').purpose === null, 'profile inventory exposes purpose (null when unset)', checks);
+
+  const purposeResult = await setProfilePurpose('alpha', '  testing purpose  ');
+  assertSelfTest(purposeResult.purpose === 'testing purpose', 'setProfilePurpose trims and stores the purpose', checks);
+  assertSelfTest(readProfilePurpose('alpha') === 'testing purpose', 'purpose persists in profileDir and is readable back', checks);
+  const inventoryAfterPurpose = await collectProfileInventory();
+  assertSelfTest(inventoryAfterPurpose.find(profile => profile.name === 'alpha').purpose === 'testing purpose', 'profile inventory reflects an updated purpose', checks);
+
+  let rejectedEmptyPurpose = false;
+  try { await setProfilePurpose('alpha', '   '); } catch (err) { rejectedEmptyPurpose = err.status === 400; }
+  assertSelfTest(rejectedEmptyPurpose, 'setProfilePurpose rejects an empty purpose', checks);
+
+  let rejectedLivePurpose = false;
+  try { await setProfilePurpose(LIVE_PROFILE, 'x'); } catch (err) { rejectedLivePurpose = err.status === 400; }
+  assertSelfTest(rejectedLivePurpose, 'setProfilePurpose rejects the live profile (no profileDir)', checks);
+
+  let rejectedMissingProfilePurpose = false;
+  try { await setProfilePurpose('does-not-exist', 'x'); } catch (err) { rejectedMissingProfilePurpose = err.status === 404; }
+  assertSelfTest(rejectedMissingProfilePurpose, 'setProfilePurpose rejects a profile that does not exist', checks);
+
+  let rejectedReservedCreate = false;
+  try { await createProfile(DEFAULT_PROFILE, 'x'); } catch (err) { rejectedReservedCreate = err.status === 400; }
+  assertSelfTest(rejectedReservedCreate, 'createProfile rejects reserved profile names (default/live)', checks);
+
+  let rejectedBadNameCreate = false;
+  try { await createProfile('../etc', 'x'); } catch (err) { rejectedBadNameCreate = err.status === 400; }
+  assertSelfTest(rejectedBadNameCreate, 'createProfile rejects invalid/traversal profile names', checks);
+
+  let rejectedEmptyCreatePurpose = false;
+  try { await createProfile('brand-new-profile', '   '); } catch (err) { rejectedEmptyCreatePurpose = err.status === 400; }
+  assertSelfTest(rejectedEmptyCreatePurpose, 'createProfile rejects an empty purpose', checks);
+
+  let rejectedExistingCreate = false;
+  try { await createProfile('alpha', 'dup'); } catch (err) { rejectedExistingCreate = err.status === 409; }
+  assertSelfTest(rejectedExistingCreate, 'createProfile rejects a profile name that already exists', checks);
+
   const sortedSample = [
     { name: 'stopped-profile', status: 'stopped', activeTabs: null, daemon: { status: 'idle' } },
     { name: 'active-profile', status: 'running', activeTabs: 1, daemon: { status: 'ok' } },
@@ -8422,12 +8611,22 @@ The core surface:
   chromux cdp <session> <M> '{}'     Raw CDP method passthrough
 
 Lifecycle:
-  chromux launch [name]              Launch Chrome (default: "default")
+  Profile creation, deletion, and purpose are human-managed: an agent selects
+  among existing profiles by reading purpose (chromux ps) and never invents a
+  new profile name. A tab command given an unrecognized profile name creates
+  nothing — it warns and falls back to "default" instead (exit 0); "default"
+  and "live" stay exempt and remain auto-launchable with no purpose required.
+  chromux launch [name]              Launch/resume Chrome (default: "default")
+  chromux launch <name> --purpose "why"   Required to create a brand-new
+                                     profile; re-launching an existing one
+                                     never re-requires it
   chromux launch <name> --headless   Launch in headless mode (no window)
   chromux launch <name> --port N     Launch with specific port
-  chromux ps                         List running profiles
+  chromux profile purpose <name> "text"   Set/update a profile's purpose (human command)
+  chromux ps                         List known profiles (running and stopped) with their purpose
   chromux ps --json                  Machine-readable profile diagnostics
   chromux app [--port N]             Local profile/activity companion app
+                                     (dashboard also creates profiles and edits purpose)
   chromux app --open                 Serve the app and open it in a browser
   chromux pause [name]               Hard-stop new tab work for a profile
   chromux resume [name]              Allow tab work again for a paused profile

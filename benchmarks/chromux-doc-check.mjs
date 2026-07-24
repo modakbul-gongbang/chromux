@@ -232,6 +232,24 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
 }
 
 {
+  // Human-managed profile lifecycle + purpose selection must stay consistent
+  // across help, README, install, and the chromux-work orchestration skill.
+  assertContains(checks, 'help profile lifecycle human-managed', docs.help, 'Profile creation, deletion, and purpose are human-managed');
+  assertContains(checks, 'help launch purpose flag', docs.help, 'chromux launch <name> --purpose "why"');
+  assertContains(checks, 'help profile purpose command', docs.help, 'chromux profile purpose <name> "text"');
+  assertContains(checks, 'readme profile lifecycle human-managed', docs.readme, 'Profile lifecycle is human-managed');
+  assertContains(checks, 'readme profile purpose command example', docs.readme, 'chromux profile purpose work');
+  assertContains(checks, 'readme unrecognized profile fallback', docs.readme, 'chromux no longer creates profiles implicitly');
+  assertContains(checks, 'readme ps surfaces stopped profiles', docs.readme, 'ps never hides a stopped profile just because it isn\'t running');
+  assertContains(checks, 'readme no purpose set nudge', docs.readme, '(no purpose set)');
+  assertContains(checks, 'install profile purpose policy', docs.install, 'Profile creation is\nhuman-managed');
+  assertContains(checks, 'work skill profile lifecycle human-managed', docs.workSkill, 'is human-managed');
+  assertContains(checks, 'work skill never invents new profile', docs.workSkill, 'never invent a new profile name');
+  assertContains(checks, 'work skill launch purpose is human decision', docs.workSkill, 'do not add `--purpose` yourself to conjure a new profile');
+  assertContains(checks, 'work skill isolation ask human', docs.workSkill, 'Profile creation is human-only: if no isolated');
+}
+
+{
   const pkg = JSON.parse(read('package.json'));
   const ok = !pkg.dependencies;
   checks.push({ label: `package remains zero-dependency at ${pkg.version}`, needle: 'no dependencies', ok });

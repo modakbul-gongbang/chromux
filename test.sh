@@ -94,7 +94,7 @@ echo ""
 
 # --- Test 1: Launch ---
 echo "--- Test 1: Launch headless profile ---"
-R1=$(node "$CT" launch "$PROFILE" --headless 2>/dev/null)
+R1=$(node "$CT" launch "$PROFILE" --headless --purpose "test.sh main fixture profile" 2>/dev/null)
 check "profile launched" "port" "$R1"
 check "profile name" "$PROFILE" "$R1"
 PROFILE_CDP_PORT=$(printf '%s' "$R1" | node -e 'let raw="";process.stdin.on("data",chunk=>raw+=chunk);process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(raw).port)))')
@@ -117,6 +117,92 @@ else
   check "hidden auto-launch env reports removal" "has been removed" "$HIDDEN_ENV_OUT"
 fi
 rm -f /tmp/chromux-hidden-out.txt /tmp/chromux-hidden-env-out.txt
+
+# --- Test 1c: Human-managed profile gate + purpose ---
+echo ""
+echo "--- Test 1c: Human-managed profile gate + purpose ---"
+GATE_NEW="$PROFILE-gate-new"
+GATE_CREATED="$PROFILE-gate-created"
+
+# Unrecognized profile name: falls back to default, creates no profileDir, exit 0.
+GATE_FALLBACK_OUT=$(CHROMUX_PROFILE=$GATE_NEW node "$CT" open gate-fallback https://example.com 2>&1)
+GATE_FALLBACK_STATUS=$?
+if [ "$GATE_FALLBACK_STATUS" = "0" ]; then
+  echo "  ✓ unrecognized profile name falls back with exit 0"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ unrecognized profile name did not exit 0 (status=$GATE_FALLBACK_STATUS): $GATE_FALLBACK_OUT"
+  FAIL=$((FAIL+1))
+fi
+check "unrecognized profile name warns before falling back" "does not exist" "$GATE_FALLBACK_OUT"
+check "fallback names the default profile" "default" "$GATE_FALLBACK_OUT"
+if [ -d "$CHROMUX_HOME/profiles/$GATE_NEW" ]; then
+  echo "  ✗ unrecognized profile name unexpectedly created a profileDir"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ unrecognized profile name created no profileDir"
+  PASS=$((PASS+1))
+fi
+node "$CT" close gate-fallback 2>/dev/null > /dev/null || true
+
+# launch without --purpose on a brand-new name is rejected, creates nothing.
+if node "$CT" launch "$GATE_CREATED" --headless >/tmp/chromux-gate-nopurpose-$$.txt 2>&1; then
+  echo "  ✗ launch of a new profile without --purpose unexpectedly succeeded"
+  FAIL=$((FAIL+1))
+else
+  GATE_NOPURPOSE_OUT=$(cat /tmp/chromux-gate-nopurpose-$$.txt)
+  check "launch without --purpose requires one" "requires --purpose" "$GATE_NOPURPOSE_OUT"
+fi
+if [ -d "$CHROMUX_HOME/profiles/$GATE_CREATED" ]; then
+  echo "  ✗ rejected launch unexpectedly created a profileDir"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ rejected launch created no profileDir"
+  PASS=$((PASS+1))
+fi
+rm -f /tmp/chromux-gate-nopurpose-$$.txt
+
+# launch with --purpose succeeds and stores it; ps and profile purpose expose/update it.
+GATE_CREATE_OUT=$(node "$CT" launch "$GATE_CREATED" --headless --purpose "test.sh gate fixture" 2>/dev/null)
+check "launch with --purpose succeeds" "port" "$GATE_CREATE_OUT"
+if [ -f "$CHROMUX_HOME/profiles/$GATE_CREATED/.purpose" ]; then
+  echo "  ✓ purpose file created alongside profileDir"
+  PASS=$((PASS+1))
+else
+  echo "  ✗ purpose file missing after launch --purpose"
+  FAIL=$((FAIL+1))
+fi
+GATE_PS=$(node "$CT" ps 2>/dev/null)
+check "ps exposes the new profile's purpose" "test.sh gate fixture" "$GATE_PS"
+
+GATE_PURPOSE_SET=$(node "$CT" profile purpose "$GATE_CREATED" "updated gate fixture purpose" 2>/dev/null)
+check "profile purpose command updates the value" "updated gate fixture purpose" "$GATE_PURPOSE_SET"
+GATE_PS_UPDATED=$(node "$CT" ps 2>/dev/null)
+check "ps reflects the updated purpose" "updated gate fixture purpose" "$GATE_PS_UPDATED"
+
+# Re-launching (resuming) an existing profile never re-requires --purpose.
+node "$CT" kill "$GATE_CREATED" 2>/dev/null > /dev/null || true
+GATE_RESUME_OUT=$(node "$CT" launch "$GATE_CREATED" --headless 2>&1)
+check "re-launching an existing profile does not require --purpose" "port" "$GATE_RESUME_OUT"
+
+# AC3/D-13: resuming an existing profile via a tab command (not explicit
+# launch) logs a distinct info line, not the fallback warning and not the
+# generic "Auto-launching" message a genuinely new profile would get.
+node "$CT" kill "$GATE_CREATED" 2>/dev/null > /dev/null || true
+GATE_RESUME_STDERR=$(CHROMUX_PROFILE=$GATE_CREATED node "$CT" list 2>&1 >/dev/null)
+check "resuming an existing profile via a tab command logs 'Resuming profile'" "Resuming profile" "$GATE_RESUME_STDERR"
+if echo "$GATE_RESUME_STDERR" | grep -q "does not exist"; then
+  echo "  ✗ resume path incorrectly showed the unrecognized-name fallback warning"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ resume path does not show the unrecognized-name fallback warning"
+  PASS=$((PASS+1))
+fi
+
+node "$CT" kill "$GATE_NEW" 2>/dev/null > /dev/null || true
+node "$CT" kill "$GATE_CREATED" 2>/dev/null > /dev/null || true
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$GATE_CREATED" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$GATE_CREATED"
 
 # --- Test 2: PS ---
 echo ""
@@ -1516,6 +1602,8 @@ check "resume clears hard stop" '"paused": false' "$RESUME"
 rm -f /tmp/chromux-paused-out-$$.txt
 
 GUARD_PROFILE="$PROFILE-guard"
+node "$CT" launch "$GUARD_PROFILE" --headless --purpose "test.sh resource guard fixture" >/dev/null 2>&1
+node "$CT" kill "$GUARD_PROFILE" 2>/dev/null > /dev/null || true
 if CHROMUX_PROFILE=$GUARD_PROFILE CHROMUX_MODE=crawl CHROMUX_MAX_CHROME_PROCESSES_PER_PROFILE=1 node "$CT" open guard-tab https://example.com >/tmp/chromux-guard-out-$$.txt 2>&1; then
   echo "  ✗ resource guard open unexpectedly succeeded"
   FAIL=$((FAIL+1))
@@ -1529,6 +1617,8 @@ rm -rf "$CHROMUX_HOME/profiles/$GUARD_PROFILE" /tmp/chromux-guard-out-$$.txt
 
 PREFIX_OTHER="$PROFILE-prefix-other"
 PREFIX_TARGET="$PROFILE-prefix"
+node "$CT" launch "$PREFIX_OTHER" --headless --purpose "test.sh prefix-matching guard fixture (other)" >/dev/null 2>&1
+node "$CT" launch "$PREFIX_TARGET" --headless --purpose "test.sh prefix-matching guard fixture (target)" >/dev/null 2>&1
 CHROMUX_PROFILE=$PREFIX_OTHER CHROMUX_MODE=crawl node "$CT" open prefix-other https://example.org 2>/dev/null > /dev/null
 CHROMUX_PROFILE=$PREFIX_TARGET CHROMUX_MODE=crawl node "$CT" open prefix-target https://example.com 2>/dev/null > /dev/null
 PREFIX_TARGET_COUNT=$(count_profile_chrome_processes "$PREFIX_TARGET")
@@ -1554,20 +1644,36 @@ rm -f "$STATE"
 node "$CT" kill "$PROFILE" 2>/dev/null > /dev/null
 sleep 1
 PS2=$(node "$CT" ps 2>/dev/null)
-if echo "$PS2" | grep -q "$PROFILE"; then
-  echo "  ✗ Profile still showing in ps"
-  FAIL=$((FAIL+1))
-else
-  echo "  ✓ Profile killed and removed from ps"
-  PASS=$((PASS+1))
-fi
+# Stopped profiles stay listed (with a "stopped" status) rather than
+# disappearing: this is the sole approved cushion (D-08/R6/AC6) for surfacing
+# pre-existing, purpose-less profile sprawl to a human, and most sprawled
+# profiles are stopped, not running, so hiding them here would silence it.
+check "killed profile stays listed in ps" "$PROFILE" "$PS2"
+check "killed profile shows as stopped" "stopped" "$PS2"
+
+# --- Test 10b: Stopped, purpose-less profile shows the migration nudge ---
+echo ""
+echo "--- Test 10b: ps surfaces purpose-less stopped profiles ---"
+NOPURPOSE_PROFILE="$PROFILE-nopurpose"
+mkdir -p "$CHROMUX_HOME/profiles/$NOPURPOSE_PROFILE"
+PS_NOPURPOSE=$(node "$CT" ps 2>/dev/null)
+check "purpose-less stopped profile is listed" "$NOPURPOSE_PROFILE" "$PS_NOPURPOSE"
+check "purpose-less stopped profile shows the migration nudge" "(no purpose set)" "$PS_NOPURPOSE"
+PS_NOPURPOSE_JSON=$(node "$CT" ps --json 2>/dev/null)
+check "ps --json reports null purpose for purpose-less profile" '"purpose": null' "$PS_NOPURPOSE_JSON"
+chmod -R u+rwX "$CHROMUX_HOME/profiles/$NOPURPOSE_PROFILE" 2>/dev/null || true
+rm -rf "$CHROMUX_HOME/profiles/$NOPURPOSE_PROFILE"
 
 # --- Test 11: Dead-PID startup lock recovery ---
 echo ""
 echo "--- Test 11: Concurrent cold-start auto-launch ---"
+# Profile creation is human-only now, so a human-equivalent explicit launch
+# creates the profile once; the concurrency being tested here is 3 workers
+# racing to resume/start the daemon for that (now-existing) profile, not
+# racing to create a brand-new one (unnamed auto-create is gone).
+node "$CT" launch "$COLD_PROFILE" --headless --purpose "test.sh concurrent cold-start fixture" >/dev/null 2>&1
 node "$CT" kill "$COLD_PROFILE" 2>/dev/null > /dev/null || true
 chmod -R u+rwX "$CHROMUX_HOME/profiles/$COLD_PROFILE" 2>/dev/null || true
-rm -rf "$CHROMUX_HOME/profiles/$COLD_PROFILE"
 PIDS=()
 for i in 0 1 2; do
   (
@@ -1603,9 +1709,12 @@ rm -rf "$CHROMUX_HOME/profiles/$COLD_PROFILE" /tmp/chromux-cold-*-$$.out /tmp/ch
 # --- Test 12: Live startup lock preservation ---
 echo ""
 echo "--- Test 12: Live startup lock preservation ---"
+# Explicit launch first: profile creation is human-only, and this test needs
+# the profileDir to already exist so the simulated lock race below exercises
+# ensureDaemon's real resume path instead of the new-name fallback gate.
+node "$CT" launch "$LIVE_LOCK_PROFILE" --headless --purpose "test.sh live-lock fixture" >/dev/null 2>&1
 node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
 chmod -R u+rwX "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" 2>/dev/null || true
-rm -rf "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE"
 mkdir -p "$CHROMUX_HOME/run"
 ( node -e 'setTimeout(() => {}, 4000)' chromux.mjs ) &
 LIVE_PID=$!
@@ -1643,9 +1752,11 @@ rm -rf "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "/tmp/chromux-live-lock-$$.ou
 # --- Test 13: Reused-PID stale lock recovery ---
 echo ""
 echo "--- Test 13: Reused-PID stale lock recovery ---"
+# Same rationale as Test 12: pre-create the profile explicitly so the
+# simulated stale lock is exercised via the real resume path.
+node "$CT" launch "$STALE_LOCK_PROFILE" --headless --purpose "test.sh stale-lock fixture" >/dev/null 2>&1
 node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null > /dev/null || true
 chmod -R u+rwX "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
-rm -rf "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
 ( sleep 6 ) &
 STALE_PID=$!
 STALE_LOCK="$CHROMUX_HOME/run/$STALE_LOCK_PROFILE.lock"

@@ -943,3 +943,49 @@ th {
   min-height: 34px;
   padding: 0 var(--space-md);
 }
+
+.modal-field {
+  display: grid;
+  gap: var(--space-xxs);
+  margin-bottom: var(--space-md);
+  font-size: 13px;
+  color: var(--ink-subtle);
+}
+
+.modal-field input {
+  min-height: 34px;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.modal-error {
+  margin: 0 0 var(--space-md);
+  color: var(--status-danger);
+  font-size: 13px;
+}
+
+.profile-purpose-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+}
+
+.profile-purpose {
+  color: var(--ink-subtle);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.profile-purpose-preview {
+  display: block;
+  color: var(--ink-subtle);
+  font-size: 12px;
+  font-style: italic;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
