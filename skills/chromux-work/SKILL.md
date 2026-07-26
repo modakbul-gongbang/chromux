@@ -67,6 +67,13 @@ uses the same `chromux` command surface.
 - After close, review any `knowledgeHint`. Update
   `~/.chromux/skills/<host>/*.md` when this run revealed durable public site
   behavior or stale/wrong notes.
+- Treat a `learnNext` field on any `open` or `close` response as a required
+  checkpoint, not a suggestion. It appears only when the host has no durable
+  knowledge yet or its notes/scripts have gone stale, and it names the exact
+  `chromux note` / `chromux script save` commands to run. Do not end the task
+  with an unaddressed `learnNext`: either save what this run proved, or state
+  why nothing durable was learned. This is the write half of the learning loop
+  — skipping it is why a host stays expensive on every future visit.
 - When a derived flow (selectors, waits, extraction) worked and is likely to
   be repeated, save it as a replay script:
   `chromux script save <host>/<name> --file flow.js`. Future runs on that host

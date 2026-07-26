@@ -286,13 +286,20 @@ I'm looking at". Otherwise use an isolated profile.
 ## Site Knowledge
 
 `open` responses may surface host notes from `~/.chromux/skills/<host>/*.md`
-(parent domains included) — read hints before inventing an approach. Write
+(parent domains included) — read `hints` before inventing an approach. Write
 durable, non-secret knowledge back after sessions that taught you something:
 
 ```bash
 chromux note <host>                    # review existing notes first
 chromux note <host> --add "stable selector / quirk / wait behavior"
 ```
+
+Saving is not optional cleanup — it is how the second visit gets cheaper. When
+a host has no durable knowledge yet or its notes/scripts have gone stale, the
+`open` and `close` responses carry a `learnNext` field naming the exact `note`
+/ `script save` commands. Treat `learnNext` as a required checkpoint: before
+ending a session that revealed something reusable, land it as a note (a durable
+fact) or a replay script (a proven flow). Well-covered, fresh hosts stay quiet.
 
 Good: stable selectors, URL patterns, framework quirks, hidden waits. Bad:
 credentials, cookies, pixel coordinates, one-off task narration, stale facts.

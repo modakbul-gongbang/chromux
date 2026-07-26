@@ -346,6 +346,54 @@ function siteKnowledgeHintForUrl(rawUrl) {
   };
 }
 
+// Durable knowledge for a host goes stale: a note or replay script written
+// months ago may describe a page that has since changed. Past this age we
+// nudge the agent to refresh it rather than trust it silently.
+const KNOWLEDGE_STALE_DAYS = 30;
+
+// The newest mtime across every note (skills/<host>/*.md) and replay script
+// (scripts/<host>/*.js) for a host and its parent domains, plus whether any
+// exist at all. Backs the write-side learning nudge: the read side (hints,
+// scripts, replay) is surfaced prominently on `open`, but nothing tells an
+// agent to SAVE what a fresh session just revealed. This closes that gap
+// without noise — it fires only when a host has no durable knowledge yet or
+// its newest entry has gone stale.
+function knowledgeFreshnessForHostChain(host) {
+  let hasKnowledge = false;
+  let newestMs = 0;
+  const scan = (dir, ext) => {
+    let files = [];
+    try { files = fs.readdirSync(dir).filter(f => f.endsWith(ext)); } catch { return; }
+    for (const f of files) {
+      hasKnowledge = true;
+      try {
+        const m = fs.statSync(path.join(dir, f)).mtimeMs;
+        if (m > newestMs) newestMs = m;
+      } catch {}
+    }
+  };
+  for (const h of siteKnowledgeHostChain(host)) {
+    scan(path.join(CHROMUX_HOME, 'skills', h), '.md');
+    scan(path.join(SCRIPTS_DIR, h), '.js');
+  }
+  return { hasKnowledge, newestMs: newestMs || null };
+}
+
+// A soft, self-gating nudge to save durable site knowledge. Returns null (no
+// nudge) when the host already has fresh notes/scripts, so well-covered hosts
+// stay quiet; returns an actionable one-liner only when knowledge is missing
+// or stale. Same informational tone as `next`/`hints`.
+function learnNextHintForHost(host) {
+  if (!host) return null;
+  const { hasKnowledge, newestMs } = knowledgeFreshnessForHostChain(host);
+  const ageDays = newestMs ? (Date.now() - newestMs) / 86_400_000 : Infinity;
+  if (hasKnowledge && ageDays < KNOWLEDGE_STALE_DAYS) return null;
+  const save = `save it with 'chromux note ${host} --add "<durable finding>"', and save a proven multi-step flow with 'chromux script save ${host}/<name> --file flow.js'`;
+  return hasKnowledge
+    ? `Saved knowledge for ${host} is ~${Math.round(ageDays)}d old. If this session revealed newer public behavior, refresh it: ${save}.`
+    : `No durable notes or replay scripts saved for ${host} yet. If this session reveals reusable public behavior, ${save}.`;
+}
+
 // ============================================================
 // Activity log helpers
 // ============================================================
@@ -4921,6 +4969,11 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
           result.replayNote = 'Top saved flow recently failed at least as often as it worked — snapshot to confirm the page still matches before replaying.';
         }
       }
+      // Write-side learning nudge: prompt saving durable knowledge when this
+      // host has none yet or its notes/scripts have gone stale. Self-gates to
+      // stay quiet on well-covered hosts.
+      const learnNext = learnNextHintForHost(knowledgeHint?.host);
+      if (learnNext) result.learnNext = learnNext;
     } catch {}
     return result;
   }
@@ -5967,6 +6020,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     if (pageInfo?.url) result.url = pageInfo.url;
     if (pageInfo?.title) result.title = pageInfo.title;
     if (knowledgeHint) result.knowledgeHint = knowledgeHint;
+    if (knowledgeHint) {
+      // End-of-session reflection point: nudge saving durable knowledge before
+      // the session's findings are lost. Self-gates on missing/stale only.
+      const learnNext = learnNextHintForHost(knowledgeHint.host);
+      if (learnNext) result.learnNext = learnNext;
+    }
     if (cleanup) result.cleanup = cleanup;
     return result;
   }
@@ -9377,7 +9436,10 @@ const HELP = `chromux — tmux for Chrome tabs
 The core surface:
   chromux open <session> <url>       Create or navigate a tab (responses report the
                                      interactive-element count; small pages inline the
-                                     elements with @refs so no snapshot round-trip is needed)
+                                     elements with @refs so no snapshot round-trip is needed;
+                                     a "learnNext" field appears when the host has no saved
+                                     notes/scripts yet or they have gone stale, naming the
+                                     note/script save commands to run)
   chromux open --background <s> <u>  Explicitly create a background tab
   chromux open <s> <u> --dialog accept|dismiss   JS dialog auto-policy for the session
                                      (default: dismiss; beforeunload is always accepted;
