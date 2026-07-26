@@ -430,6 +430,13 @@ rather than guessing selectors:
   "next": "chromux snapshot s --interactive" }
 ```
 
+When a host has no saved notes or replay scripts yet, or its newest one has
+gone stale (older than 30 days), `open` and `close` responses also carry a
+`learnNext` field naming the exact `chromux note` / `chromux script save`
+commands to run — the write-side nudge that keeps the memory loop filling.
+Well-covered, freshly-updated hosts omit it, so it stays quiet where knowledge
+already exists.
+
 `run --page-file` is the escape-proof path for page scripts. The file contents
 are JSON-encoded end to end, so regexes, quotes, and newlines never meet shell
 quoting. Write natural statements and `return` a value:
