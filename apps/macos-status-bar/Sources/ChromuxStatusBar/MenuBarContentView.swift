@@ -28,6 +28,7 @@ struct MenuBarLabel: View {
 /// No kill/delete controls live here; clicking a row opens the main window.
 struct MenuBarContentView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     // Visibility-gated polling (R6, AC9) is driven by AppDelegate observing
     // NSMenu.didBeginTracking/didEndTracking for this menu, not by SwiftUI
@@ -56,6 +57,15 @@ struct MenuBarContentView: View {
 
         Button("Open chromux") {
             model.presentMainWindow?()
+        }
+        // Opt-in dormancy (R0/AC0): the secrets entry point itself stays hidden
+        // until the user opts in (via Settings > Enable secret store). A user
+        // who never opts in sees no secrets menu item anywhere.
+        if model.secretOptedIn {
+            Button("Secrets…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "secrets")
+            }
         }
         Button("Quit") {
             model.stopServer()

@@ -19,6 +19,15 @@ struct ChromuxApp: App {
         }
         .defaultSize(width: 1120, height: 760)
 
+        // Native secrets panel (T6/N7). A separate window so it can be reached
+        // from the menu bar and the dashboard toolbar without disrupting the
+        // profile list. Destroyed on close; its `.task` refresh loop cancels
+        // with it.
+        Window("Secrets", id: "secrets") {
+            SecretsPanelView(model: appDelegate.model)
+        }
+        .defaultSize(width: 760, height: 720)
+
         Settings {
             SettingsView(model: appDelegate.model)
         }

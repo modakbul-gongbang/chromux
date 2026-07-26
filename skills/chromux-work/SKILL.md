@@ -228,8 +228,12 @@ secret-store add-on is set up, try
 `/path/to/chromux fill recon-<slug> @<ref> --secret <host>:password` (and
 `:totp` if a 2FA screen follows) before falling back to a human handoff — a
 structured `locked`/`not-found`/`unsupported-tier` response means fall
-straight through to the steps below. Otherwise, stop before doing the task
-and hand the login to the user:
+straight through to the steps below. Your only read surfaces into the store
+are `secret list` (masked hosts) and `secret list --history` (your own
+resolve events, no values); registering, unlocking, or revealing a credential
+is human-only through every door (CLI, dashboard, or app), so never try to
+drive the dashboard edit mode to get one — hand off instead. Otherwise, stop
+before doing the task and hand the login to the user:
 
 ```bash
 # Use a HEADED profile so the user can actually log in (not --headless)

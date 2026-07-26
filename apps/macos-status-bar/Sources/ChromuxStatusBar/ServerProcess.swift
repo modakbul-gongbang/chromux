@@ -7,6 +7,13 @@ final class ServerProcess {
     private(set) var process: Process?
     private(set) var serverURL: URL?
 
+    /// Random per-launch key handed to the server over its private stdin pipe
+    /// (`--app-proof-stdin`). A co-resident process cannot read it, so it is
+    /// the trust anchor for native-macOS session/consent mints: the app sends
+    /// it as `X-Chromux-App-Proof` only after a fresh Touch ID. `nil` until the
+    /// server is spawned.
+    private(set) var appProofKey: String?
+
     var onStatus: ((String) -> Void)?
     var onURLDiscovered: ((URL) -> Void)?
     var onTerminated: (() -> Void)?
@@ -59,17 +66,25 @@ final class ServerProcess {
         let proc = Process()
         let output = Pipe()
         let error = Pipe()
+        let input = Pipe()
         let launch = statusAppLaunch(chromuxPath: chromuxPath)
+        // Native-macOS trust anchor: generate a fresh proof key and tell the
+        // server to read it from stdin. It is written to the private stdin pipe
+        // right after launch (below).
+        let proofKey = UUID().uuidString
+        appProofKey = proofKey
         proc.executableURL = launch.executable
-        proc.arguments = launch.arguments
+        proc.arguments = launch.arguments + ["--app-proof-stdin"]
         proc.standardOutput = output
         proc.standardError = error
+        proc.standardInput = input
         proc.environment = serverEnvironment()
         proc.terminationHandler = { [weak self] terminated in
             DispatchQueue.main.async {
                 guard let self, self.process === terminated else { return }
                 self.process = nil
                 self.serverURL = nil
+                self.appProofKey = nil
                 self.onStatus?("Server stopped")
                 self.onTerminated?()
             }
@@ -100,8 +115,17 @@ final class ServerProcess {
         do {
             try proc.run()
             process = proc
+            // Hand the proof key over the private pipe as a single line; the
+            // server reads exactly one line for `--app-proof-stdin`, so close
+            // the write end afterwards.
+            let writeHandle = input.fileHandleForWriting
+            if let keyLine = (proofKey + "\n").data(using: .utf8) {
+                writeHandle.write(keyLine)
+            }
+            try? writeHandle.close()
             onStatus?("Starting local server...")
         } catch {
+            appProofKey = nil
             onStatus?("Launch failed: \(error.localizedDescription)")
         }
     }
@@ -121,5 +145,6 @@ final class ServerProcess {
         process?.terminate()
         process = nil
         serverURL = nil
+        appProofKey = nil
     }
 }

@@ -1048,8 +1048,40 @@ chromux fill <session> @<ref> --secret github.com:totp
 `secret unlock`, `secret set`, and `secret rm` are human-only: without a real
 terminal they refuse immediately with an instruction to run them yourself,
 the same handoff pattern as any other login wall. Agents can call
-`secret status`, `secret list`, `secret get` (values hidden unless run with
-`--reveal` in a terminal), and `fill --secret`.
+`secret status`, `secret list` (add `--history` for masked usage events),
+`secret get` (values hidden unless run with `--reveal` in a terminal), and
+`fill --secret`.
+
+### Dashboard And App Management (Opt-in)
+
+Managing the store does not have to happen in a terminal. After
+`chromux secret optin`, both the local status app (`chromux app`) and the
+macOS menu-bar app grow a secrets panel to register, edit, delete, unlock,
+inspect, and — with a fresh confirmation each time — reveal a value or copy a
+TOTP. A guided setup wizard can even install `bw` and run `bw login` without a
+terminal. The panel is dormant until you opt in; users who never opt in never
+see it.
+
+The security boundary is the same through every door because it is a
+**presence proof, not the interface**. Privileges are tiered — use / observe /
+manage / expose — and an agent gains nothing from a new door that the CLI did
+not already grant it:
+
+- **use** — `fill --secret` fills a value the agent never sees. Always allowed.
+- **observe** — a masked host list and usage history. Always allowed.
+- **manage** — register / edit / delete / unlock. Needs a presence-proofed
+  edit session (macOS Touch ID, Windows Hello, or the terminal
+  `chromux secret approve` launch token), scoped to ~15 minutes.
+- **expose** — reveal a value or copy a TOTP. Needs a **fresh per-action**
+  confirmation every single time, not merely an open session — so a
+  co-resident automated agent that has scraped the session cookie still cannot
+  read a secret without a human physically approving that exact action.
+
+On macOS the app holds its session token in memory and sends it as an auth
+header (never a cookie); browsers use an httpOnly, `SameSite=Strict` cookie.
+Windows Hello and the Windows wizard ship code-complete but stay unverified
+until smoke-tested on a real Windows machine; the terminal launch-token
+fallback keeps Windows unblocked in the meantime.
 
 Every failure is a structured, non-crashing handoff instead of an exception:
 

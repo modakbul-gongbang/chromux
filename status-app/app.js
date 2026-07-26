@@ -5,6 +5,19 @@ const state = {
   profileSearch: '',
   profileStatusFilter: 'all',
   tab: 'timeline',
+  secrets: {
+    active: false,
+    state: null,
+    list: null,
+    history: null,
+    setup: null,
+    editExpiresAt: 0,
+    lastSignature: '',
+    pending: false,
+    fallback: false,
+    wizardBusy: false,
+    wizard: { email: '', showTwofa: false },
+  },
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -349,13 +362,11 @@ async function deleteSelectedProfiles() {
 function renderTabs() {
   $$('.tab-button').forEach(button => {
     button.classList.toggle('is-active', button.dataset.tab === state.tab);
-    button.onclick = () => {
-      state.tab = button.dataset.tab;
-      renderTabs();
-    };
+    button.onclick = () => selectTab(button.dataset.tab);
   });
   $$('.tab-view').forEach(view => view.classList.remove('is-active'));
   $(`#${state.tab}View`).classList.add('is-active');
+  state.secrets.active = state.tab === 'secrets';
 }
 
 function renderTimeline() {
@@ -463,6 +474,576 @@ async function runLifecycle(kind) {
   }
 }
 
+/* ---- secret store --------------------------------------------------- */
+// Every secret request carries the X-Chromux-Secret guard header and rides
+// the same-origin httpOnly session cookie (set by session/exchange). The JS
+// never sees or stores the session token, and revealed values live only in
+// the DOM for a few seconds before being cleared.
+
+const SECRET_HEADERS = { 'Content-Type': 'application/json', 'X-Chromux-Secret': '1' };
+
+function fmtDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return '0:00';
+  const total = Math.floor(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+async function secretApi(path, options = {}) {
+  const { method = 'GET', body } = options;
+  let data;
+  try {
+    const res = await fetch(path, {
+      method,
+      credentials: 'same-origin',
+      headers: SECRET_HEADERS,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    try { data = await res.json(); } catch { data = {}; }
+    if (data && typeof data === 'object') data.httpStatus = res.status;
+  } catch (err) {
+    data = { ok: false, error: err.message };
+  }
+  return data || { ok: false };
+}
+
+// Structured denials look like {ok:false, secret:'<reason>', next:'<hint>'};
+// always prefer the human-facing `next` hint when surfacing them.
+function secretDenied(data, fallback) {
+  return data?.next || data?.secret || data?.error || fallback || 'Secret request failed';
+}
+
+function secretState() { return state.secrets.state; }
+
+function secretEditActive() {
+  const s = secretState();
+  if (!s) return false;
+  if (Number(s.ttlRemainingMs) > 0) return true;
+  return Array.isArray(s.editSessions) && s.editSessions.length > 0;
+}
+
+function secretCanNativeProof() {
+  const providers = secretState()?.consentProviders || [];
+  return providers.includes('windows-hello') || providers.includes('test');
+}
+
+function secretConsentProof() {
+  const providers = secretState()?.consentProviders || [];
+  if (providers.includes('windows-hello')) return 'windows-hello';
+  if (providers.includes('test')) return 'test';
+  return secretState()?.platform === 'win32' ? 'windows-hello' : 'test';
+}
+
+function secretInputFocused() {
+  const el = document.activeElement;
+  const panel = $('#secretsPanel');
+  return !!el && !!panel && panel.contains(el)
+    && ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
+}
+
+// Enter edit mode. On a platform with a native in-browser proof (windows-hello
+// on win32, or `test` in dev) we begin a session and exchange its token for the
+// httpOnly cookie in-page. Otherwise there is no native prompt, so we surface
+// the launch-token fallback: the user runs `chromux secret approve`, which
+// reopens the dashboard with ?approve=<token>.
+async function secretBeginEdit() {
+  if (!secretCanNativeProof()) {
+    state.secrets.fallback = true;
+    renderSecrets(true);
+    toast('Run `chromux secret approve` in a terminal to enter edit mode.');
+    return false;
+  }
+  const begun = await secretApi('/api/secrets/session/begin', {
+    method: 'POST',
+    body: { proof: secretConsentProof() },
+  });
+  if (!begun.ok) {
+    state.secrets.fallback = true;
+    renderSecrets(true);
+    toast(secretDenied(begun, 'Consent unavailable'));
+    return false;
+  }
+  const exchanged = await secretApi('/api/secrets/session/exchange', {
+    method: 'POST',
+    body: { token: begun.token },
+  });
+  if (!exchanged.ok) {
+    toast(secretDenied(exchanged, 'Could not start edit mode'));
+    return false;
+  }
+  state.secrets.fallback = false;
+  toast('Edit mode active');
+  await refreshSecrets(true);
+  return true;
+}
+
+async function secretRevokeEdit() {
+  const r = await secretApi('/api/secrets/session/revoke', { method: 'POST' });
+  if (!r.ok) { toast(secretDenied(r, 'Could not revoke edit mode')); return; }
+  toast('Edit mode ended');
+  await refreshSecrets(true);
+}
+
+// Opt in requires an edit-mode session, so ensure one first; on the fallback
+// platform this shows the launch-token instructions and returns until the user
+// has approved and re-entered edit mode.
+async function secretSetup() {
+  if (!secretEditActive()) {
+    await secretBeginEdit();
+    if (!secretEditActive()) return;
+  }
+  const r = await secretApi('/api/secrets/optin', { method: 'POST', body: { enabled: true } });
+  if (!r.ok) { toast(secretDenied(r, 'Could not enable secret store')); return; }
+  toast('Secret store enabled');
+  await refreshSecrets(true);
+}
+
+async function secretOptOut() {
+  if (!(await confirmDialog('Disable the secret store? Stored credentials stay in your vault but chromux stops using them.'))) return;
+  const r = await secretApi('/api/secrets/optin', { method: 'POST', body: { enabled: false } });
+  if (!r.ok) { toast(secretDenied(r, 'Could not disable secret store')); return; }
+  toast('Secret store disabled');
+  await refreshSecrets(true);
+}
+
+async function secretUnlock() {
+  const masterPassword = $('#secMaster')?.value || '';
+  if (!masterPassword) { toast('Enter your master password'); return; }
+  const r = await secretApi('/api/secrets/unlock', { method: 'POST', body: { masterPassword } });
+  if (!r.ok) { toast(secretDenied(r, 'Unlock failed')); return; }
+  const field = $('#secMaster');
+  if (field) field.value = '';
+  toast('Vault unlocked');
+  await refreshSecrets(true);
+}
+
+async function secretSet() {
+  const host = ($('#secHost')?.value || '').trim();
+  const user = $('#secUser')?.value || '';
+  const password = $('#secPass')?.value || '';
+  const totp = ($('#secTotp')?.value || '').trim();
+  const scope = ($('#secScope')?.value || '').trim();
+  if (!host || !user || !password) { toast('Host, username, and password are required'); return; }
+  const body = { host, user, password };
+  if (totp) body.totp = totp;
+  if (scope && scope.toLowerCase() !== 'global') body.scope = scope;
+  const r = await secretApi('/api/secrets/set', { method: 'POST', body });
+  if (!r.ok) { toast(secretDenied(r, 'Could not save credential')); return; }
+  ['#secHost', '#secUser', '#secPass', '#secTotp', '#secScope'].forEach(id => {
+    const el = $(id);
+    if (el) el.value = '';
+  });
+  toast(`${r.updated ? 'Updated' : 'Saved'} credential for ${r.host || host}`);
+  await refreshSecrets(true);
+}
+
+async function secretRemove(host, scope) {
+  const label = scope && scope.toLowerCase() !== 'global' ? `${host} (${scope})` : host;
+  if (!(await confirmDialog(`Delete stored credential for ${label}?`))) return;
+  const body = { host };
+  if (scope && scope.toLowerCase() !== 'global') body.scope = scope;
+  const r = await secretApi('/api/secrets/rm', { method: 'POST', body });
+  if (!r.ok) { toast(secretDenied(r, 'Could not delete credential')); return; }
+  toast(`Removed ${host}`);
+  await refreshSecrets(true);
+}
+
+// Exposing a value always takes two proofs: a fresh consent from consent/begin,
+// then the reveal/totp call carrying that consent. The value is shown briefly
+// in the row and never stored in client state.
+async function secretReveal(host, field, scope, slot) {
+  const consentRes = await secretApi('/api/secrets/consent/begin', {
+    method: 'POST',
+    body: { proof: secretConsentProof(), action: 'reveal', host, field },
+  });
+  if (!consentRes.ok) { toast(secretDenied(consentRes, 'Consent unavailable')); return; }
+  const body = { host, field, consent: consentRes.consent };
+  if (scope && scope.toLowerCase() !== 'global') body.scope = scope;
+  const r = await secretApi('/api/secrets/reveal', { method: 'POST', body });
+  if (!r.ok) { toast(secretDenied(r, 'Reveal blocked')); return; }
+  showSecretValue(slot, r.value);
+}
+
+async function secretTotp(host, scope, slot) {
+  const consentRes = await secretApi('/api/secrets/consent/begin', {
+    method: 'POST',
+    body: { proof: secretConsentProof(), action: 'totp', host },
+  });
+  if (!consentRes.ok) { toast(secretDenied(consentRes, 'Consent unavailable')); return; }
+  const body = { host, consent: consentRes.consent };
+  if (scope && scope.toLowerCase() !== 'global') body.scope = scope;
+  const r = await secretApi('/api/secrets/totp', { method: 'POST', body });
+  if (!r.ok) { toast(secretDenied(r, 'TOTP blocked')); return; }
+  showSecretValue(slot, r.value);
+  try {
+    await navigator.clipboard.writeText(r.value);
+    toast('TOTP copied to clipboard');
+  } catch {
+    toast('TOTP revealed');
+  }
+}
+
+async function secretWizardInstall() {
+  state.secrets.wizardBusy = true;
+  renderSecrets(true);
+  const r = await secretApi('/api/secrets/wizard/install', { method: 'POST' });
+  state.secrets.wizardBusy = false;
+  if (!r.ok) { toast(secretDenied(r, 'Install failed')); await refreshSecrets(true); return; }
+  toast('Bitwarden CLI installed');
+  await refreshSecrets(true);
+}
+
+async function secretWizardLogin() {
+  const email = ($('#secWizEmail')?.value || '').trim();
+  const masterPassword = $('#secWizPass')?.value || '';
+  const twofa = ($('#secWizTwofa')?.value || '').trim();
+  if (!email || !masterPassword) { toast('Email and master password are required'); return; }
+  state.secrets.wizard.email = email;
+  const body = { email, masterPassword };
+  if (twofa) body.twofa = twofa;
+  const r = await secretApi('/api/secrets/wizard/login', { method: 'POST', body });
+  if (!r.ok) {
+    if (r.secret === 'twofa-required') {
+      state.secrets.wizard.showTwofa = true;
+      renderSecrets(true);
+      toast(secretDenied(r, 'Enter your two-factor code'));
+      return;
+    }
+    toast(secretDenied(r, 'Login failed'));
+    return;
+  }
+  state.secrets.wizard.showTwofa = false;
+  toast('Logged in and vault unlocked');
+  await refreshSecrets(true);
+}
+
+// Reveal an exposed value into its row slot, then clear it after a short window.
+// The value is never written to client state.
+function showSecretValue(slot, value) {
+  const el = document.querySelector(`.secret-value[data-slot="${slot}"]`);
+  if (!el) return;
+  clearTimeout(el._secretTimer);
+  el.textContent = text(value);
+  el.classList.add('is-shown');
+  el._secretTimer = setTimeout(() => {
+    el.textContent = '';
+    el.classList.remove('is-shown');
+  }, 10000);
+}
+
+// On page load, exchange a launch-token (?approve=<token>) for the session
+// cookie, then strip it from the URL so it is not left in history/bookmarks.
+async function secretConsumeApproveToken() {
+  const url = new URL(window.location.href);
+  const token = url.searchParams.get('approve');
+  if (!token) return false;
+  const r = await secretApi('/api/secrets/session/exchange', { method: 'POST', body: { token } });
+  url.searchParams.delete('approve');
+  history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  if (!r.ok) toast(secretDenied(r, 'Approval token rejected'));
+  return true;
+}
+
+async function refreshSecrets(force = false) {
+  const s = await secretApi('/api/secrets/state');
+  state.secrets.state = s;
+  if (s?.ok && s.optedIn) {
+    const [list, history, setup] = await Promise.all([
+      secretApi('/api/secrets/list'),
+      secretApi('/api/secrets/history'),
+      secretApi('/api/secrets/setup-state'),
+    ]);
+    state.secrets.list = list;
+    state.secrets.history = history;
+    state.secrets.setup = setup;
+  } else {
+    state.secrets.list = null;
+    state.secrets.history = null;
+    state.secrets.setup = null;
+  }
+  if (s?.ok) state.secrets.editExpiresAt = Date.now() + Math.max(0, Number(s.ttlRemainingMs) || 0);
+  renderSecrets(force);
+}
+
+function secretSignature() {
+  const s = state.secrets.state;
+  if (!s || !s.ok) return `err:${s?.secret || s?.error || 'unavailable'}`;
+  const list = state.secrets.list;
+  const setup = state.secrets.setup;
+  return [
+    s.optedIn, s.unlocked, secretEditActive(),
+    list?.locked, (list?.items || []).length,
+    setup?.bwInstalled, setup?.loggedIn,
+    state.secrets.wizardBusy, state.secrets.wizard.showTwofa,
+    state.secrets.fallback && !secretCanNativeProof(),
+    (state.secrets.history?.events || []).length,
+  ].join('|');
+}
+
+// Poll refreshes re-render only on a material state change, and never while a
+// secret input is focused, so the credential/register forms are not wiped from
+// under the user mid-entry. User actions pass force=true.
+function renderSecrets(force = false) {
+  const panel = $('#secretsPanel');
+  if (!panel) return;
+  const signature = secretSignature();
+  if (!force && signature === state.secrets.lastSignature) { updateSecretTtl(); return; }
+  if (!force && secretInputFocused()) { state.secrets.pending = true; updateSecretTtl(); return; }
+  state.secrets.pending = false;
+  state.secrets.lastSignature = signature;
+  panel.innerHTML = buildSecretsHtml();
+  updateSecretTtl();
+}
+
+function updateSecretTtl() {
+  const el = document.getElementById('secretTtl');
+  if (!el) return;
+  if (!secretEditActive()) { el.textContent = 'inactive'; return; }
+  const remaining = state.secrets.editExpiresAt - Date.now();
+  el.textContent = remaining > 0 ? fmtDuration(remaining) : 'expiring...';
+}
+
+function secretPillHtml(variant, label) {
+  return `<span class="pill ${variant}">${escapeHtml(label)}</span>`;
+}
+
+function secretFallbackHtml() {
+  return `<p class="secret-fallback">No in-browser approval on this platform. Run <code>chromux secret approve</code> in a terminal; it reopens this dashboard and unlocks edit mode.</p>`;
+}
+
+function buildSecretsHtml() {
+  const s = state.secrets.state;
+  if (!s || !s.ok) {
+    return `<div class="empty-state">Secret store unavailable${s?.next ? ` - ${escapeHtml(s.next)}` : ''}</div>`;
+  }
+  if (!s.optedIn) return secretDormantHtml();
+  return [
+    secretStatusHtml(),
+    secretWizardHtml(),
+    secretUnlockHtml(),
+    secretManageHtml(),
+    secretListHtml(),
+    secretHistoryHtml(),
+  ].join('');
+}
+
+// Opt-in dormancy: until opted in, the tab shows only this card. Nothing else
+// secret-related renders.
+function secretDormantHtml() {
+  const edit = secretEditActive();
+  const showFallback = state.secrets.fallback && !secretCanNativeProof();
+  return `
+    <div class="secret-section secret-dormant">
+      <h3>Secret store</h3>
+      <p class="secret-note">Store site logins in your local vault so chromux can fill them during browser work. Nothing is enabled until you opt in.</p>
+      <div class="secret-actions">
+        <button class="primary" data-secret="setup">${edit ? 'Enable secret store' : 'Set up secret store'}</button>
+        ${edit ? '<button data-secret="revoke">Revoke edit mode</button>' : ''}
+      </div>
+      ${showFallback ? secretFallbackHtml() : ''}
+    </div>`;
+}
+
+function secretStatusHtml() {
+  const s = state.secrets.state;
+  const setup = state.secrets.setup;
+  const edit = secretEditActive();
+  const backend = setup
+    ? (setup.bwInstalled ? (setup.loggedIn ? 'ready' : 'needs login') : 'not installed')
+    : '-';
+  return `
+    <div class="secret-section secret-status">
+      <div class="secret-status-head">
+        <h3>Secret store</h3>
+        <div class="secret-actions">
+          ${edit
+            ? `${secretPillHtml('ok', 'edit mode')}<button data-secret="revoke">Revoke edit mode</button>`
+            : '<button class="primary" data-secret="begin">Edit mode</button>'}
+        </div>
+      </div>
+      <div class="secret-facts">
+        <div>
+          <label>Vault</label>
+          ${secretPillHtml(s.unlocked ? 'ok' : 'locked', s.unlocked ? 'unlocked' : 'locked')}
+        </div>
+        <div>
+          <label>Edit session</label>
+          <strong id="secretTtl">${edit ? fmtDuration(state.secrets.editExpiresAt - Date.now()) : 'inactive'}</strong>
+        </div>
+        <div>
+          <label>Backend</label>
+          <strong>${escapeHtml(backend)}</strong>
+        </div>
+        <div>
+          <label>Platform</label>
+          <strong>${escapeHtml(s.platform || '-')}</strong>
+        </div>
+      </div>
+      ${state.secrets.fallback && !secretCanNativeProof() ? secretFallbackHtml() : ''}
+    </div>`;
+}
+
+function secretWizardHtml() {
+  const setup = state.secrets.setup;
+  if (!setup || (setup.bwInstalled && setup.loggedIn)) return '';
+  if (!secretEditActive()) {
+    return `<div class="secret-section"><h3>Setup</h3><p class="secret-note">Enter edit mode to install and sign in to the Bitwarden backend.</p></div>`;
+  }
+  const steps = [];
+  steps.push(`
+    <div class="secret-step">
+      <div class="secret-step-title">1. Bitwarden CLI ${setup.bwInstalled ? secretPillHtml('ok', 'installed') : secretPillHtml('locked', 'missing')}</div>
+      ${setup.bwInstalled
+        ? `<p class="secret-note">${setup.bwPath ? escapeHtml(setup.bwPath) : 'Installed.'}</p>`
+        : `<button class="primary" data-secret="wizard-install" ${state.secrets.wizardBusy ? 'disabled' : ''}>${state.secrets.wizardBusy ? 'Installing...' : 'Install Bitwarden CLI'}</button>`}
+    </div>`);
+  if (setup.bwInstalled && !setup.loggedIn) {
+    const w = state.secrets.wizard;
+    steps.push(`
+      <div class="secret-step">
+        <div class="secret-step-title">2. Sign in</div>
+        <div class="secret-form-grid">
+          <label class="field"><span>Email</span><input id="secWizEmail" type="email" value="${escapeHtml(w.email || '')}" autocomplete="off"></label>
+          <label class="field"><span>Master password</span><input id="secWizPass" type="password" autocomplete="off"></label>
+          ${w.showTwofa ? '<label class="field"><span>Two-factor code</span><input id="secWizTwofa" type="text" inputmode="numeric" autocomplete="off"></label>' : ''}
+        </div>
+        <button class="primary" data-secret="wizard-login">${w.showTwofa ? 'Verify and sign in' : 'Sign in'}</button>
+      </div>`);
+  }
+  return `<div class="secret-section"><h3>Setup wizard</h3>${steps.join('')}</div>`;
+}
+
+function secretUnlockHtml() {
+  const s = state.secrets.state;
+  if (!secretEditActive() || s.unlocked) return '';
+  return `
+    <div class="secret-section">
+      <h3>Unlock vault</h3>
+      <p class="secret-note">The vault is locked. Enter your master password to read and reveal credentials.</p>
+      <div class="secret-inline-form">
+        <input id="secMaster" type="password" placeholder="Master password" autocomplete="off">
+        <button class="primary" data-secret="unlock">Unlock</button>
+      </div>
+    </div>`;
+}
+
+function secretManageHtml() {
+  if (!secretEditActive()) return '';
+  return `
+    <div class="secret-section">
+      <div class="secret-status-head">
+        <h3>Add or update credential</h3>
+        <button class="danger" data-secret="optin-disable">Disable store</button>
+      </div>
+      <div class="secret-form-grid">
+        <label class="field"><span>Host</span><input id="secHost" type="text" placeholder="example.com" autocomplete="off"></label>
+        <label class="field"><span>Scope</span><input id="secScope" type="text" placeholder="global" autocomplete="off"></label>
+        <label class="field"><span>Username</span><input id="secUser" type="text" autocomplete="off"></label>
+        <label class="field"><span>Password</span><input id="secPass" type="password" autocomplete="off"></label>
+        <label class="field"><span>TOTP secret (optional)</span><input id="secTotp" type="text" autocomplete="off"></label>
+      </div>
+      <button class="primary" data-secret="set">Save credential</button>
+    </div>`;
+}
+
+function secretListHtml() {
+  const list = state.secrets.list;
+  const edit = secretEditActive();
+  let inner;
+  if (!list || list.locked) {
+    inner = `<div class="empty-state">Vault is locked. ${edit ? 'Unlock the vault above to list stored credentials.' : 'Enter edit mode and unlock the vault to list stored credentials.'}</div>`;
+  } else if (!(list.items || []).length) {
+    inner = '<div class="empty-state">No stored credentials yet.</div>';
+  } else {
+    inner = `<div class="secret-cred-list">${list.items.map((item, i) => secretCredRow(item, i, edit)).join('')}</div>`;
+  }
+  return `<div class="secret-section"><h3>Stored credentials</h3>${inner}</div>`;
+}
+
+function secretCredRow(item, i, edit) {
+  const host = escapeHtml(item.host);
+  const scope = item.scope || 'global';
+  const scopeAttr = escapeHtml(scope);
+  const slotUser = `slot-${i}-username`;
+  const slotPass = `slot-${i}-password`;
+  const slotTotp = `slot-${i}-totp`;
+  return `
+    <div class="secret-cred-row">
+      <div class="secret-cred-id">
+        <span class="secret-cred-host">${host}</span>
+        ${secretPillHtml('', scope)}
+      </div>
+      ${edit ? `
+      <div class="secret-cred-actions">
+        <button data-secret="reveal" data-host="${host}" data-scope="${scopeAttr}" data-field="username" data-out="${slotUser}">Reveal user</button>
+        <button data-secret="reveal" data-host="${host}" data-scope="${scopeAttr}" data-field="password" data-out="${slotPass}">Reveal password</button>
+        <button data-secret="totp" data-host="${host}" data-scope="${scopeAttr}" data-out="${slotTotp}">Copy TOTP</button>
+        <button class="danger" data-secret="rm" data-host="${host}" data-scope="${scopeAttr}">Delete</button>
+      </div>
+      <div class="secret-reveal-slots">
+        <span class="secret-value" data-slot="${slotUser}"></span>
+        <span class="secret-value" data-slot="${slotPass}"></span>
+        <span class="secret-value" data-slot="${slotTotp}"></span>
+      </div>` : ''}
+    </div>`;
+}
+
+function secretHistoryHtml() {
+  const events = state.secrets.history?.events || [];
+  if (!events.length) {
+    return '<div class="secret-section"><h3>Usage history</h3><div class="empty-state">No secret activity recorded.</div></div>';
+  }
+  const rows = events.slice().reverse().map(ev => `
+    <tr>
+      <td>${escapeHtml(fmtTime(ev.timestamp))}</td>
+      <td>${escapeHtml(ev.host)}</td>
+      <td>${escapeHtml(ev.scope || 'global')}</td>
+      <td>${escapeHtml(ev.field || '-')}</td>
+      <td>${escapeHtml(ev.outcome || (ev.ok ? 'ok' : 'denied'))}</td>
+      <td>${ev.ok ? secretPillHtml('ok', 'ok') : secretPillHtml('failed', 'fail')}</td>
+    </tr>`).join('');
+  return `
+    <div class="secret-section">
+      <h3>Usage history</h3>
+      <div class="table-wrap">
+        <table class="secret-history-table">
+          <thead>
+            <tr><th>Time</th><th>Host</th><th>Scope</th><th>Field</th><th>Outcome</th><th>Result</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function onSecretClick(event) {
+  const btn = event.target.closest('[data-secret]');
+  const panel = $('#secretsPanel');
+  if (!btn || !panel || !panel.contains(btn)) return;
+  const d = btn.dataset;
+  switch (d.secret) {
+    case 'setup': secretSetup(); break;
+    case 'begin': secretBeginEdit(); break;
+    case 'revoke': secretRevokeEdit(); break;
+    case 'optin-disable': secretOptOut(); break;
+    case 'unlock': secretUnlock(); break;
+    case 'set': secretSet(); break;
+    case 'rm': secretRemove(d.host, d.scope); break;
+    case 'reveal': secretReveal(d.host, d.field, d.scope, d.out); break;
+    case 'totp': secretTotp(d.host, d.scope, d.out); break;
+    case 'wizard-install': secretWizardInstall(); break;
+    case 'wizard-login': secretWizardLogin(); break;
+    default: break;
+  }
+}
+
+function selectTab(tab) {
+  state.tab = tab;
+  renderTabs();
+  if (tab === 'secrets') refreshSecrets(true).catch(() => {});
+}
+
 function render() {
   renderProfiles();
   renderProfileDetail();
@@ -496,7 +1077,16 @@ $$('[data-lifecycle]').forEach(button => {
   button.addEventListener('click', () => runLifecycle(button.dataset.lifecycle));
 });
 
+$('#secretsPanel').addEventListener('click', onSecretClick);
+
 refresh().catch(err => toast(err.message));
+
+// If reopened via `chromux secret approve` (?approve=<token>), exchange the
+// launch token for the session cookie, strip the query param, and jump to the
+// Secrets tab so the newly unlocked edit mode is visible.
+secretConsumeApproveToken()
+  .then(consumed => { if (consumed) selectTab('secrets'); })
+  .catch(() => {});
 
 // Keep the open dashboard live: poll state so profiles created or deleted
 // elsewhere show up without a manual reload. Skip while the user is mid-search,
@@ -516,3 +1106,24 @@ setInterval(async () => {
     autoRefreshInFlight = false;
   }
 }, AUTO_REFRESH_MS);
+
+// Keep the Secrets tab live while it is active: refresh lock state / TTL /
+// history without wiping in-progress form entry (renderSecrets guards on a
+// focused input and only re-renders on material change).
+let secretPollInFlight = false;
+setInterval(async () => {
+  if (document.hidden || !state.secrets.active || confirmModalOpen()) return;
+  if (secretInputFocused()) { updateSecretTtl(); return; }
+  if (secretPollInFlight) return;
+  secretPollInFlight = true;
+  try {
+    await refreshSecrets(false);
+  } catch {
+    // Silent for background polls; user actions surface their own errors.
+  } finally {
+    secretPollInFlight = false;
+  }
+}, AUTO_REFRESH_MS);
+
+// Tick the edit-session countdown once a second (text-only, no re-render).
+setInterval(updateSecretTtl, 1000);

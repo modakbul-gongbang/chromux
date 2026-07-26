@@ -264,12 +264,23 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
   assertContains(checks, 'readme secret human-only', docs.readme, 'human-only');
   assertContains(checks, 'install secret store setup', docs.install, '## Secret Store Setup (optional: Bitwarden add-on)');
   assertContains(checks, 'install secret unlock step', docs.install, 'chromux secret unlock');
-  assertContains(checks, 'install secret windows unverified', docs.install, 'has not been smoke-tested on an\nactual Windows machine yet');
+  assertContains(checks, 'install secret windows unverified', docs.install, 'not been smoke-tested on an actual Windows machine');
   assertContains(checks, 'chromux skill secret store section', docs.chromuxSkill, '## Secret Store (Opt-in Add-on)');
   assertContains(checks, 'chromux skill fill --secret', docs.chromuxSkill, 'fill --secret <host>:password');
   assertContains(checks, 'chromux skill secret human-only', docs.chromuxSkill, 'human-only by design');
   assertContains(checks, 'work skill secret store handoff', docs.workSkill, 'secret-store add-on is set up');
   assertContains(checks, 'recovery topic secret store handoff', docs.recoveryTopic, '--secret <host>:password` first');
+  // Dashboard/app management surface (opt-in) must stay documented in lockstep.
+  assertContains(checks, 'help secret approve', docs.help, 'chromux secret approve');
+  assertContains(checks, 'help secret optin', docs.help, 'chromux secret optin');
+  assertContains(checks, 'help secret history', docs.help, 'secret list --history');
+  assertContains(checks, 'help secret presence-proof boundary', docs.help, 'presence proof, not the interface');
+  assertContains(checks, 'readme secret dashboard section', docs.readme, '### Dashboard And App Management (Opt-in)');
+  assertContains(checks, 'readme secret expose reproof', docs.readme, 'fresh per-action');
+  assertContains(checks, 'install secret optin', docs.install, 'chromux secret optin');
+  assertContains(checks, 'install secret setup wizard', docs.install, 'setup wizard');
+  assertContains(checks, 'chromux skill secret dashboard boundary', docs.chromuxSkill, 'fresh per-action');
+  assertContains(checks, 'work skill secret history observe', docs.workSkill, 'secret list --history');
 }
 
 {

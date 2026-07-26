@@ -11,6 +11,7 @@
  */
 
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -6850,6 +6851,28 @@ async function cmdKill(profileName) {
 const SECRET_POLICY_PATH = path.join(CHROMUX_HOME, 'secrets.json');
 const DEFAULT_SECRET_TTL_DAYS = 14;
 const DEFAULT_SECRET_TTL_MS = DEFAULT_SECRET_TTL_DAYS * 24 * 60 * 60 * 1000;
+// Dashboard/app presence-proof lifetimes (memory-only, in the secret-agent):
+// a manage "edit session" (~15 min), a single-use launch-approval token
+// (~60 s unused), and a single-use per-action expose consent (~2 min). The
+// session TTL honors an env override only for automated tests.
+const DEFAULT_EDIT_SESSION_TTL_MS = process.env.CHROMUX_SECRET_SESSION_TTL_MS
+  ? Number(process.env.CHROMUX_SECRET_SESSION_TTL_MS)
+  : 15 * 60 * 1000;
+const DEFAULT_APPROVAL_TTL_MS = 60 * 1000;
+const DEFAULT_CONSENT_TTL_MS = 2 * 60 * 1000;
+// Native-macOS trust anchor: the app hands this random key to the server it
+// spawns over the PRIVATE stdin pipe (a co-resident process cannot read a pipe
+// between two other processes). Native-proof session/consent mints require it.
+// Null when the server was started by `chromux app` for the browser path.
+let SECRET_APP_PROOF_KEY = null;
+
+// Env-gated test bypass for the presence-proof providers. Inert unless BOTH an
+// explicit opt-in env var is set AND CHROMUX_HOME is isolated (never the real
+// ~/.chromux). Lets the automated suite mint sessions/consents without real
+// biometrics, Hello, or a TTY. V2 asserts it is refused when unset.
+function isSecretTestProofEnabled() {
+  return process.env.CHROMUX_SECRET_TEST_PROOF === '1' && !!process.env.CHROMUX_HOME;
+}
 const SECRET_FAILURE_HINTS = {
   'locked': 'run `chromux secret unlock` in a terminal, then retry',
   'not-found': 'no stored credential for this host — hand off to the user to log in',
@@ -6889,7 +6912,7 @@ function requireTTY(label) {
 let _bwAvailable = null;
 function ensureBwCli() {
   if (_bwAvailable === null) {
-    const res = spawnSync('bw', ['--version'], { encoding: 'utf8' });
+    const res = spawnSync(bwBinary(), ['--version'], { encoding: 'utf8' });
     _bwAvailable = !res.error && res.status === 0;
   }
   if (!_bwAvailable) {
@@ -6905,13 +6928,59 @@ function ensureBwCli() {
 function runBw(args, { input, session } = {}) {
   const env = { ...process.env };
   if (session) env.BW_SESSION = session; else delete env.BW_SESSION;
-  return spawnSync('bw', args, { input, encoding: 'utf8', env, maxBuffer: 16 * 1024 * 1024 });
+  return spawnSync(bwBinary(), args, { input, encoding: 'utf8', env, maxBuffer: 16 * 1024 * 1024 });
 }
 
 function findBwItemByExactName(name, session) {
   const res = runBw(['list', 'items', '--search', name], { session });
   if (res.status !== 0) return null;
   try { return JSON.parse(res.stdout).find(item => item.name === name) || null; } catch { return null; }
+}
+
+// Shared vault mutators/readers — the SINGLE source of vault access for both
+// the CLI (`secret set/rm/list`) and the dashboard/app API (G3). No caller
+// shells `bw` for these directly; they all funnel through here so naming,
+// item shape, and failure semantics stay identical through every door.
+
+function writeSecretItem({ scope, host, user, password, totp, session }) {
+  const name = secretItemName(scope, host);
+  const existing = findBwItemByExactName(name, session);
+  const item = {
+    type: 1, name,
+    login: { username: user, password, ...(totp ? { totp } : {}), uris: [{ uri: `https://${host}` }] },
+  };
+  const encodeRes = runBw(['encode'], { input: JSON.stringify(item) });
+  if (encodeRes.status !== 0) return { ok: false, reason: 'encode-failed' };
+  const encoded = encodeRes.stdout.trim();
+  const writeRes = existing
+    ? runBw(['edit', 'item', existing.id], { input: encoded, session })
+    : runBw(['create', 'item'], { input: encoded, session });
+  if (writeRes.status !== 0) return { ok: false, reason: 'locked' };
+  return { ok: true, updated: !!existing };
+}
+
+function removeSecretItem({ scope, host, session }) {
+  const name = secretItemName(scope, host);
+  const found = findBwItemByExactName(name, session);
+  if (!found) return { ok: false, reason: 'not-found' };
+  const del = runBw(['delete', 'item', found.id], { session });
+  return { ok: del.status === 0, reason: del.status === 0 ? null : 'locked' };
+}
+
+function listSecretEntries(session) {
+  const res = runBw(['list', 'items', '--search', 'chromux/'], { session });
+  if (res.status !== 0) return { ok: false, reason: 'locked' };
+  let items = [];
+  try { items = JSON.parse(res.stdout); } catch {}
+  const entries = items
+    .filter(item => typeof item.name === 'string' && item.name.startsWith('chromux/'))
+    .map(item => {
+      const [, scope, ...hostParts] = item.name.split('/');
+      return { scope, host: hostParts.join('/') };
+    })
+    .filter(entry => entry.host)
+    .sort((a, b) => a.host.localeCompare(b.host) || a.scope.localeCompare(b.scope));
+  return { ok: true, entries };
 }
 
 // Profile-local overrides global, with parent-domain fallback mirroring the
@@ -6942,6 +7011,21 @@ async function resolveSecretItem(host, profile, session) {
 // { ok:false, reason, hint? } so callers can hand off to the user instead of
 // crashing the agent flow.
 async function resolveSecretField(host, field, profile) {
+  const result = await resolveSecretFieldInner(host, field, profile);
+  // Record a usage event (host/scope/field/outcome only — never the value) so
+  // the observe surface and `secret list --history` can show it, even locked.
+  emitSecretResolveEvent({
+    host: result.host || host,
+    scope: result.scope || null,
+    field: field || 'password',
+    ok: result.ok,
+    outcome: result.ok ? 'ok' : (result.reason || 'error'),
+    profile,
+  });
+  return result;
+}
+
+async function resolveSecretFieldInner(host, field, profile) {
   const agent = await secretAgentRequest('get');
   if (!agent.ok) return { ok: false, reason: 'locked' };
   const found = await resolveSecretItem(host, profile, agent.session);
@@ -6951,14 +7035,14 @@ async function resolveSecretField(host, field, profile) {
   }
   if (!found) return { ok: false, reason: 'not-found' };
   if (field === 'totp') {
-    if (!found.item.login?.totp) return { ok: false, reason: 'not-found', hint: 'no TOTP configured for this credential' };
+    if (!found.item.login?.totp) return { ok: false, reason: 'not-found', hint: 'no TOTP configured for this credential', scope: found.scope, host: found.host };
     const totpRes = runBw(['get', 'totp', found.item.id], { session: agent.session });
-    if (totpRes.status !== 0) return { ok: false, reason: 'unsupported-tier' };
+    if (totpRes.status !== 0) return { ok: false, reason: 'unsupported-tier', scope: found.scope, host: found.host };
     return { ok: true, value: totpRes.stdout.trim(), scope: found.scope, host: found.host };
   }
   const wantField = field === 'username' ? 'username' : 'password';
   const valRes = runBw(['get', wantField, found.item.id], { session: agent.session });
-  if (valRes.status !== 0) return { ok: false, reason: 'locked' };
+  if (valRes.status !== 0) return { ok: false, reason: 'locked', scope: found.scope, host: found.host };
   return { ok: true, value: valRes.stdout.trim(), scope: found.scope, host: found.host };
 }
 
@@ -7006,19 +7090,21 @@ function secretAgentRequest(op, payload = {}, timeoutMs = 3000) {
   });
 }
 
+// Returns true once the agent is reachable, false if it could not be started.
+// Callers in a server context must NOT exit the process on false; CLI callers
+// check the return and exit themselves.
 async function ensureSecretAgentRunning() {
   const probe = await secretAgentRequest('status', {}, 500);
-  if (probe.ok) return;
+  if (probe.ok) return true;
   if (process.platform !== 'win32') { try { fs.unlinkSync(secretAgentSocketPath()); } catch {} }
   const child = spawn(process.execPath, [process.argv[1], '--secret-agent'], { detached: true, stdio: 'ignore' });
   child.unref();
   for (let i = 0; i < 30; i++) {
     await sleep(100);
     const ready = await secretAgentRequest('status', {}, 500);
-    if (ready.ok) return;
+    if (ready.ok) return true;
   }
-  console.error('secret-agent process failed to start.');
-  process.exit(1);
+  return false;
 }
 
 async function requireUnlockedSession() {
@@ -7035,18 +7121,64 @@ async function requireUnlockedSession() {
 // simply dying — including on reboot. Nothing here ever touches disk.
 
 async function startSecretAgent() {
-  const state = { session: null, unlockedAt: 0, ttlMs: 0, exitTimer: null };
+  // Vault-unlock state (existing) plus, for the dashboard/app surface, three
+  // memory-only token stores — all evaporate with the process, nothing on
+  // disk. editSessions = presence-proofed "manage mode" tokens (~15 min);
+  // approvals = single-use launch tokens minted by TTY `secret approve`;
+  // consents = single-use per-action "expose" grants (~2 min) for reveal/TOTP.
+  const state = {
+    session: null, unlockedAt: 0, ttlMs: 0, exitTimer: null,
+    editSessions: new Map(),  // token -> { createdAt, ttlMs }
+    approvals: new Map(),     // token -> { createdAt, ttlMs, used }
+    consents: new Map(),      // token -> { action, host, field, createdAt, ttlMs, used }
+  };
+
+  function newToken() { return crypto.randomBytes(32).toString('base64url'); }
 
   function evict() {
+    // Clears the vault session only (lazy-invalidation / vault TTL). Presence
+    // proofs (editSessions/consents) are a separate lifetime — see `lock`.
     state.session = null;
     state.unlockedAt = 0;
     state.ttlMs = 0;
-    if (state.exitTimer) { clearTimeout(state.exitTimer); state.exitTimer = null; }
   }
 
-  function scheduleExit(ttlMs) {
-    if (state.exitTimer) clearTimeout(state.exitTimer);
-    state.exitTimer = setTimeout(() => cleanupAndExit(), ttlMs);
+  function lockAll() {
+    // `secret lock`: end everything — vault session AND every presence proof.
+    evict();
+    state.editSessions.clear();
+    state.approvals.clear();
+    state.consents.clear();
+  }
+
+  function purgeExpired() {
+    const now = Date.now();
+    if (state.session && (state.unlockedAt + state.ttlMs - now) <= 0) evict();
+    for (const [t, s] of state.editSessions) if ((s.createdAt + s.ttlMs - now) <= 0) state.editSessions.delete(t);
+    for (const [t, a] of state.approvals) if (a.used || (a.createdAt + a.ttlMs - now) <= 0) state.approvals.delete(t);
+    for (const [t, c] of state.consents) if (c.used || (c.createdAt + c.ttlMs - now) <= 0) state.consents.delete(t);
+  }
+
+  // Event-driven lifecycle: the agent lives while it holds ANYTHING (vault
+  // session or any live proof), and exits shortly after the last hold expires
+  // — so a reboot/crash still evaporates every secret, and an idle agent with
+  // nothing to guard never lingers.
+  function rescheduleExit() {
+    if (state.exitTimer) { clearTimeout(state.exitTimer); state.exitTimer = null; }
+    purgeExpired();
+    const now = Date.now();
+    const times = [];
+    if (state.session) times.push(state.unlockedAt + state.ttlMs - now);
+    for (const s of state.editSessions.values()) times.push(s.createdAt + s.ttlMs - now);
+    for (const a of state.approvals.values()) if (!a.used) times.push(a.createdAt + a.ttlMs - now);
+    for (const c of state.consents.values()) if (!c.used) times.push(c.createdAt + c.ttlMs - now);
+    if (!times.length) {
+      state.exitTimer = setTimeout(() => cleanupAndExit(), 20);
+      if (typeof state.exitTimer.unref === 'function') state.exitTimer.unref();
+      return;
+    }
+    const next = Math.max(0, Math.min(...times)) + 5;
+    state.exitTimer = setTimeout(() => rescheduleExit(), next);
     if (typeof state.exitTimer.unref === 'function') state.exitTimer.unref();
   }
 
@@ -7057,13 +7189,22 @@ async function startSecretAgent() {
     return { unlocked: true, ttlRemainingMs: remaining };
   }
 
+  function sessionInfo(token) {
+    purgeExpired();
+    const s = state.editSessions.get(String(token || ''));
+    if (!s) return { valid: false, ttlRemainingMs: 0 };
+    return { valid: true, ttlRemainingMs: Math.max(0, s.createdAt + s.ttlMs - Date.now()) };
+  }
+
   function handleRequest(msg) {
     if (!msg || typeof msg !== 'object') return { ok: false, reason: 'bad-request' };
+
+    // ---- vault-unlock ops (existing) ----
     if (msg.op === 'unlock') {
       state.session = String(msg.session || '');
       state.unlockedAt = Date.now();
       state.ttlMs = Number(msg.ttlMs) || DEFAULT_SECRET_TTL_MS;
-      scheduleExit(state.ttlMs);
+      rescheduleExit();
       return { ok: true, ...statusInfo() };
     }
     if (msg.op === 'get') {
@@ -7071,12 +7212,94 @@ async function startSecretAgent() {
       if (!info.unlocked) return { ok: false, reason: 'locked' };
       return { ok: true, session: state.session, ttlRemainingMs: info.ttlRemainingMs };
     }
-    if (msg.op === 'status') return { ok: true, ...statusInfo() };
-    if (msg.op === 'evict' || msg.op === 'lock') {
+    if (msg.op === 'status') {
+      purgeExpired();
+      return { ok: true, ...statusInfo(), editSessions: state.editSessions.size };
+    }
+    if (msg.op === 'evict') {
+      // Vault-only clear (lazy invalidation). Presence proofs survive.
       evict();
-      setTimeout(() => cleanupAndExit(), 20);
+      rescheduleExit();
       return { ok: true, unlocked: false };
     }
+    if (msg.op === 'lock') {
+      // `secret lock`: revoke the vault AND every edit session / consent.
+      lockAll();
+      rescheduleExit();
+      return { ok: true, unlocked: false };
+    }
+
+    // ---- manage edit-session ops (presence-proofed) ----
+    // mint-session is called by the server/app ONLY after a presence proof it
+    // has itself observed (Hello, native app-proof, or an exchanged launch
+    // token). The agent trusts its local same-uid caller for the mint itself;
+    // the proof that gates the mint lives at the calling door.
+    if (msg.op === 'mint-session') {
+      const token = newToken();
+      const ttlMs = Number(msg.ttlMs) || DEFAULT_EDIT_SESSION_TTL_MS;
+      state.editSessions.set(token, { createdAt: Date.now(), ttlMs });
+      rescheduleExit();
+      return { ok: true, token, ttlRemainingMs: ttlMs };
+    }
+    if (msg.op === 'validate-session') {
+      const info = sessionInfo(msg.token);
+      return { ok: true, valid: info.valid, ttlRemainingMs: info.ttlRemainingMs };
+    }
+    if (msg.op === 'revoke-session') {
+      state.editSessions.delete(String(msg.token || ''));
+      rescheduleExit();
+      return { ok: true };
+    }
+
+    // ---- launch-token fallback ops ----
+    if (msg.op === 'register-approval') {
+      const token = String(msg.token || '');
+      if (!token) return { ok: false, reason: 'bad-request' };
+      state.approvals.set(token, { createdAt: Date.now(), ttlMs: Number(msg.ttlMs) || DEFAULT_APPROVAL_TTL_MS, used: false });
+      rescheduleExit();
+      return { ok: true };
+    }
+    if (msg.op === 'exchange-approval') {
+      purgeExpired();
+      const token = String(msg.token || '');
+      const appr = state.approvals.get(token);
+      if (!appr || appr.used) return { ok: false, reason: 'invalid-approval' };
+      appr.used = true;
+      state.approvals.delete(token);
+      const sessionToken = newToken();
+      const ttlMs = Number(msg.sessionTtlMs) || DEFAULT_EDIT_SESSION_TTL_MS;
+      state.editSessions.set(sessionToken, { createdAt: Date.now(), ttlMs });
+      rescheduleExit();
+      return { ok: true, token: sessionToken, ttlRemainingMs: ttlMs };
+    }
+
+    // ---- expose per-action consent ops (D-26) ----
+    // A consent is minted only after a FRESH proof and is single-use, so an
+    // open manage session (or a stolen session cookie) can never, by itself,
+    // reveal a value.
+    if (msg.op === 'mint-consent') {
+      const token = newToken();
+      state.consents.set(token, {
+        action: String(msg.action || ''), host: msg.host ? String(msg.host) : null,
+        field: msg.field ? String(msg.field) : null,
+        createdAt: Date.now(), ttlMs: Number(msg.ttlMs) || DEFAULT_CONSENT_TTL_MS, used: false,
+      });
+      rescheduleExit();
+      return { ok: true, token, ttlRemainingMs: Number(msg.ttlMs) || DEFAULT_CONSENT_TTL_MS };
+    }
+    if (msg.op === 'consume-consent') {
+      purgeExpired();
+      const token = String(msg.token || '');
+      const c = state.consents.get(token);
+      if (!c || c.used) return { ok: false, reason: 'consent-required' };
+      if (String(msg.action || '') !== c.action) return { ok: false, reason: 'consent-mismatch' };
+      if (c.host && msg.host && String(msg.host) !== c.host) return { ok: false, reason: 'consent-mismatch' };
+      c.used = true;
+      state.consents.delete(token);
+      rescheduleExit();
+      return { ok: true };
+    }
+
     return { ok: false, reason: 'unknown-op' };
   }
 
@@ -7150,7 +7373,7 @@ async function cmdSecretUnlock() {
   process.stderr.write('Unlocking Bitwarden vault (bw will prompt for your master password)...\n');
   // stdin/stderr inherited so `bw` itself owns the master-password prompt —
   // chromux never reads or stores it, only captures the printed session key.
-  const res = spawnSync('bw', ['unlock', '--raw'], { stdio: ['inherit', 'pipe', 'inherit'], encoding: 'utf8' });
+  const res = spawnSync(bwBinary(), ['unlock', '--raw'], { stdio: ['inherit', 'pipe', 'inherit'], encoding: 'utf8' });
   if (res.error || res.status !== 0) {
     console.error('bw unlock failed. If you are not logged in yet, run `bw login` first.');
     process.exit(1);
@@ -7158,7 +7381,7 @@ async function cmdSecretUnlock() {
   const session = (res.stdout || '').trim();
   if (!session) { console.error('bw unlock did not return a session key.'); process.exit(1); }
   const policy = loadSecretPolicy();
-  await ensureSecretAgentRunning();
+  if (!(await ensureSecretAgentRunning())) { console.error('secret-agent process failed to start.'); process.exit(1); }
   const ttlMs = secretTtlMs(policy);
   const reply = await secretAgentRequest('unlock', { session, ttlMs });
   if (!reply.ok) { console.error('Failed to hand the session to the secret-agent process.'); process.exit(1); }
@@ -7166,14 +7389,15 @@ async function cmdSecretUnlock() {
 }
 
 async function cmdSecretLock() {
-  await secretAgentRequest('evict', {}, 1000);
+  await secretAgentRequest('lock', {}, 1000);
   console.log(JSON.stringify({ ok: true, locked: true }, null, 2));
 }
 
 async function cmdSecretStatus() {
   const agent = await secretAgentRequest('status', {}, 1000);
-  if (!agent.ok) { console.log(JSON.stringify({ ok: true, unlocked: false }, null, 2)); return; }
-  console.log(JSON.stringify({ ok: true, unlocked: !!agent.unlocked, ttlRemainingMs: agent.ttlRemainingMs ?? null }, null, 2));
+  const optedIn = isSecretStoreOptedIn();
+  if (!agent.ok) { console.log(JSON.stringify({ ok: true, unlocked: false, optedIn }, null, 2)); return; }
+  console.log(JSON.stringify({ ok: true, unlocked: !!agent.unlocked, ttlRemainingMs: agent.ttlRemainingMs ?? null, optedIn }, null, 2));
 }
 
 async function cmdSecretSet(args) {
@@ -7198,21 +7422,12 @@ async function cmdSecretSet(args) {
     if (seed) totp = seed;
   }
 
-  const name = secretItemName(scope, host);
-  const existing = findBwItemByExactName(name, session);
-  const item = {
-    type: 1,
-    name,
-    login: { username: user, password, ...(totp ? { totp } : {}), uris: [{ uri: `https://${host}` }] },
-  };
-  const encodeRes = runBw(['encode'], { input: JSON.stringify(item) });
-  if (encodeRes.status !== 0) { console.error('bw encode failed.'); process.exit(1); }
-  const encoded = encodeRes.stdout.trim();
-  const writeRes = existing
-    ? runBw(['edit', 'item', existing.id], { input: encoded, session })
-    : runBw(['create', 'item'], { input: encoded, session });
-  if (writeRes.status !== 0) { printSecretFailure('locked'); process.exit(1); }
-  console.log(JSON.stringify({ ok: true, host, scope, updated: !!existing }, null, 2));
+  const written = writeSecretItem({ scope, host, user, password, totp, session });
+  if (!written.ok) {
+    if (written.reason === 'encode-failed') { console.error('bw encode failed.'); process.exit(1); }
+    printSecretFailure('locked'); process.exit(1);
+  }
+  console.log(JSON.stringify({ ok: true, host, scope, updated: written.updated }, null, 2));
 }
 
 async function cmdSecretRm(args) {
@@ -7223,28 +7438,31 @@ async function cmdSecretRm(args) {
   const scope = profileFlag ? validateName(profileFlag) : 'global';
   ensureBwCli();
   const session = await requireUnlockedSession();
-  const name = secretItemName(scope, host);
-  const found = findBwItemByExactName(name, session);
-  if (!found) { console.log(JSON.stringify({ ok: false, host, scope, removed: false, reason: 'not-found' }, null, 2)); process.exit(1); }
-  const del = runBw(['delete', 'item', found.id], { session });
-  console.log(JSON.stringify({ ok: del.status === 0, host, scope, removed: del.status === 0 }, null, 2));
+  const removed = removeSecretItem({ scope, host, session });
+  if (!removed.ok && removed.reason === 'not-found') { console.log(JSON.stringify({ ok: false, host, scope, removed: false, reason: 'not-found' }, null, 2)); process.exit(1); }
+  console.log(JSON.stringify({ ok: removed.ok, host, scope, removed: removed.ok }, null, 2));
 }
 
-async function cmdSecretList() {
+async function cmdSecretList(args = []) {
+  // `secret list --history` is an observe-tier read of the agent's own usage
+  // events. It must work while the vault is LOCKED (D-08/R6): it only reads
+  // the activity log (a pure file read), never the vault.
+  if (args.includes('--history')) {
+    const json = args.includes('--json');
+    const events = readSecretResolveHistory();
+    if (json) { console.log(JSON.stringify({ ok: true, events }, null, 2)); return; }
+    if (!events.length) { console.log('No secret usage recorded yet.'); return; }
+    for (const ev of events) {
+      const when = new Date(ev.timestamp).toISOString();
+      console.log(`${when}  ${ev.host || '(unknown)'}  (${ev.scope || '-'})  ${ev.field || 'password'}  -> ${ev.outcome}`);
+    }
+    return;
+  }
   ensureBwCli();
   const session = await requireUnlockedSession();
-  const res = runBw(['list', 'items', '--search', 'chromux/'], { session });
-  if (res.status !== 0) { printSecretFailure('locked'); process.exit(1); }
-  let items = [];
-  try { items = JSON.parse(res.stdout); } catch {}
-  const entries = items
-    .filter(item => typeof item.name === 'string' && item.name.startsWith('chromux/'))
-    .map(item => {
-      const [, scope, ...hostParts] = item.name.split('/');
-      return { scope, host: hostParts.join('/') };
-    })
-    .filter(entry => entry.host)
-    .sort((a, b) => a.host.localeCompare(b.host) || a.scope.localeCompare(b.scope));
+  const listed = listSecretEntries(session);
+  if (!listed.ok) { printSecretFailure('locked'); process.exit(1); }
+  const entries = listed.entries;
   if (!entries.length) {
     console.log('No secrets registered yet. Add one: chromux secret set <host> --user <username>');
     return;
@@ -7288,7 +7506,7 @@ async function cmdSecretGet(args) {
 }
 
 async function cmdSecret(args) {
-  const usage = 'Usage: chromux secret <unlock|lock|status|set|rm|list|get> ...';
+  const usage = 'Usage: chromux secret <unlock|lock|status|set|rm|list|get|optin|optout|approve> ...';
   const sub = args[0];
   const rest = args.slice(1);
   if (sub === 'unlock') return cmdSecretUnlock();
@@ -7296,11 +7514,727 @@ async function cmdSecret(args) {
   if (sub === 'status') return cmdSecretStatus();
   if (sub === 'set') return cmdSecretSet(rest);
   if (sub === 'rm') return cmdSecretRm(rest);
-  if (sub === 'list') return cmdSecretList();
+  if (sub === 'list') return cmdSecretList(rest);
   if (sub === 'get') return cmdSecretGet(rest);
+  if (sub === 'optin') return cmdSecretOptIn(rest);
+  if (sub === 'optout') return cmdSecretOptOut(rest);
+  if (sub === 'approve') return cmdSecretApprove(rest);
   console.error(`Unknown secret subcommand: ${sub || '(none)'}`);
   console.error(usage);
   process.exit(1);
+}
+
+// ============================================================
+// Secret store dashboard/app management surface (opt-in add-on)
+//
+// Everything below extends the CLI-only secret store (above) with an app/
+// dashboard management surface. The governing rule is a PRESENCE-PROOF
+// boundary, not an interface boundary: privileges are tiered use / observe /
+// manage / expose and are identical through every door (CLI, dashboard HTTP,
+// native app). No new door grants an agent anything it cannot already do from
+// the CLI. All vault access still funnels through runBw/resolveSecretItem/
+// resolveSecretField (no parallel vault path). See
+// agents/prd/chromux-secret-dashboard/prd.md.
+// ============================================================
+
+// ---- opt-in gating (R0/D-27): the whole surface is dormant by default ----
+
+function isSecretStoreOptedIn() {
+  const cfg = loadConfig();
+  return !!(cfg && cfg.secretStore && cfg.secretStore.optedIn === true);
+}
+
+function setSecretStoreOptedIn(enabled) {
+  const cfg = loadConfig();
+  cfg.secretStore = { ...(cfg.secretStore || {}), optedIn: !!enabled };
+  saveConfig(cfg);
+  return isSecretStoreOptedIn();
+}
+
+async function cmdSecretOptIn() {
+  const optedIn = setSecretStoreOptedIn(true);
+  console.log(JSON.stringify({ ok: true, optedIn }, null, 2));
+}
+
+async function cmdSecretOptOut() {
+  const optedIn = setSecretStoreOptedIn(false);
+  console.log(JSON.stringify({ ok: true, optedIn }, null, 2));
+}
+
+// ---- usage history (R6/D-15): `secret-resolve` activity events ----
+//
+// Every credential resolution (fill --secret, secret get) appends one event
+// with host/scope/field/outcome/timestamp — NEVER the value. Read-back is a
+// pure activity-log file read, so it works while the vault is LOCKED (D-08).
+
+function emitSecretResolveEvent({ host, scope, field, ok, outcome, profile }) {
+  try {
+    appendActivityEvent({
+      command: 'secret-resolve',
+      host: host || null,
+      ok: !!ok,
+      error: ok ? null : (outcome || 'error'),
+      context: { scope: scope || null, field: field || 'password', outcome: outcome || (ok ? 'ok' : 'error'), profile: profile || null },
+    });
+  } catch {}
+}
+
+function readSecretResolveHistory(limit = 200) {
+  let events = [];
+  try { events = readActivityEvents({ prune: false }); } catch { events = []; }
+  const out = [];
+  for (const ev of events) {
+    if (!ev || ev.command !== 'secret-resolve') continue;
+    const ctx = ev.context || {};
+    out.push({
+      timestamp: ev.timestamp,
+      host: ev.host || null,
+      scope: ctx.scope || null,
+      field: ctx.field || 'password',
+      outcome: ctx.outcome || (ev.ok ? 'ok' : 'error'),
+      ok: !!ev.ok,
+    });
+  }
+  out.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  return out.slice(0, limit);
+}
+
+// ---- launch-token fallback (R2/D-18/D-19): `chromux secret approve` ----
+//
+// The universal fallback when no native OS consent is available (Hello absent,
+// headless, a browser on macOS). It is TTY-gated — only a human at a terminal
+// can run it — so a co-resident agent cannot mint an edit session this way.
+// It registers a single-use token with the secret-agent (~60 s unused expiry)
+// and opens the dashboard, which exchanges the token (once) for a session and
+// strips it from the URL.
+
+function probeHttpOk(url, timeoutMs = 600) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    try {
+      const req = http.get(url, (res) => {
+        res.resume();
+        finish(res.statusCode >= 200 && res.statusCode < 500);
+      });
+      req.setTimeout(timeoutMs, () => { try { req.destroy(); } catch {} finish(false); });
+      req.on('error', () => finish(false));
+    } catch { finish(false); }
+  });
+}
+
+// Read exactly one line from this process's stdin (the private pipe from a
+// parent that spawned us), for the native-macOS app-proof handshake.
+function readOneStdinLine(timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let buf = '';
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; try { process.stdin.pause(); } catch {} resolve(v); } };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    try {
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (c) => {
+        buf += c;
+        const i = buf.indexOf('\n');
+        if (i !== -1) { clearTimeout(timer); finish(buf.slice(0, i).trim() || null); }
+      });
+      process.stdin.on('error', () => { clearTimeout(timer); finish(null); });
+      process.stdin.resume();
+    } catch { clearTimeout(timer); finish(null); }
+  });
+}
+
+async function ensureStatusAppRunning(port, host = '127.0.0.1') {
+  const stateUrl = `http://${host}:${port}/api/state`;
+  if (await probeHttpOk(stateUrl)) return true;
+  const child = spawn(process.execPath, [process.argv[1], 'app', '--host', host, '--port', String(port)], { detached: true, stdio: 'ignore' });
+  child.unref();
+  for (let i = 0; i < 40; i++) {
+    await sleep(150);
+    if (await probeHttpOk(stateUrl)) return true;
+  }
+  return false;
+}
+
+async function cmdSecretApprove(args = []) {
+  requireTTY('secret approve');
+  const portValue = takeFlagValue(args, '--port');
+  const port = portValue ? Number(portValue) : 9340;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) { console.error('Invalid --port'); process.exit(1); }
+  if (!(await ensureSecretAgentRunning())) { console.error('secret-agent process failed to start.'); process.exit(1); }
+  const token = crypto.randomBytes(32).toString('base64url');
+  const reply = await secretAgentRequest('register-approval', { token, ttlMs: DEFAULT_APPROVAL_TTL_MS });
+  if (!reply.ok) { console.error('Failed to register the approval with the secret-agent.'); process.exit(1); }
+  const running = await ensureStatusAppRunning(port);
+  if (!running) {
+    console.error(`Could not reach or start the chromux status app on 127.0.0.1:${port}.`);
+    console.error('Start it yourself with `chromux app` and retry, or pass --port.');
+    process.exit(1);
+  }
+  const url = `http://127.0.0.1:${port}/?approve=${token}`;
+  console.log(JSON.stringify({
+    ok: true,
+    approve: true,
+    url,
+    expiresInSeconds: Math.round(DEFAULT_APPROVAL_TTL_MS / 1000),
+    next: 'opening the dashboard; the edit session opens there. If the browser did not open, paste the url above.',
+  }, null, 2));
+  try { openExternal(url); } catch {}
+}
+
+// ---- bw binary resolution (wizard-installed absolute path wins) ----
+//
+// A wizard-installed, checksum-verified binary at ~/.chromux/bin is used by
+// absolute path (G8). Otherwise fall back to a PATH `bw` (a manual brew/npm/
+// winget install, or the test mock injected via PATH).
+function bwBinary() {
+  const name = process.platform === 'win32' ? 'bw.exe' : 'bw';
+  const pinned = path.join(CHROMUX_HOME, 'bin', name);
+  try { if (fs.existsSync(pinned)) return pinned; } catch {}
+  return 'bw';
+}
+
+// ============================================================
+// Secret dashboard/app HTTP API (`/api/secrets/*`)
+//
+// The status app has no auth/origin/CSRF on any other route (trusted-local).
+// This is its first auth-differentiated boundary, so it is self-contained and
+// fails closed: every route declares a tier, and the origin control is a
+// same-origin loopback allowlist PLUS a load-bearing custom header — NOT
+// bridgeOriginAllowed (which allows header-less requests and would reject the
+// dashboard's own loopback POSTs). See R7/G5/D-29.
+// ============================================================
+
+// Load-bearing CSRF control: a header a cross-site page cannot set without a
+// CORS preflight we never grant. Combined with a same-origin loopback Origin
+// allowlist. A missing header, or a present-but-non-loopback Origin, is denied.
+function secretRequestAllowed(req) {
+  if (req.headers['x-chromux-secret'] !== '1') return false;
+  const origin = req.headers.origin;
+  if (origin && !isLoopbackOrigin(origin)) return false;
+  return true;
+}
+
+function isLoopbackOrigin(origin) {
+  try {
+    const u = new URL(String(origin));
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const h = u.hostname.replace(/^\[|\]$/g, '');
+    return h === '127.0.0.1' || h === 'localhost' || h === '::1';
+  } catch { return false; }
+}
+
+function timingSafeEqualStr(a, b) {
+  const ba = Buffer.from(String(a || ''), 'utf8');
+  const bb = Buffer.from(String(b || ''), 'utf8');
+  if (ba.length !== bb.length || ba.length === 0) return false;
+  try { return crypto.timingSafeEqual(ba, bb); } catch { return false; }
+}
+
+// A session travels as an auth header (native app path — D-25) OR an httpOnly
+// cookie (browser path). Never both required; either identifies the session.
+function extractSecretSession(req) {
+  const h = req.headers['x-chromux-secret-session'];
+  if (h) return String(h);
+  const cookie = req.headers.cookie || '';
+  const m = cookie.match(/(?:^|;\s*)chromux_secret_session=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+function secretSessionCookie(token, maxAgeSec) {
+  return `chromux_secret_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSec}`;
+}
+function clearSecretSessionCookie() {
+  return 'chromux_secret_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0';
+}
+
+function sendSecretJson(res, status, value, cookie) {
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' };
+  if (cookie) headers['Set-Cookie'] = cookie;
+  res.writeHead(status, headers);
+  res.end(JSON.stringify(value, null, 2));
+}
+
+const SECRET_HINTS = {
+  'origin-or-header': 'this endpoint requires the chromux dashboard (same-origin request with the X-Chromux-Secret header)',
+  'no-session': 'enter edit mode first: Touch ID / Windows Hello, or run `chromux secret approve` in a terminal',
+  'consent-required': 'reveal/TOTP need a fresh confirmation each time: Touch ID / Windows Hello, or `chromux secret get --reveal` in a terminal',
+  'consent-unavailable': 'no native confirmation is available here; run `chromux secret approve` (edit mode) or `chromux secret get --reveal` (to reveal) in a terminal',
+  'consent-denied': 'the confirmation was denied; try again, or use a terminal',
+  'untiered': 'this route is not permitted',
+  'locked': 'the vault is locked — unlock it first',
+  'not-found': 'no stored credential for this host',
+};
+function secretDenial(reason, extra = {}) {
+  return { ok: false, secret: reason, next: SECRET_HINTS[reason] || 'presence proof required', ...extra };
+}
+
+// ---- presence-proof providers ----
+//
+// Every session/consent mint is anchored to something a co-resident autonomous
+// agent cannot produce: a server-observed OS consent (Hello), an app-only
+// private-pipe key (native macOS, the app having just done Touch ID), a
+// TTY-registered launch token, or (tests only) the env-gated bypass.
+async function performPresenceProof({ proof, reason, req }) {
+  if (proof === 'test') {
+    if (isSecretTestProofEnabled()) return { ok: true, via: 'test' };
+    return { ok: false, reason: 'consent-unavailable', next: 'the test proof hook is disabled outside an isolated test run' };
+  }
+  if (proof === 'native-macos') {
+    const provided = req && req.headers ? req.headers['x-chromux-app-proof'] : null;
+    if (SECRET_APP_PROOF_KEY && provided && timingSafeEqualStr(provided, SECRET_APP_PROOF_KEY)) return { ok: true, via: 'native-macos' };
+    return { ok: false, reason: 'consent-unavailable', next: 'the native app proof is unavailable; use `chromux secret approve`' };
+  }
+  if (proof === 'windows-hello') {
+    return await windowsHelloConsent(reason || 'chromux secret edit mode');
+  }
+  return { ok: false, reason: 'consent-unavailable' };
+}
+
+// Windows Hello via PowerShell 5.1 + WinRT UserConsentVerifier with owner-
+// window interop (D-29). Version-sensitive and Windows-only, so it ships
+// code-complete-but-unverified (HV4) with a structured consent-unavailable
+// fallback everywhere else. A mock hook drives it in the automated suite.
+async function windowsHelloConsent(reason) {
+  const mock = process.env.CHROMUX_HELLO_MOCK;
+  if (mock) {
+    if (mock === 'approve') return { ok: true, via: 'windows-hello' };
+    if (mock === 'deny') return { ok: false, reason: 'consent-denied' };
+    return { ok: false, reason: 'consent-unavailable' };
+  }
+  if (process.platform !== 'win32') return { ok: false, reason: 'consent-unavailable' };
+  // WinRT projection is built into Windows PowerShell 5.1 (this shells to
+  // `powershell.exe`, pinned to 5.1); PowerShell 7+ removed it and would need
+  // CsWinRT. Availability is a 6-state enum, not a boolean. A desktop caller
+  // must foreground the prompt via the owner-window interop
+  // (RequestVerificationForWindowAsync) or it can appear behind / fail — so we
+  // invoke the interop with the console window handle, and only fall back to
+  // the window-less RequestVerificationAsync if the interop is unavailable.
+  // This whole path stays HV4-unverified until smoke-tested on real Windows;
+  // any failure returns a structured consent-unavailable, and the launch-token
+  // fallback keeps the user unblocked. See D-29.
+  const script = `
+$ErrorActionPreference = 'Stop'
+try {
+  [void][Windows.Security.Credentials.UI.UserConsentVerifier,Windows.Security.Credentials.UI,ContentType=WindowsRuntime]
+  Add-Type -AssemblyName System.Runtime.WindowsRuntime -ErrorAction SilentlyContinue
+  $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | ? { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation\`1' })[0]
+  function Await($op, $resultType) {
+    $task = $asTaskGeneric.MakeGenericMethod($resultType).Invoke($null, @($op))
+    $task.Wait(60000) | Out-Null
+    return $task.Result
+  }
+  $availType = [Windows.Security.Credentials.UI.UserConsentVerifierAvailability]
+  $checkAvail = [Windows.Security.Credentials.UI.UserConsentVerifier].GetMethod('CheckAvailabilityAsync')
+  $avail = Await ($checkAvail.Invoke($null, @())) ([Windows.Security.Credentials.UI.UserConsentVerifierAvailability])
+  # 6-state availability: anything other than Available is a structured skip.
+  if ($avail -ne $availType::Available) { Write-Output ('UNAVAILABLE:' + $avail); exit 0 }
+  $resultRuntimeType = [Windows.Security.Credentials.UI.UserConsentVerificationResult]
+  Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices;
+public static class ConsoleWin { [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }
+[ComImport, Guid("39E050C3-4E74-441A-8DC0-B1104DF949AC"), InterfaceType(ComInterfaceType.InterfaceIsIInspectable)]
+public interface IUserConsentVerifierInterop { IntPtr RequestVerificationForWindowAsync(IntPtr appWindow, [MarshalAs(UnmanagedType.HString)] string message, ref Guid riid); }
+"@ -ReferencedAssemblies System.Runtime.InteropServices -ErrorAction SilentlyContinue
+  $hwnd = [ConsoleWin]::GetConsoleWindow()
+  [void][ConsoleWin]::SetForegroundWindow($hwnd)
+  $result = $null
+  try {
+    # Primary: owner-window interop so the prompt is foreground (D-29).
+    $factory = [System.WindowsRuntimeSystemExtensions].Assembly.GetType('System.Runtime.InteropServices.WindowsRuntime.IActivationFactory')
+    $interop = [System.Runtime.InteropServices.Marshal]::GetActivationFactory([Windows.Security.Credentials.UI.UserConsentVerifier]) -as [IUserConsentVerifierInterop]
+    $iid = [Guid]'FE8C6B80-E93B-5CF3-A1C9-1AC2A3D40B62'
+    $opPtr = $interop.RequestVerificationForWindowAsync($hwnd, ${JSON.stringify(reason)}, [ref]$iid)
+    $op = [System.Runtime.InteropServices.Marshal]::GetObjectForIUnknown($opPtr)
+    $result = Await $op $resultRuntimeType
+  } catch {
+    # Fallback: window-less request (still foregrounded above).
+    $result = Await ([Windows.Security.Credentials.UI.UserConsentVerifier]::RequestVerificationAsync(${JSON.stringify(reason)})) $resultRuntimeType
+  }
+  Write-Output ('RESULT:' + $result)
+} catch { Write-Output ('ERROR:' + $_.Exception.Message) }
+`;
+  return await new Promise((resolve) => {
+    let out = '';
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { stdio: ['ignore', 'pipe', 'ignore'] });
+    child.stdout.on('data', (c) => { out += c.toString('utf8'); });
+    child.on('error', () => finish({ ok: false, reason: 'consent-unavailable' }));
+    child.on('close', () => {
+      const text = out.trim();
+      if (/RESULT:Verified/i.test(text)) return finish({ ok: true, via: 'windows-hello' });
+      if (/RESULT:(Canceled|RetriesExhausted)/i.test(text)) return finish({ ok: false, reason: 'consent-denied' });
+      return finish({ ok: false, reason: 'consent-unavailable' });
+    });
+    setTimeout(() => { try { child.kill(); } catch {} finish({ ok: false, reason: 'consent-unavailable' }); }, 65000);
+  });
+}
+
+// ---- vault helpers used by the API (single-sourced through runBw etc.) ----
+
+async function getVaultSession() {
+  const a = await secretAgentRequest('get');
+  return a.ok ? a.session : null;
+}
+
+// The R4/R10 sanctioned exception: the master password transits a local HTTP
+// body into `bw` stdin, never argv/log/disk/state. Piped (not inherited) so
+// the server can capture the raw session for the agent.
+function unlockVaultPiped(masterPassword) {
+  const res = spawnSync(bwBinary(), ['unlock', '--raw'], { input: String(masterPassword), encoding: 'utf8', env: { ...process.env } });
+  if (res.error || res.status !== 0) return { ok: false };
+  const session = (res.stdout || '').trim();
+  if (!session) return { ok: false };
+  return { ok: true, session };
+}
+
+// ============================================================
+// Setup wizard backend (R10/D-24): checksum-verified binary + bw login
+// ============================================================
+
+// Pinned official Bitwarden CLI release per platform. sha256 is compared
+// DIRECTLY against the download (the published checksums file has trailing-
+// whitespace issues that break `sha256sum -c`, D-29). Empty pin => the wizard
+// refuses (fails closed, G8). Tests override via env with a local fixture.
+const BW_RELEASE_PINS = {
+  darwin: { version: 'cli-v2024.9.0', url: '', sha256: '' },
+  win32: { version: 'cli-v2024.9.0', url: '', sha256: '' },
+  linux: { version: 'cli-v2024.9.0', url: '', sha256: '' },
+};
+function resolveBwPin() {
+  if (process.env.CHROMUX_BW_RELEASE_URL && process.env.CHROMUX_BW_RELEASE_SHA256) {
+    return { url: process.env.CHROMUX_BW_RELEASE_URL, sha256: process.env.CHROMUX_BW_RELEASE_SHA256, version: 'test-fixture' };
+  }
+  return BW_RELEASE_PINS[process.platform] || { url: '', sha256: '' };
+}
+
+function sha256File(file) {
+  const hash = crypto.createHash('sha256');
+  hash.update(fs.readFileSync(file));
+  return hash.digest('hex');
+}
+
+// TLS-only in production; the fixture test server may be plain http on
+// loopback. Follows GitHub->S3 redirects.
+function httpDownload(url, destFile, redirects = 5) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const mod = url.startsWith('https:') ? https : http;
+    const req = mod.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
+        res.resume();
+        const next = new URL(res.headers.location, url).toString();
+        return finish(httpDownload(next, destFile, redirects - 1));
+      }
+      if (res.statusCode !== 200) { res.resume(); return finish({ ok: false }); }
+      const out = fs.createWriteStream(destFile);
+      res.pipe(out);
+      out.on('finish', () => out.close(() => finish({ ok: true })));
+      out.on('error', () => finish({ ok: false }));
+    });
+    req.on('error', () => finish({ ok: false }));
+    req.setTimeout(60000, () => { try { req.destroy(); } catch {} finish({ ok: false }); });
+  });
+}
+
+function extractBwFromZip(zipFile, destDir) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bw-extract-'));
+  try {
+    let res;
+    if (process.platform === 'win32') {
+      res = spawnSync('powershell.exe', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath ${JSON.stringify(zipFile)} -DestinationPath ${JSON.stringify(tmpDir)} -Force`], { encoding: 'utf8' });
+    } else {
+      res = spawnSync('unzip', ['-o', '-q', zipFile, '-d', tmpDir], { encoding: 'utf8' });
+    }
+    if (res.error || res.status !== 0) return { ok: false };
+    const wantName = process.platform === 'win32' ? 'bw.exe' : 'bw';
+    let found = null;
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); if (found) return; }
+        else if (entry.name === wantName) { found = full; return; }
+      }
+    };
+    walk(tmpDir);
+    if (!found) return { ok: false };
+    fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
+    const destPath = path.join(destDir, wantName);
+    fs.copyFileSync(found, destPath);
+    try { fs.chmodSync(destPath, 0o700); } catch {}
+    return { ok: true, bwPath: destPath };
+  } finally {
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+async function wizardInstallBw() {
+  const pin = resolveBwPin();
+  if (!pin.url || !pin.sha256) return secretDenial('download-failed', { next: 'the Bitwarden CLI release pin is not configured; install `bw` manually (brew/npm/winget) and retry' });
+  const tmpZip = path.join(os.tmpdir(), `bw-dl-${crypto.randomBytes(6).toString('hex')}.zip`);
+  const dl = await httpDownload(pin.url, tmpZip);
+  if (!dl.ok) { try { fs.unlinkSync(tmpZip); } catch {} return secretDenial('download-failed', { next: 'could not download the Bitwarden CLI; check your connection and retry' }); }
+  const actual = sha256File(tmpZip);
+  if (actual.toLowerCase() !== String(pin.sha256).toLowerCase()) {
+    try { fs.unlinkSync(tmpZip); } catch {}
+    // Verify-before-execute (G8): a mismatched download is deleted, never run.
+    return { ok: false, secret: 'checksum-mismatch', next: 'the downloaded Bitwarden CLI failed its integrity check and was NOT executed; retry or install bw manually' };
+  }
+  const extracted = extractBwFromZip(tmpZip, path.join(CHROMUX_HOME, 'bin'));
+  try { fs.unlinkSync(tmpZip); } catch {}
+  if (!extracted.ok) return secretDenial('download-failed', { next: 'could not extract the Bitwarden CLI archive; install bw manually' });
+  return { ok: true, bwPath: extracted.bwPath };
+}
+
+function wizardLogin({ email, masterPassword, twofa }) {
+  const args = ['login', String(email || ''), '--raw'];
+  if (twofa) args.push('--method', '0', '--code', String(twofa));
+  const res = spawnSync(bwBinary(), args, { input: String(masterPassword || ''), encoding: 'utf8', env: { ...process.env } });
+  if (res.error) return { ok: false, secret: 'login-failed', next: 'bw login could not run; is the Bitwarden CLI installed?' };
+  if (res.status !== 0) {
+    const err = (res.stderr || '') + (res.stdout || '');
+    if (/two-step|2fa|two-factor|--code|verification code/i.test(err)) return { ok: false, secret: 'twofa-required', next: 'this account needs a two-step login code; enter it and retry' };
+    if (/incorrect|invalid|bad|password/i.test(err)) return { ok: false, secret: 'login-failed', next: 'the email or master password was not accepted; check and retry' };
+    return { ok: false, secret: 'login-failed', next: 'bw login failed; verify your credentials and connection' };
+  }
+  const session = (res.stdout || '').trim();
+  return { ok: true, session: session || null };
+}
+
+async function secretSetupState() {
+  let bwInstalled = false;
+  const ver = spawnSync(bwBinary(), ['--version'], { encoding: 'utf8' });
+  bwInstalled = !ver.error && ver.status === 0;
+  let loggedIn = false;
+  if (bwInstalled) {
+    const st = spawnSync(bwBinary(), ['status'], { encoding: 'utf8' });
+    try { const j = JSON.parse(st.stdout); loggedIn = !!(j && j.status && j.status !== 'unauthenticated'); } catch {}
+  }
+  const agent = await secretAgentRequest('status', {}, 800);
+  const unlocked = !!(agent.ok && agent.unlocked);
+  return { bwInstalled, bwPath: bwInstalled ? bwBinary() : null, loggedIn, unlocked };
+}
+
+// ============================================================
+// /api/secrets/* route table + dispatcher
+// ============================================================
+
+const SECRET_ROUTES = [
+  // observe (no presence proof; nothing an agent can't already get via CLI)
+  { method: 'GET', path: '/api/secrets/state', tier: 'observe', handler: secretRouteState },
+  { method: 'GET', path: '/api/secrets/list', tier: 'observe', handler: secretRouteList },
+  { method: 'GET', path: '/api/secrets/history', tier: 'observe', handler: secretRouteHistory },
+  { method: 'GET', path: '/api/secrets/setup-state', tier: 'observe', handler: secretRouteSetupState },
+  // proof (mint an edit session; gated by the proof itself, not a prior session)
+  { method: 'POST', path: '/api/secrets/session/begin', tier: 'proof', handler: secretRouteSessionBegin },
+  { method: 'POST', path: '/api/secrets/session/exchange', tier: 'proof', handler: secretRouteSessionExchange },
+  // manage (valid edit session required)
+  { method: 'POST', path: '/api/secrets/session/revoke', tier: 'manage', handler: secretRouteSessionRevoke },
+  { method: 'POST', path: '/api/secrets/optin', tier: 'manage', handler: secretRouteOptin },
+  { method: 'POST', path: '/api/secrets/set', tier: 'manage', handler: secretRouteSet },
+  { method: 'POST', path: '/api/secrets/rm', tier: 'manage', handler: secretRouteRm },
+  { method: 'POST', path: '/api/secrets/unlock', tier: 'manage', handler: secretRouteUnlock },
+  { method: 'POST', path: '/api/secrets/consent/begin', tier: 'manage', handler: secretRouteConsentBegin },
+  { method: 'POST', path: '/api/secrets/wizard/install', tier: 'manage', handler: secretRouteWizardInstall },
+  { method: 'POST', path: '/api/secrets/wizard/login', tier: 'manage', handler: secretRouteWizardLogin },
+  // expose (valid edit session AND a fresh per-action consent)
+  { method: 'POST', path: '/api/secrets/reveal', tier: 'expose', handler: secretRouteReveal },
+  { method: 'POST', path: '/api/secrets/totp', tier: 'expose', handler: secretRouteTotp },
+];
+const SECRET_TIERS = new Set(['observe', 'manage', 'expose', 'proof']);
+
+async function handleSecretsApi(req, res, url) {
+  if (!url.pathname.startsWith('/api/secrets/')) return false;
+  // Fail closed on the origin/header control before anything else.
+  if (!secretRequestAllowed(req)) { sendSecretJson(res, 403, secretDenial('origin-or-header')); return true; }
+  const route = SECRET_ROUTES.find(r => r.method === req.method && r.path === url.pathname);
+  // Untiered / unknown routes fail closed (G5).
+  if (!route || !SECRET_TIERS.has(route.tier)) { sendSecretJson(res, 403, secretDenial('untiered')); return true; }
+  try {
+    let session = null;
+    if (route.tier === 'manage' || route.tier === 'expose') {
+      session = extractSecretSession(req);
+      const val = session ? await secretAgentRequest('validate-session', { token: session }) : { valid: false };
+      if (!val.ok || !val.valid) { sendSecretJson(res, 403, secretDenial('no-session')); return true; }
+    }
+    const body = req.method === 'GET' ? {} : await readBody(req).catch(() => ({}));
+    await route.handler({ req, res, url, body, session });
+  } catch (err) {
+    sendSecretJson(res, err.status || 500, { ok: false, secret: 'error', error: err.message });
+  }
+  return true;
+}
+
+// ---- observe handlers ----
+async function secretRouteState({ res }) {
+  const agent = await secretAgentRequest('status', {}, 800);
+  const unlocked = !!(agent.ok && agent.unlocked);
+  const providers = [];
+  if (process.platform === 'win32') providers.push('windows-hello');
+  if (SECRET_APP_PROOF_KEY) providers.push('native-macos');
+  providers.push('launch-token');
+  sendSecretJson(res, 200, {
+    ok: true,
+    optedIn: isSecretStoreOptedIn(),
+    unlocked,
+    ttlRemainingMs: unlocked ? (agent.ttlRemainingMs ?? null) : 0,
+    editSessions: agent.ok ? (agent.editSessions || 0) : 0,
+    consentProviders: providers,
+    platform: process.platform,
+    historyCount: readSecretResolveHistory().length,
+  });
+}
+
+async function secretRouteList({ res }) {
+  const session = await getVaultSession();
+  if (!session) { sendSecretJson(res, 200, { ok: true, locked: true, items: [], next: SECRET_HINTS.locked }); return; }
+  const listed = listSecretEntries(session);
+  if (!listed.ok) { sendSecretJson(res, 200, { ok: true, locked: true, items: [], next: SECRET_HINTS.locked }); return; }
+  // Observe surface: hosts + scope only, never usernames/values.
+  sendSecretJson(res, 200, { ok: true, locked: false, items: listed.entries });
+}
+
+async function secretRouteHistory({ res }) {
+  sendSecretJson(res, 200, { ok: true, events: readSecretResolveHistory() });
+}
+
+async function secretRouteSetupState({ res }) {
+  sendSecretJson(res, 200, { ok: true, ...(await secretSetupState()) });
+}
+
+// ---- proof handlers (mint an edit session) ----
+async function secretRouteSessionBegin({ req, res, body }) {
+  const proof = String(body.proof || '');
+  const result = await performPresenceProof({ proof, reason: 'chromux secret edit mode', req });
+  if (!result.ok) { sendSecretJson(res, 200, secretDenial(result.reason || 'consent-unavailable')); return; }
+  await ensureSecretAgentRunning();
+  const mint = await secretAgentRequest('mint-session', { ttlMs: DEFAULT_EDIT_SESSION_TTL_MS });
+  if (!mint.ok) { sendSecretJson(res, 500, { ok: false, secret: 'error', error: 'could not mint session' }); return; }
+  // Native macOS app path carries the token as an auth header (no cookie,
+  // D-25); every other path gets an httpOnly SameSite=Strict cookie.
+  const cookie = proof === 'native-macos' ? null : secretSessionCookie(mint.token, Math.round(DEFAULT_EDIT_SESSION_TTL_MS / 1000));
+  sendSecretJson(res, 200, { ok: true, token: mint.token, ttlRemainingMs: mint.ttlRemainingMs, via: result.via }, cookie);
+}
+
+async function secretRouteSessionExchange({ res, body }) {
+  const token = String(body.token || '');
+  const ex = await secretAgentRequest('exchange-approval', { token, sessionTtlMs: DEFAULT_EDIT_SESSION_TTL_MS });
+  if (!ex.ok) { sendSecretJson(res, 403, secretDenial('no-session', { reason: ex.reason })); return; }
+  const cookie = secretSessionCookie(ex.token, Math.round(DEFAULT_EDIT_SESSION_TTL_MS / 1000));
+  sendSecretJson(res, 200, { ok: true, token: ex.token, ttlRemainingMs: ex.ttlRemainingMs }, cookie);
+}
+
+// ---- manage handlers ----
+async function secretRouteSessionRevoke({ res, session }) {
+  await secretAgentRequest('revoke-session', { token: session });
+  sendSecretJson(res, 200, { ok: true, revoked: true }, clearSecretSessionCookie());
+}
+
+async function secretRouteOptin({ res, body }) {
+  const enabled = body.enabled !== false;
+  sendSecretJson(res, 200, { ok: true, optedIn: setSecretStoreOptedIn(enabled) });
+}
+
+async function secretRouteSet({ res, body }) {
+  const host = normalizeNoteHost(body.host);
+  if (!host) { sendSecretJson(res, 400, { ok: false, secret: 'bad-host', next: 'use a hostname like github.com' }); return; }
+  const scope = body.scope ? validateName(String(body.scope)) : 'global';
+  const user = String(body.user || '');
+  const password = String(body.password || '');
+  if (!user || !password) { sendSecretJson(res, 400, { ok: false, secret: 'bad-request', next: 'user and password are required' }); return; }
+  const session = await getVaultSession();
+  if (!session) { sendSecretJson(res, 200, secretDenial('locked')); return; }
+  const written = writeSecretItem({ scope, host, user, password, totp: body.totp ? String(body.totp) : null, session });
+  if (!written.ok) { sendSecretJson(res, 200, secretDenial(written.reason === 'encode-failed' ? 'error' : 'locked')); return; }
+  sendSecretJson(res, 200, { ok: true, host, scope, updated: written.updated });
+}
+
+async function secretRouteRm({ res, body }) {
+  const host = normalizeNoteHost(body.host);
+  if (!host) { sendSecretJson(res, 400, { ok: false, secret: 'bad-host', next: 'use a hostname like github.com' }); return; }
+  const scope = body.scope ? validateName(String(body.scope)) : 'global';
+  const session = await getVaultSession();
+  if (!session) { sendSecretJson(res, 200, secretDenial('locked')); return; }
+  const removed = removeSecretItem({ scope, host, session });
+  if (!removed.ok && removed.reason === 'not-found') { sendSecretJson(res, 200, { ok: false, host, scope, removed: false, secret: 'not-found' }); return; }
+  sendSecretJson(res, 200, { ok: removed.ok, host, scope, removed: removed.ok });
+}
+
+async function secretRouteUnlock({ res, body }) {
+  // R4 sanctioned exception: master password -> bw stdin, never logged/stored.
+  let masterPassword = String(body.masterPassword || body.password || '');
+  if (!masterPassword) { sendSecretJson(res, 400, { ok: false, secret: 'bad-request', next: 'master password required' }); return; }
+  const unlocked = unlockVaultPiped(masterPassword);
+  masterPassword = null;
+  if (!unlocked.ok) { sendSecretJson(res, 200, { ok: false, secret: 'unlock-failed', next: 'the master password was not accepted, or you are not logged in (`bw login`)' }); return; }
+  await ensureSecretAgentRunning();
+  const reply = await secretAgentRequest('unlock', { session: unlocked.session, ttlMs: secretTtlMs(loadSecretPolicy()) });
+  unlocked.session = null;
+  if (!reply.ok) { sendSecretJson(res, 500, { ok: false, secret: 'error', error: 'could not hand the session to the secret-agent' }); return; }
+  sendSecretJson(res, 200, { ok: true, unlocked: true });
+}
+
+async function secretRouteConsentBegin({ req, res, body }) {
+  const action = String(body.action || '');
+  if (action !== 'reveal' && action !== 'totp') { sendSecretJson(res, 400, { ok: false, secret: 'bad-request', next: 'action must be reveal or totp' }); return; }
+  const host = body.host ? normalizeNoteHost(body.host) : null;
+  const result = await performPresenceProof({ proof: String(body.proof || ''), reason: `chromux reveal ${action}${host ? ' for ' + host : ''}`, req });
+  if (!result.ok) { sendSecretJson(res, 200, secretDenial(result.reason || 'consent-unavailable')); return; }
+  await ensureSecretAgentRunning();
+  const mint = await secretAgentRequest('mint-consent', { action, host, field: body.field || null, ttlMs: DEFAULT_CONSENT_TTL_MS });
+  if (!mint.ok) { sendSecretJson(res, 500, { ok: false, secret: 'error', error: 'could not mint consent' }); return; }
+  sendSecretJson(res, 200, { ok: true, consent: mint.token, ttlRemainingMs: mint.ttlRemainingMs });
+}
+
+async function secretRouteWizardInstall({ res }) {
+  // Failures are structured JSON (checksum-mismatch/download-failed) surfaced
+  // to the wizard UI, not HTTP errors — always 200 with an {ok} discriminator.
+  const result = await wizardInstallBw();
+  sendSecretJson(res, 200, result);
+}
+
+async function secretRouteWizardLogin({ res, body }) {
+  // R10 exception: email + master password (+ optional 2FA) -> bw login stdin.
+  let masterPassword = String(body.masterPassword || body.password || '');
+  const email = String(body.email || '');
+  const twofa = body.twofa ? String(body.twofa) : null;
+  if (!email || !masterPassword) { sendSecretJson(res, 400, { ok: false, secret: 'bad-request', next: 'email and master password are required' }); return; }
+  const login = wizardLogin({ email, masterPassword, twofa });
+  if (!login.ok) { masterPassword = null; sendSecretJson(res, 200, login); return; }
+  // Logged in — now unlock so the vault is immediately usable (R10 ends unlocked).
+  const unlocked = login.session ? { ok: true, session: login.session } : unlockVaultPiped(masterPassword);
+  masterPassword = null;
+  if (!unlocked.ok) { sendSecretJson(res, 200, { ok: true, loggedIn: true, unlocked: false, next: 'logged in — now unlock the vault' }); return; }
+  await ensureSecretAgentRunning();
+  await secretAgentRequest('unlock', { session: unlocked.session, ttlMs: secretTtlMs(loadSecretPolicy()) });
+  unlocked.session = null;
+  sendSecretJson(res, 200, { ok: true, loggedIn: true, unlocked: true });
+}
+
+// ---- expose handlers (session already validated; require fresh consent) ----
+async function secretRouteReveal({ res, body }) {
+  const host = normalizeNoteHost(body.host);
+  if (!host) { sendSecretJson(res, 400, { ok: false, secret: 'bad-host' }); return; }
+  const field = body.field === 'username' || body.field === 'totp' ? body.field : 'password';
+  const consumed = await secretAgentRequest('consume-consent', { token: String(body.consent || ''), action: 'reveal', host });
+  if (!consumed.ok) { sendSecretJson(res, 403, secretDenial('consent-required')); return; }
+  const scope = body.scope ? validateName(String(body.scope)) : 'global';
+  const resolved = await resolveSecretField(host, field, scope);
+  if (!resolved.ok) { sendSecretJson(res, 200, secretDenial(resolved.reason, { next: resolved.hint || SECRET_HINTS[resolved.reason] })); return; }
+  sendSecretJson(res, 200, { ok: true, host: resolved.host, scope: resolved.scope, field, value: resolved.value });
+}
+
+async function secretRouteTotp({ res, body }) {
+  const host = normalizeNoteHost(body.host);
+  if (!host) { sendSecretJson(res, 400, { ok: false, secret: 'bad-host' }); return; }
+  const consumed = await secretAgentRequest('consume-consent', { token: String(body.consent || ''), action: 'totp', host });
+  if (!consumed.ok) { sendSecretJson(res, 403, secretDenial('consent-required')); return; }
+  const scope = body.scope ? validateName(String(body.scope)) : 'global';
+  const resolved = await resolveSecretField(host, 'totp', scope);
+  if (!resolved.ok) { sendSecretJson(res, 200, secretDenial(resolved.reason, { next: resolved.hint || SECRET_HINTS[resolved.reason] })); return; }
+  sendSecretJson(res, 200, { ok: true, host: resolved.host, scope: resolved.scope, value: resolved.value });
 }
 
 // ============================================================
@@ -9085,6 +10019,9 @@ async function deleteProfiles(profileNames) {
 }
 
 async function handleStatusAppApi(req, res, url) {
+  // Secret-store surface first — self-contained auth/origin/tier boundary.
+  if (url.pathname.startsWith('/api/secrets/')) return handleSecretsApi(req, res, url);
+
   if (req.method === 'GET' && url.pathname === '/api/state') {
     sendJson(res, 200, await statusAppState());
     return true;
@@ -9259,6 +10196,17 @@ async function runStatusAppSelfTest() {
   );
   const aggregates = loadActivityAggregates();
   assertSelfTest(aggregates.byCommand.open?.count >= 1, 'command aggregates survive redaction and deletion', checks);
+
+  // Secret-store boundary guard logic — pure-function checks so CI exercises
+  // the fail-closed origin/header control on every platform (incl. Windows,
+  // where the Hello prompt itself stays HV4-unverified).
+  assertSelfTest(secretRequestAllowed({ headers: { 'x-chromux-secret': '1' } }) === true, 'secret guard allows a header-bearing no-origin request', checks);
+  assertSelfTest(secretRequestAllowed({ headers: {} }) === false, 'secret guard rejects a request missing the custom header', checks);
+  assertSelfTest(secretRequestAllowed({ headers: { 'x-chromux-secret': '1', origin: 'https://evil.com' } }) === false, 'secret guard rejects a non-loopback Origin', checks);
+  assertSelfTest(secretRequestAllowed({ headers: { 'x-chromux-secret': '1', origin: 'http://127.0.0.1:9340' } }) === true, 'secret guard allows a same-origin loopback request', checks);
+  assertSelfTest(isLoopbackOrigin('http://localhost:9340') && isLoopbackOrigin('http://127.0.0.1:1') && !isLoopbackOrigin('http://example.com'), 'loopback-origin allowlist is correct', checks);
+  assertSelfTest(SECRET_ROUTES.every(r => SECRET_TIERS.has(r.tier)), 'every /api/secrets route declares a known tier (no untiered route)', checks);
+  assertSelfTest(isSecretTestProofEnabled() === false, 'test-proof bypass is inert by default (no CHROMUX_SECRET_TEST_PROOF set)', checks);
   return { ok: true, checks };
 }
 
@@ -9275,6 +10223,13 @@ async function cmdApp(args) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     console.error('Usage: chromux app [--host 127.0.0.1] [--port N] [--open]');
     process.exit(1);
+  }
+
+  // Native-macOS trust anchor: the app hands the server a random proof key over
+  // the private stdin pipe (a co-resident process cannot read it). Only then
+  // are native-macOS session/consent mints possible on this server.
+  if (args.includes('--app-proof-stdin')) {
+    SECRET_APP_PROOF_KEY = await readOneStdinLine(4000);
   }
 
   const server = createStatusAppServer();
@@ -9591,8 +10546,14 @@ Secrets (opt-in add-on — requires the Bitwarden CLI, "bw"):
                                        for a profile-local override or a TOTP seed. Terminal only.
   chromux secret rm <host>            Remove a registered credential. Terminal only.
   chromux secret list                 List registered hosts and scopes (no values)
+  chromux secret list --history       Show recent secret-resolve usage events (host/scope/
+                                       outcome, no values). Readable while the vault is locked.
   chromux secret get <host>           Check whether a credential exists (no values); add
                                        --reveal (terminal only) to print the actual value
+  chromux secret optin | optout       Enable/disable the dashboard/app management surface
+  chromux secret approve              Terminal-only presence proof: mint a one-time edit-mode
+                                       token and open the dashboard (the fallback when Touch ID
+                                       / Windows Hello is unavailable). Terminal only.
   chromux fill <s> @<ref> --secret <host>:password|username|totp
                                        Resolve and fill a stored credential. Profile-local
                                        credentials override global ones; failures return
@@ -9603,8 +10564,16 @@ Secrets (opt-in add-on — requires the Bitwarden CLI, "bw"):
   separate secret-agent process (ssh-agent pattern) — reboot or "secret lock" evaporates it.
   "Sign in with Google" and other SSO needs no stored secret: keep the profile's browser
   session logged in once and every future SSO is a click. Passkeys are not automated.
-  Setup: install bw (e.g. brew install bitwarden-cli), run "bw login" once, then
-  "chromux secret unlock" once per session/reboot.
+  Dashboard/app management (opt-in): after "chromux secret optin", the status app (chromux
+  app) and the macOS menu-bar app show a secrets panel to register/edit/delete/unlock and,
+  with a FRESH presence proof each time, reveal a value or copy a TOTP. The human/agent
+  boundary is a presence proof, not the interface: agents keep use+observe (fill + a masked
+  list + usage history) through every door; register/unlock need a proofed edit session and
+  reveal/TOTP need a fresh per-action confirmation (macOS Touch ID, Windows Hello, or the
+  "chromux secret approve" launch token). A setup wizard can install bw and run bw login
+  without a terminal. Windows Hello + the wizard on Windows ship unverified until smoke-tested.
+  Setup (CLI): install bw (e.g. brew install bitwarden-cli), run "bw login" once, then
+  "chromux secret unlock" once per session/reboot (or use the app wizard — no terminal needed).
 
 Runner snippets:
   snippets/_builtin/page-extract.js      Structured page metadata extraction

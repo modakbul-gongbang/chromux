@@ -53,7 +53,7 @@ struct APIClient {
 
     /// The delete and action endpoints return a structured `{ ok, ... }` body even on non-2xx
     /// (e.g. partial-failure 409), so only throw on transport-level failures or a missing body.
-    private static func checkOK(data: Data, response: URLResponse, allowNon2xxBody: Bool = false) throws {
+    static func checkOK(data: Data, response: URLResponse, allowNon2xxBody: Bool = false) throws {
         guard let http = response as? HTTPURLResponse else { throw APIClientError.invalidResponse }
         if (200..<300).contains(http.statusCode) { return }
         if allowNon2xxBody, !data.isEmpty { return }
