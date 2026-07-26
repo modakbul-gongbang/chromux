@@ -7893,20 +7893,30 @@ function unlockVaultPiped(masterPassword) {
 // Setup wizard backend (R10/D-24): checksum-verified binary + bw login
 // ============================================================
 
-// Pinned official Bitwarden CLI release per platform. sha256 is compared
-// DIRECTLY against the download (the published checksums file has trailing-
-// whitespace issues that break `sha256sum -c`, D-29). Empty pin => the wizard
-// refuses (fails closed, G8). Tests override via env with a local fixture.
+// Pinned official Bitwarden CLI release per platform+arch (the `cli-v*` tag's
+// per-arch ZIP, D-29). sha256 is compared DIRECTLY against the download (the
+// published checksums file has trailing-whitespace issues that break
+// `sha256sum -c`, D-29), verified before the binary is ever executed (G8). An
+// empty/absent pin => the wizard refuses and never runs an unverified binary.
+// No auto-update: to move to a newer release, bump BW_RELEASE_VERSION/BASE and
+// re-pin each per-arch sha256 deliberately (download the tag's zips and run
+// `shasum -a 256`). Tests override the whole entry via env.
+const BW_RELEASE_VERSION = 'cli-v2026.7.0';
+const BW_RELEASE_BASE = 'https://github.com/bitwarden/clients/releases/download/cli-v2026.7.0';
 const BW_RELEASE_PINS = {
-  darwin: { version: 'cli-v2024.9.0', url: '', sha256: '' },
-  win32: { version: 'cli-v2024.9.0', url: '', sha256: '' },
-  linux: { version: 'cli-v2024.9.0', url: '', sha256: '' },
+  'darwin-x64': { url: `${BW_RELEASE_BASE}/bw-macos-2026.7.0.zip`, sha256: 'b37836d539798f5adeb8a907619ee8a55b6322549bb68669aa4b3a03d5bc0452' },
+  'darwin-arm64': { url: `${BW_RELEASE_BASE}/bw-macos-arm64-2026.7.0.zip`, sha256: '61d5de8a279a9faf3637216f4fb02b506a1e4bb2817d1c64be0bd474466dd85a' },
+  'win32-x64': { url: `${BW_RELEASE_BASE}/bw-windows-2026.7.0.zip`, sha256: 'b0c22438607b789c6452dbd37ffd6be0e8a61e7a5c4e9ac57804d7ae5ed01b5b' },
+  'linux-x64': { url: `${BW_RELEASE_BASE}/bw-linux-2026.7.0.zip`, sha256: '7a35145e205952f7434d2370da359543145ae0c45ba1af0fe9bdd99d40a00180' },
+  'linux-arm64': { url: `${BW_RELEASE_BASE}/bw-linux-arm64-2026.7.0.zip`, sha256: 'e33ed05ca0fada9bd51b8bce76a230369bf0eefd5796a0a8e60699c977327fb5' },
 };
 function resolveBwPin() {
   if (process.env.CHROMUX_BW_RELEASE_URL && process.env.CHROMUX_BW_RELEASE_SHA256) {
     return { url: process.env.CHROMUX_BW_RELEASE_URL, sha256: process.env.CHROMUX_BW_RELEASE_SHA256, version: 'test-fixture' };
   }
-  return BW_RELEASE_PINS[process.platform] || { url: '', sha256: '' };
+  const key = `${process.platform}-${process.arch}`;
+  const pin = BW_RELEASE_PINS[key];
+  return pin ? { ...pin, version: BW_RELEASE_VERSION } : { url: '', sha256: '' };
 }
 
 function sha256File(file) {
@@ -10207,6 +10217,10 @@ async function runStatusAppSelfTest() {
   assertSelfTest(isLoopbackOrigin('http://localhost:9340') && isLoopbackOrigin('http://127.0.0.1:1') && !isLoopbackOrigin('http://example.com'), 'loopback-origin allowlist is correct', checks);
   assertSelfTest(SECRET_ROUTES.every(r => SECRET_TIERS.has(r.tier)), 'every /api/secrets route declares a known tier (no untiered route)', checks);
   assertSelfTest(isSecretTestProofEnabled() === false, 'test-proof bypass is inert by default (no CHROMUX_SECRET_TEST_PROOF set)', checks);
+  const bwPinsWellFormed = Object.values(BW_RELEASE_PINS).every(p => /^https:\/\//.test(p.url) && /^[0-9a-f]{64}$/.test(p.sha256));
+  assertSelfTest(bwPinsWellFormed, 'every pinned bw release has an https url and a 64-hex sha256 (wizard can verify before executing)', checks);
+  const localPin = resolveBwPin();
+  assertSelfTest(!localPin.url || (/^https:\/\//.test(localPin.url) && /^[0-9a-f]{64}$/.test(localPin.sha256)), 'resolveBwPin returns a well-formed or empty (fail-closed) pin for this platform+arch', checks);
   return { ok: true, checks };
 }
 

@@ -155,6 +155,20 @@ async function main() {
     check('master password appears in NO file under CHROMUX_HOME (no-residue)', !walkForString(home, MASTER));
     const hist = await reqHttp(port, 'GET', '/api/secrets/history', { headers: HDR() });
     check('history shows a secret-resolve event with no value', hist.json?.events?.some(e => e.host === 'github.com') && !hist.raw.includes('SECRET-PW-B'));
+
+    // AC3/AC5: register + delete round-trip through the panel endpoints under a
+    // manage session, resolvable via the SAME shared resolver `fill --secret`
+    // uses, and manage refused again once the session is revoked.
+    check('register a credential via /api/secrets/set (manage)', (await reqHttp(port, 'POST', '/api/secrets/set', { headers: HDR({ Cookie: cookie }), body: { host: 'example.org', user: 'ex-user', password: 'ex-pw-B', scope: 'global' } })).json?.ok === true);
+    const getReg = spawnSync('node', [CHROMUX, 'secret', 'get', 'example.org'], { env, encoding: 'utf8' });
+    let getRegJson = null; try { getRegJson = JSON.parse(getReg.stdout); } catch {}
+    check('a panel-registered credential resolves via the shared resolver (the fill --secret path)', getRegJson?.ok === true && getRegJson?.username === 'ex-user' && getRegJson?.host === 'example.org');
+    check('delete a credential via /api/secrets/rm (manage)', (await reqHttp(port, 'POST', '/api/secrets/rm', { headers: HDR({ Cookie: cookie }), body: { host: 'example.org', scope: 'global' } })).json?.removed === true);
+    const getGone = spawnSync('node', [CHROMUX, 'secret', 'get', 'example.org'], { env, encoding: 'utf8' });
+    let goneJson = null; try { goneJson = JSON.parse(getGone.stdout); } catch {}
+    check('after delete the credential no longer resolves (delete round-trip)', goneJson?.ok === false && goneJson?.secret === 'not-found');
+    check('session/revoke clears the edit session', (await reqHttp(port, 'POST', '/api/secrets/session/revoke', { headers: HDR({ Cookie: cookie }) })).json?.revoked === true);
+    check('after revoke, manage set is refused again (403 no-session)', (await reqHttp(port, 'POST', '/api/secrets/set', { headers: HDR({ Cookie: cookie }), body: { host: 'example.org', user: 'x', password: 'y' } })).status === 403);
     child.kill(); await sleep(120);
 
     // test-hook inertness
@@ -254,6 +268,12 @@ async function main() {
       // AC4: the wizard-login master password (piped to `bw login` stdin) must
       // leave no residue in any file/log/state under CHROMUX_HOME either.
       check('wizard-login master password appears in NO file under CHROMUX_HOME (no-residue)', !walkForString(home, WIZ_MASTER));
+      // AC10: the wizard flow ends with a credential registered AND resolvable
+      // (uses the wizard-installed bw in ~/.chromux/bin, no mock on PATH).
+      check('register a credential after the wizard (manage)', (await reqHttp(port, 'POST', '/api/secrets/set', { headers: HDR({ Cookie: cookie }), body: { host: 'wiz.example', user: 'wiz-user', password: 'wiz-pw', scope: 'global' } })).json?.ok === true);
+      const wizGet = spawnSync('node', [CHROMUX, 'secret', 'get', 'wiz.example'], { env, encoding: 'utf8' });
+      let wizJson = null; try { wizJson = JSON.parse(wizGet.stdout); } catch {}
+      check('the wizard-registered credential resolves end-to-end (register + resolve)', wizJson?.ok === true && wizJson?.username === 'wiz-user');
       const l2 = await reqHttp(port, 'POST', '/api/secrets/wizard/login', { headers: HDR({ Cookie: cookie }), body: { email: '2fa@example.com', masterPassword: 'M' } });
       check('login requiring 2FA returns twofa-required', l2.json?.secret === 'twofa-required');
       check('login with the 2FA code succeeds', (await reqHttp(port, 'POST', '/api/secrets/wizard/login', { headers: HDR({ Cookie: cookie }), body: { email: '2fa@example.com', masterPassword: 'M', twofa: '123456' } })).json?.ok === true);
