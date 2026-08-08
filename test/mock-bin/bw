@@ -9,6 +9,7 @@
 // Special session token 'INVALID-SESSION' simulates a server-invalidated
 // bw session on any read call, for the lazy-invalidation test.
 import fs from 'node:fs';
+import path from 'node:path';
 
 const VAULT_FILE = process.env.MOCK_BW_VAULT_FILE;
 if (!VAULT_FILE) { process.stderr.write('mock-bw: MOCK_BW_VAULT_FILE not set\n'); process.exit(2); }
@@ -31,6 +32,37 @@ const argv = process.argv.slice(2);
 const [cmd, sub, ...rest] = argv;
 
 if (cmd === '--version') { process.stdout.write('mock-bw 2026.6.0\n'); process.exit(0); }
+
+// Login-state marker lives next to the vault file so `status`/`login` share it
+// across separate mock invocations (the real bw persists login on disk too).
+function loginMarkerPath() {
+  try { return path.join(path.dirname(VAULT_FILE), '.mock-bw-loggedin'); }
+  catch { return null; }
+}
+
+if (cmd === 'status') {
+  const marker = loginMarkerPath();
+  const loggedIn = marker && fs.existsSync(marker);
+  const status = loggedIn ? 'locked' : 'unauthenticated';
+  process.stdout.write(JSON.stringify({ serverUrl: null, lastSync: null, userEmail: loggedIn ? 'mock@example.com' : null, status }) + '\n');
+  process.exit(0);
+}
+
+if (cmd === 'login') {
+  // `bw login <email> --raw [--method 0 --code <code>]`; master password on stdin.
+  const email = sub || '';
+  const password = readStdin().trim();
+  const codeIdx = rest.indexOf('--code');
+  const code = codeIdx !== -1 ? rest[codeIdx + 1] : null;
+  const need2fa = /2fa|twostep|two-step/i.test(email) || process.env.MOCK_BW_REQUIRE_2FA === '1';
+  if (need2fa && !code) { process.stderr.write('Two-step login code is required. Use the --code option.\n'); process.exit(1); }
+  if (!password) { process.stderr.write('Master password is required.\n'); process.exit(1); }
+  if (process.env.MOCK_BW_BAD_PASSWORD && password !== process.env.MOCK_BW_BAD_PASSWORD) { process.stderr.write('Username or password is incorrect. Try again.\n'); process.exit(1); }
+  const marker = loginMarkerPath();
+  if (marker) { try { fs.writeFileSync(marker, '1'); } catch {} }
+  if (rest.includes('--raw')) process.stdout.write('mock-session-login-' + Math.random().toString(36).slice(2, 10) + '\n');
+  process.exit(0);
+}
 
 if (cmd === 'encode') {
   const input = readStdin();

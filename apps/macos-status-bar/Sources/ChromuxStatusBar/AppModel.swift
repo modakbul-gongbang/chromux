@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Combine
 import ChromuxStatusBarCore
 
@@ -15,6 +16,29 @@ final class AppModel: ObservableObject {
     @Published var pendingDeleteNames: [String]?
     @Published var lastActionMessage: String?
     @Published private(set) var visibleWindowCount: Int = 0
+
+    // MARK: - Secret store state (native secrets panel, T6/N7)
+
+    @Published private(set) var secretsState: SecretsState?
+    @Published private(set) var secretList: SecretListResponse?
+    @Published private(set) var secretHistory: [SecretHistoryEvent] = []
+    @Published private(set) var secretSetupState: SecretSetupState?
+    /// True while an edit session token is held in memory (edit mode).
+    @Published private(set) var hasEditSession: Bool = false
+    /// Transiently revealed values, keyed by `revealKey`. Cleared on exit/refresh
+    /// so a value is never rendered except right after a fresh-consent reveal.
+    @Published var revealedValues: [String: String] = [:]
+    @Published var secretMessage: String?
+    @Published private(set) var secretBusy: Bool = false
+
+    /// In-memory only: the edit-session token. Never persisted, never a cookie;
+    /// sent as `X-Chromux-Secret-Session` on manage/expose calls.
+    private var secretSessionToken: String?
+
+    var secretOptedIn: Bool { secretsState?.optedIn ?? false }
+    var secretVaultUnlocked: Bool { secretsState?.unlocked ?? false }
+    /// The app-proof key resolved from the spawned server, sent on native mints.
+    var appProofKey: String? { server.appProofKey }
 
     /// SwiftUI `openWindow(id:"main")`, captured from the environment on first
     /// window appearance. Used only as a fallback for the very first open before
@@ -62,12 +86,22 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             self.serverURL = url
             self.client = APIClient(baseURL: url)
-            Task { await self.refresh() }
+            Task {
+                await self.refresh()
+                await self.refreshSecrets()
+            }
         }
         server.onTerminated = { [weak self] in
             self?.serverURL = nil
             self?.client = nil
             self?.statusState = nil
+            // The server (and its app-proof key) is gone: drop any edit session.
+            self?.secretSessionToken = nil
+            self?.hasEditSession = false
+            self?.revealedValues = [:]
+            self?.secretsState = nil
+            self?.secretList = nil
+            self?.secretHistory = []
         }
     }
 
@@ -124,6 +158,7 @@ final class AppModel: ObservableObject {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
+                await self?.refreshSecrets()
                 try? await Task.sleep(nanoseconds: 7_000_000_000)
             }
         }
@@ -203,5 +238,239 @@ final class AppModel: ObservableObject {
         if let selectedProfileName, removed.contains(selectedProfileName) {
             self.selectedProfileName = ProfileLogic.ordered(statusState?.profiles ?? []).first?.name
         }
+    }
+
+    // MARK: - Secret store: reads (T6/N7)
+
+    /// Refreshes the observe surface. `state` is always fetched; the credential
+    /// list and usage history are only fetched once opted in (they can spawn
+    /// `bw`, so they stay dormant until the user opts in).
+    func refreshSecrets() async {
+        guard let client else { return }
+        do {
+            let state = try await client.fetchSecretsState()
+            secretsState = state
+            if state.optedIn {
+                secretList = try await client.fetchSecretList()
+                secretHistory = try await client.fetchSecretHistory().events
+            } else {
+                secretList = nil
+                secretHistory = []
+            }
+        } catch {
+            secretMessage = "Secrets refresh failed: \(error.localizedDescription)"
+        }
+    }
+
+    func refreshSecretSetupState() async {
+        guard let client else { return }
+        secretSetupState = try? await client.fetchSecretSetupState()
+    }
+
+    // MARK: - Secret store: edit mode (Touch ID -> minted session)
+
+    /// Fresh Touch ID, then mint a native-macOS edit session and hold its token
+    /// in memory. Returns whether edit mode is now active.
+    @discardableResult
+    func enterEditMode() async -> Bool {
+        guard let client, let appProofKey else {
+            secretMessage = "Native proof is unavailable (server not ready)."
+            return false
+        }
+        secretBusy = true
+        defer { secretBusy = false }
+        let approved = await TouchIDAuth.authenticate(reason: "chromux secret edit mode")
+        guard approved else { secretMessage = "Touch ID was cancelled."; return false }
+        do {
+            let resp = try await client.beginSecretSession(appProof: appProofKey)
+            guard resp.ok, let token = resp.token else {
+                secretMessage = resp.next ?? "Could not start edit mode."
+                return false
+            }
+            secretSessionToken = token
+            hasEditSession = true
+            secretMessage = nil
+            await refreshSecrets()
+            return true
+        } catch {
+            secretMessage = "Edit mode failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Revokes the edit session and drops all in-memory session/reveal state.
+    func exitEditMode() async {
+        if let client, let token = secretSessionToken {
+            _ = try? await client.revokeSecretSession(session: token)
+        }
+        secretSessionToken = nil
+        hasEditSession = false
+        revealedValues = [:]
+        await refreshSecrets()
+    }
+
+    // MARK: - Secret store: opt-in (dormancy boundary)
+
+    /// The dormant "Set up secret store" action: Touch ID -> mint session ->
+    /// opt in -> load setup state (so the wizard can follow if `bw` is missing).
+    func setupSecretStore() async {
+        let entered = await enterEditMode()
+        guard entered, let client, let token = secretSessionToken else { return }
+        secretBusy = true
+        defer { secretBusy = false }
+        do {
+            _ = try await client.setSecretOptin(enabled: true, session: token)
+            secretMessage = nil
+        } catch {
+            secretMessage = "Opt-in failed: \(error.localizedDescription)"
+        }
+        await refreshSecrets()
+        await refreshSecretSetupState()
+    }
+
+    /// Settings toggle: opt in/out through a freshly minted session, then tidy
+    /// up the session (opt-in state persists server-side).
+    func setSecretOptin(enabled: Bool) async {
+        let entered = await enterEditMode()
+        guard entered, let client, let token = secretSessionToken else { return }
+        do {
+            _ = try await client.setSecretOptin(enabled: enabled, session: token)
+            secretMessage = nil
+        } catch {
+            secretMessage = "Opt-in change failed: \(error.localizedDescription)"
+        }
+        await refreshSecrets()
+        await exitEditMode()
+    }
+
+    // MARK: - Secret store: manage (edit mode required)
+
+    func unlockVault(masterPassword: String) async {
+        guard let client, let token = secretSessionToken else {
+            secretMessage = "Enter edit mode first."
+            return
+        }
+        secretBusy = true
+        defer { secretBusy = false }
+        do {
+            let resp = try await client.unlockVault(masterPassword: masterPassword, session: token)
+            secretMessage = resp.unlocked == true ? "Vault unlocked." : (resp.next ?? "Unlock failed.")
+            await refreshSecrets()
+        } catch {
+            secretMessage = "Unlock failed: \(error.localizedDescription)"
+        }
+    }
+
+    func registerSecret(host: String, user: String, password: String, totp: String?, scope: String?) async {
+        guard let client, let token = secretSessionToken else {
+            secretMessage = "Enter edit mode first."
+            return
+        }
+        secretBusy = true
+        defer { secretBusy = false }
+        do {
+            let resp = try await client.setSecret(
+                host: host, user: user, password: password, totp: totp, scope: scope, session: token
+            )
+            secretMessage = resp.ok ? "Saved \(host)." : (resp.next ?? "Save failed.")
+            await refreshSecrets()
+        } catch {
+            secretMessage = "Save failed: \(error.localizedDescription)"
+        }
+    }
+
+    func deleteSecret(host: String, scope: String?) async {
+        guard let client, let token = secretSessionToken else {
+            secretMessage = "Enter edit mode first."
+            return
+        }
+        secretBusy = true
+        defer { secretBusy = false }
+        do {
+            let resp = try await client.removeSecret(host: host, scope: scope, session: token)
+            secretMessage = resp.removed == true ? "Removed \(host)." : (resp.next ?? "Nothing removed.")
+            let prefix = revealKeyPrefix(host: host, scope: scope)
+            revealedValues = revealedValues.filter { !$0.key.hasPrefix(prefix) }
+            await refreshSecrets()
+        } catch {
+            secretMessage = "Remove failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Secret store: expose (fresh Touch ID + consent per reveal)
+
+    func revealField(host: String, scope: String?, field: String = "password") async {
+        guard let client, let appProofKey, let token = secretSessionToken else {
+            secretMessage = "Enter edit mode first."
+            return
+        }
+        secretBusy = true
+        defer { secretBusy = false }
+        let approved = await TouchIDAuth.authenticate(reason: "chromux reveal \(host)")
+        guard approved else { secretMessage = "Touch ID was cancelled."; return }
+        do {
+            let consent = try await client.beginConsent(
+                action: "reveal", host: host, field: field, appProof: appProofKey, session: token
+            )
+            guard consent.ok, let consentToken = consent.consent else {
+                secretMessage = consent.next ?? "Consent was denied."
+                return
+            }
+            let revealed = try await client.revealSecret(
+                host: host, field: field, consent: consentToken, scope: scope, session: token
+            )
+            guard revealed.ok, let value = revealed.value else {
+                secretMessage = revealed.next ?? "Reveal failed."
+                return
+            }
+            revealedValues[revealKey(host: host, scope: scope, field: field)] = value
+            secretMessage = nil
+        } catch {
+            secretMessage = "Reveal failed: \(error.localizedDescription)"
+        }
+    }
+
+    func copyTotp(host: String, scope: String?) async {
+        guard let client, let appProofKey, let token = secretSessionToken else {
+            secretMessage = "Enter edit mode first."
+            return
+        }
+        secretBusy = true
+        defer { secretBusy = false }
+        let approved = await TouchIDAuth.authenticate(reason: "chromux reveal \(host)")
+        guard approved else { secretMessage = "Touch ID was cancelled."; return }
+        do {
+            let consent = try await client.beginConsent(
+                action: "totp", host: host, field: nil, appProof: appProofKey, session: token
+            )
+            guard consent.ok, let consentToken = consent.consent else {
+                secretMessage = consent.next ?? "Consent was denied."
+                return
+            }
+            let result = try await client.totpSecret(host: host, consent: consentToken, scope: scope, session: token)
+            guard result.ok, let value = result.value else {
+                secretMessage = result.next ?? "TOTP unavailable."
+                return
+            }
+            // TOTP is copied to the clipboard, never rendered in the panel.
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(value, forType: .string)
+            secretMessage = "TOTP for \(host) copied to clipboard."
+        } catch {
+            secretMessage = "TOTP failed: \(error.localizedDescription)"
+        }
+    }
+
+    func hideRevealedValue(host: String, scope: String?, field: String = "password") {
+        revealedValues[revealKey(host: host, scope: scope, field: field)] = nil
+    }
+
+    func revealKey(host: String, scope: String?, field: String) -> String {
+        "\(revealKeyPrefix(host: host, scope: scope))\(field)"
+    }
+
+    private func revealKeyPrefix(host: String, scope: String?) -> String {
+        "\(scope ?? "global")/\(host)#"
     }
 }

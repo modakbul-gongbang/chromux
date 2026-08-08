@@ -55,8 +55,18 @@ cat > "$CONTENTS/Info.plist" <<PLIST
   <false/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSFaceIDUsageDescription</key>
+  <string>chromux uses Touch ID to confirm you are present before revealing or managing stored credentials.</string>
 </dict>
 </plist>
 PLIST
+
+# Ad-hoc codesign so LAContext (Touch ID) can present its prompt; the bundle is
+# otherwise unsigned. Best-effort: keep building if codesign is unavailable.
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force --deep --sign - "$APP_DIR" || echo "warning: ad-hoc codesign failed; Touch ID prompts may not appear"
+else
+  echo "warning: codesign not found; skipping ad-hoc signing (Touch ID prompts may not appear)"
+fi
 
 echo "Built $APP_DIR"

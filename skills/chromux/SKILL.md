@@ -351,6 +351,17 @@ code (hand the 2FA screen to the user). Never register, view, or guess at
 credentials yourself — `secret set`/`secret rm`/`secret unlock` are
 human-only by design and will refuse if you try to run them.
 
+The boundary is a presence proof, not the interface, and it is identical
+whether the human uses the CLI, the dashboard, or the macOS app. You have two
+read-only observe surfaces and nothing more: `secret list` (masked hosts and
+scopes) and `secret list --history` (recent `secret-resolve` usage events —
+host, scope, outcome, never a value; readable even while the vault is locked).
+Managing credentials needs a human presence-proofed edit session, and
+revealing a value or copying a TOTP needs a **fresh per-action** human
+confirmation — so even the dashboard/app gives you nothing a value you could
+not already get. Do not try to drive the dashboard's edit mode or
+`secret approve` to get around this; hand off to the user instead.
+
 ## Gotchas
 
 - Prefer `@ref` interactions over CSS selectors; `click` scrolls the target

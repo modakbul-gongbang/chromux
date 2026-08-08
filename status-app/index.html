@@ -79,6 +79,7 @@
           <button class="tab-button is-active" data-tab="timeline" role="tab">Timeline</button>
           <button class="tab-button" data-tab="raw" role="tab">Raw log</button>
           <button class="tab-button" data-tab="settings" role="tab">Lifecycle</button>
+          <button class="tab-button" data-tab="secrets" role="tab">Secrets</button>
         </div>
 
         <section id="timelineView" class="tab-view is-active" aria-label="Task timeline">
@@ -135,6 +136,10 @@
               <p class="privacy-line">Full URLs stay local in ~/.chromux/activity.</p>
             </div>
           </div>
+        </section>
+
+        <section id="secretsView" class="tab-view" aria-label="Secret store">
+          <div id="secretsPanel" class="secrets-panel"></div>
         </section>
       </main>
     </div>

@@ -15,6 +15,20 @@ struct MainWindowView: View {
             ProfileDetailView(model: model)
         }
         .navigationTitle("chromux")
+        .toolbar {
+            // Opt-in dormancy (R0/AC0): the toolbar entry appears only once the
+            // user has opted in; the opt-in action lives in Settings.
+            if model.secretOptedIn {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        openWindow(id: "secrets")
+                    } label: {
+                        Label("Secrets", systemImage: "key.fill")
+                    }
+                    .help("Open the secret store")
+                }
+            }
+        }
         .background(DesignTokens.canvas)
         .background(WindowAccessor(onResolve: onWindowResolved))
         // Delete confirmation lives at the split-view root, not inside the

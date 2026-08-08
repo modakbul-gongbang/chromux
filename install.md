@@ -450,9 +450,35 @@ and every future SSO click just works. Passkeys are not automated (they are
 hardware-bound; `bw` cannot assert them), so a passkey screen hands off to
 you like any other login wall.
 
+### Managing the store from the app or dashboard (no terminal)
+
+The steps above are the terminal path, and it stays fully supported. If you
+would rather not use a terminal, opt into the management surface instead:
+
+1. Run `chromux secret optin` once (or flip the toggle in the macOS app's
+   Settings). This reveals a secrets panel in the local status app
+   (`chromux app`) and in the macOS menu-bar app; until you opt in, nothing
+   secret-related appears anywhere.
+2. In the panel, a **setup wizard** detects what is missing and walks you
+   through it: it downloads a pinned, checksum-verified official Bitwarden CLI
+   into `~/.chromux/bin` (a mismatched download is refused and never run),
+   then runs `bw login` (email + master password, plus a 2FA code if your
+   account uses one) and unlocks — all without opening a terminal.
+3. From then on you register, edit, delete, unlock, and inspect credentials in
+   the panel. Entering "edit mode" asks for a presence proof once (macOS Touch
+   ID, Windows Hello, or — as a universal fallback — `chromux secret approve`
+   in a terminal, which opens the dashboard with an edit session). Revealing a
+   value or copying a TOTP asks for a **fresh** confirmation every time.
+
+The panel grants no privilege the CLI does not: an automated agent still only
+gets use + observe (`fill --secret`, a masked `secret list`, and
+`secret list --history`), never a value, through any door.
+
 On Windows, the secret-agent's local-socket transport (a named pipe instead
-of a Unix socket) is code-complete but has not been smoke-tested on an
-actual Windows machine yet — if you hit an issue there, please report it.
+of a Unix socket), the Windows Hello presence proof, and the app setup wizard
+are code-complete but have not been smoke-tested on an actual Windows machine
+yet — the `chromux secret approve` launch-token fallback keeps you unblocked
+there in the meantime; if you hit an issue, please report it.
 
 ## Builtin Helper Material
 
