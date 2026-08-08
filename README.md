@@ -1033,6 +1033,26 @@ chromux note naver.com                        # show notes (includes parent doma
 chromux note naver.com --add "search results: snapshot --interactive shows result titles as @refs"
 ```
 
+### Correcting a wrong note
+
+`note --add` only appends. Correcting a wrong claim with it leaves both the
+claim and its rebuttal in every later `open` response, and the next agent
+believes whichever it reads first — a note asserting "the default profile is
+logged in" after that stopped being true is worse than no note, because it
+routes the next session into a login wall.
+
+So notes are plain markdown and scripts are plain JavaScript, meant to be
+edited in place. Every hint is headed by its real path:
+
+```
+# Hint: ~/.chromux/skills/linkedin.com/search.md
+```
+
+Open that file and fix or delete the wrong lines. Freshness is tracked per
+file, so `learnNext` names the host's **oldest** file and keeps naming it until
+that file itself is updated; writing a new note in a sibling file does not
+silence it.
+
 When a `close` or `kill` follows recent failed commands on a host that has no
 notes yet, chromux prints a one-line reminder pointing at `chromux note` — the
 activity log already holds the per-command errors that make such notes worth

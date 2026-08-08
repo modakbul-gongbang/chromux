@@ -69,11 +69,18 @@ uses the same `chromux` command surface.
   behavior or stale/wrong notes.
 - Treat a `learnNext` field on any `open` or `close` response as a required
   checkpoint, not a suggestion. It appears only when the host has no durable
-  knowledge yet or its notes/scripts have gone stale, and it names the exact
-  `chromux note` / `chromux script save` commands to run. Do not end the task
-  with an unaddressed `learnNext`: either save what this run proved, or state
-  why nothing durable was learned. This is the write half of the learning loop
-  — skipping it is why a host stays expensive on every future visit.
+  knowledge yet or one of its files has gone stale, and it names the oldest
+  file plus the exact `chromux note` / `chromux script save` commands. Do not
+  end the task with an unaddressed `learnNext`: either save what this run
+  proved, or state why nothing durable was learned. This is the write half of
+  the learning loop — skipping it is why a host stays expensive on every
+  future visit.
+- If a hint turned out to be wrong, **edit that file and remove the wrong
+  claim**. `note --add` appends, so correcting with it leaves the wrong claim
+  and its rebuttal side by side and the next agent believes whichever it reads
+  first. Hint headers and `learnNext` both carry the real path; open it with
+  your normal file tools. Writing a new note in a sibling file does not clear
+  the stale one.
 - When a derived flow (selectors, waits, extraction) worked and is likely to
   be repeated, save it as a replay script:
   `chromux script save <host>/<name> --file flow.js`. Future runs on that host

@@ -272,6 +272,19 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
   assertContains(checks, 'recovery topic secret store handoff', docs.recoveryTopic, '--secret <host>:password` first');
 }
 
+// Note correction: the whole point is that agents fix wrong notes in place
+// instead of appending a rebuttal, so the docs must keep saying so.
+{
+  assertContains(checks, 'readme note correction section', docs.readme, '### Correcting a wrong note');
+  assertContains(checks, 'readme note append-only caveat', docs.readme, '`note --add` only appends');
+  assertContains(checks, 'readme hint carries path', docs.readme, '# Hint: ~/.chromux/skills/linkedin.com/search.md');
+  assertContains(checks, 'readme per-file freshness', docs.readme, 'Freshness is tracked per\nfile');
+  assertContains(checks, 'chromux skill fix not append', docs.chromuxSkill, '**When a hint is wrong, fix the file — do not append a correction.**');
+  assertContains(checks, 'chromux skill hint path header', docs.chromuxSkill, "headed by the note's real path");
+  assertContains(checks, 'work skill remove wrong claim', docs.workSkill, '**edit that file and remove the wrong\n  claim**');
+  assertContains(checks, 'work skill sibling file caveat', docs.workSkill, 'sibling file does not clear');
+}
+
 // New-profile gate: help, README, and both skills must keep telling agents that
 // `default` is the profile and that creating another one is the user's call.
 {

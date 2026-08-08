@@ -321,7 +321,14 @@ function readSiteNotesForHostChain(host) {
     try { files = fs.readdirSync(dir).filter(f => f.endsWith('.md')).sort(); } catch { continue; }
     for (const f of files) {
       try {
-        notes.push({ label: `${h}/${f}`, content: fs.readFileSync(path.join(dir, f), 'utf8').trim() });
+        const filePath = path.join(dir, f);
+        notes.push({
+          label: `${h}/${f}`,
+          // Agents fix wrong notes by editing the file, so every surfaced note
+          // has to carry a path they can open — a bare label is a dead end.
+          path: displayChromuxPath(filePath),
+          content: fs.readFileSync(filePath, 'utf8').trim(),
+        });
       } catch {}
     }
   }
@@ -464,17 +471,25 @@ const KNOWLEDGE_STALE_DAYS = 30;
 // agent to SAVE what a fresh session just revealed. This closes that gap
 // without noise — it fires only when a host has no durable knowledge yet or
 // its newest entry has gone stale.
+// Freshness is tracked per FILE, not per host. Host-level freshness let a new
+// note silence the nudge while a wrong claim rotted on in a sibling file —
+// exactly how a stale "this profile is logged in" line survived for months and
+// then misrouted a session. Reporting the oldest file keeps the nudge pointed
+// at the thing that actually needs review.
 function knowledgeFreshnessForHostChain(host) {
   let hasKnowledge = false;
-  let newestMs = 0;
+  let oldest = null;
   const scan = (dir, ext) => {
     let files = [];
     try { files = fs.readdirSync(dir).filter(f => f.endsWith(ext)); } catch { return; }
     for (const f of files) {
       hasKnowledge = true;
       try {
-        const m = fs.statSync(path.join(dir, f)).mtimeMs;
-        if (m > newestMs) newestMs = m;
+        const filePath = path.join(dir, f);
+        const mtimeMs = fs.statSync(filePath).mtimeMs;
+        if (!oldest || mtimeMs < oldest.mtimeMs) {
+          oldest = { mtimeMs, path: displayChromuxPath(filePath) };
+        }
       } catch {}
     }
   };
@@ -482,7 +497,7 @@ function knowledgeFreshnessForHostChain(host) {
     scan(path.join(CHROMUX_HOME, 'skills', h), '.md');
     scan(path.join(SCRIPTS_DIR, h), '.js');
   }
-  return { hasKnowledge, newestMs: newestMs || null };
+  return { hasKnowledge, oldest };
 }
 
 // A soft, self-gating nudge to save durable site knowledge. Returns null (no
@@ -491,13 +506,17 @@ function knowledgeFreshnessForHostChain(host) {
 // or stale. Same informational tone as `next`/`hints`.
 function learnNextHintForHost(host) {
   if (!host) return null;
-  const { hasKnowledge, newestMs } = knowledgeFreshnessForHostChain(host);
-  const ageDays = newestMs ? (Date.now() - newestMs) / 86_400_000 : Infinity;
-  if (hasKnowledge && ageDays < KNOWLEDGE_STALE_DAYS) return null;
+  const { hasKnowledge, oldest } = knowledgeFreshnessForHostChain(host);
   const save = `save it with 'chromux note ${host} --add "<durable finding>"', and save a proven multi-step flow with 'chromux script save ${host}/<name> --file flow.js'`;
-  return hasKnowledge
-    ? `Saved knowledge for ${host} is ~${Math.round(ageDays)}d old. If this session revealed newer public behavior, refresh it: ${save}.`
-    : `No durable notes or replay scripts saved for ${host} yet. If this session reveals reusable public behavior, ${save}.`;
+  if (!hasKnowledge) {
+    return `No durable notes or replay scripts saved for ${host} yet. If this session reveals reusable public behavior, ${save}.`;
+  }
+  const ageDays = oldest ? (Date.now() - oldest.mtimeMs) / 86_400_000 : 0;
+  if (ageDays < KNOWLEDGE_STALE_DAYS) return null;
+  // Naming the file and asking for a fix — not another append — is the point.
+  // Appending a correction leaves both claims standing and the next agent picks
+  // whichever it reads first.
+  return `${oldest.path} is ~${Math.round(ageDays)}d old. Notes and scripts are plain files: if this session contradicted anything in it, edit that file to correct or delete the wrong part instead of appending a correction next to it. For genuinely new findings, ${save}.`;
 }
 
 // ============================================================
@@ -5048,7 +5067,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     try {
       const knowledgeHint = siteKnowledgeHintForUrl(result.url);
       const hints = readSiteNotesForHostChain(knowledgeHint?.host)
-        .map(note => `# Hint: ${note.label}\n${note.content}`);
+        .map(note => `# Hint: ${note.path}\n${note.content}`);
       if (hints.length) result.hints = hints.join('\n\n');
       // Surface saved replay scripts for this host so agents reuse proven
       // flows instead of re-deriving them. Rank by recorded confidence

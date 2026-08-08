@@ -1667,6 +1667,39 @@ else
 fi
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-record 2>/dev/null > /dev/null
 
+# --- Test 7f: Site knowledge freshness is per file ---
+echo ""
+echo "--- Test 7f: Site knowledge freshness ---"
+KNOW_DIR="$CHROMUX_HOME/skills/example.com"
+mkdir -p "$KNOW_DIR"
+printf '# example.com\n- A claim that has gone stale.\n' > "$KNOW_DIR/search.md"
+printf '# example.com\n- A note written just now.\n' > "$KNOW_DIR/notes.md"
+# Age only search.md. A fresh sibling must NOT silence the nudge, otherwise
+# appending a correction hides the wrong claim instead of fixing it.
+touch -t 202001010000 "$KNOW_DIR/search.md"
+KNOW_OPEN=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-know https://example.com 2>/dev/null)
+check "hint header carries the note path" "# Hint: ~/.chromux/skills/example.com/search.md" "$KNOW_OPEN"
+check "learnNext names the stale file" "skills/example.com/search.md is ~" "$KNOW_OPEN"
+check "learnNext asks for an edit, not an append" "instead of appending a correction" "$KNOW_OPEN"
+if echo "$KNOW_OPEN" | grep -q "skills/example.com/notes.md is ~"; then
+  echo "  ✗ learnNext named the fresh file instead of the stale one"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ learnNext ignores the fresh sibling file"
+fi
+# Updating the stale file itself is what clears it.
+touch "$KNOW_DIR/search.md"
+KNOW_OPEN2=$(CHROMUX_PROFILE=$PROFILE node "$CT" open tab-know2 https://example.com 2>/dev/null)
+if echo "$KNOW_OPEN2" | grep -q "learnNext"; then
+  echo "  ✗ learnNext still fired after the stale file was updated"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ learnNext goes quiet once the stale file is updated"
+fi
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-know 2>/dev/null > /dev/null
+CHROMUX_PROFILE=$PROFILE node "$CT" close tab-know2 2>/dev/null > /dev/null
+rm -rf "$KNOW_DIR"
+
 # --- Test 8: List ---
 echo ""
 echo "--- Test 8: List sessions ---"

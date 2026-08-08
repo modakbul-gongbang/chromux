@@ -304,8 +304,10 @@ I'm looking at". Otherwise use an isolated profile.
 ## Site Knowledge
 
 `open` responses may surface host notes from `~/.chromux/skills/<host>/*.md`
-(parent domains included) — read `hints` before inventing an approach. Write
-durable, non-secret knowledge back after sessions that taught you something:
+(parent domains included) — read `hints` before inventing an approach. Each
+hint is headed by the note's real path, so you can open the file directly.
+Write durable, non-secret knowledge back after sessions that taught you
+something:
 
 ```bash
 chromux note <host>                    # review existing notes first
@@ -313,11 +315,21 @@ chromux note <host> --add "stable selector / quirk / wait behavior"
 ```
 
 Saving is not optional cleanup — it is how the second visit gets cheaper. When
-a host has no durable knowledge yet or its notes/scripts have gone stale, the
-`open` and `close` responses carry a `learnNext` field naming the exact `note`
-/ `script save` commands. Treat `learnNext` as a required checkpoint: before
-ending a session that revealed something reusable, land it as a note (a durable
-fact) or a replay script (a proven flow). Well-covered, fresh hosts stay quiet.
+a host has no durable knowledge yet or one of its files has gone stale, the
+`open` and `close` responses carry a `learnNext` field. Treat it as a required
+checkpoint: before ending a session that revealed something reusable, land it
+as a note (a durable fact) or a replay script (a proven flow). Well-covered,
+fresh hosts stay quiet.
+
+**When a hint is wrong, fix the file — do not append a correction.** Notes are
+plain markdown and scripts are plain JavaScript; edit them with your normal
+file tools at the path in the hint header. `note --add` only appends, so using
+it to correct something leaves both the wrong claim and its rebuttal in the
+response, and the next agent believes whichever it reads first. A note that
+says "the default profile is logged in" when it no longer is will send the
+next session into a login wall, so deleting or rewriting that line is the
+repair. `learnNext` names the oldest file for the host precisely so you know
+where to look; touching a sibling file does not silence it.
 
 Good: stable selectors, URL patterns, framework quirks, hidden waits. Bad:
 credentials, cookies, pixel coordinates, one-off task narration, stale facts.
