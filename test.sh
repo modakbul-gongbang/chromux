@@ -24,6 +24,10 @@ export CHROMUX_HOME
 # Keep the suite independent from the user's shell defaults.
 unset CHROMUX_LAUNCH_MODE CHROMUX_AUTO_LAUNCH_MODE CHROMUX_OPEN_BACKGROUND CHROMUX_BACKGROUND_TABS
 
+# The suite creates its own throwaway profiles inside CHROMUX_HOME, so it opts
+# past the interactive new-profile gate. The gate itself is covered by Test 1b.
+export CHROMUX_ALLOW_NEW_PROFILE=1
+
 check() {
   local desc="$1" expected="$2" actual="$3"
   if echo "$actual" | grep -q "$expected"; then
@@ -117,6 +121,47 @@ else
   check "hidden auto-launch env reports removal" "has been removed" "$HIDDEN_ENV_OUT"
 fi
 rm -f /tmp/chromux-hidden-out.txt /tmp/chromux-hidden-env-out.txt
+
+# --- Test 1c: New-profile gate ---
+echo ""
+echo "--- Test 1c: New-profile gate ---"
+GATE_PROFILE="$PROFILE-gated"
+if CHROMUX_ALLOW_NEW_PROFILE=0 node "$CT" --profile "$GATE_PROFILE" open gate-probe https://example.com </dev/null >/tmp/chromux-gate-out.txt 2>&1; then
+  echo "  ✗ unknown profile was used without approval"
+  FAIL=$((FAIL+1))
+else
+  GATE_OUT=$(cat /tmp/chromux-gate-out.txt)
+  check "unknown profile is refused" "does not create profiles on its own" "$GATE_OUT"
+  check "refusal points at profile new" "chromux profile new $GATE_PROFILE" "$GATE_OUT"
+fi
+if [ -d "$CHROMUX_HOME/profiles/$GATE_PROFILE" ]; then
+  echo "  ✗ refused profile directory was still created"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ refused profile creates no directory"
+fi
+# A forgotten --profile value must not turn the next flag into a profile name.
+if CHROMUX_ALLOW_NEW_PROFILE=0 node "$CT" --profile --headless ps >/tmp/chromux-flagname-out.txt 2>&1; then
+  echo "  ✗ --profile swallowed a flag as its value"
+  FAIL=$((FAIL+1))
+else
+  FLAGNAME_OUT=$(cat /tmp/chromux-flagname-out.txt)
+  check "--profile rejects a flag as its value" 'got the flag "--headless"' "$FLAGNAME_OUT"
+fi
+PROFILE_NEW=$(node "$CT" profile new "$GATE_PROFILE" 2>/dev/null)
+check "profile new creates the profile" '"created": true' "$PROFILE_NEW"
+PROFILE_LIST=$(node "$CT" profile list 2>/dev/null)
+check "profile list reports the new profile" "$GATE_PROFILE" "$PROFILE_LIST"
+PROFILE_PRUNE=$(node "$CT" profile prune --days 0 2>/dev/null)
+check "profile prune dry-run reports candidates" '"dryRun": true' "$PROFILE_PRUNE"
+if echo "$PROFILE_PRUNE" | grep -q '"profile": "default"'; then
+  echo "  ✗ prune listed the default profile"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ prune never lists the default profile"
+fi
+rm -rf "$CHROMUX_HOME/profiles/$GATE_PROFILE"
+rm -f /tmp/chromux-gate-out.txt /tmp/chromux-flagname-out.txt
 
 # --- Test 2: PS ---
 echo ""

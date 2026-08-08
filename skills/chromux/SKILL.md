@@ -224,6 +224,24 @@ cleanup); reuse 3-5 stable session names as a worker pool instead of new
 sessions per URL. Tuning env vars: see `chromux help`. `pause`/`resume`
 hard-stop or resume a profile's tab work.
 
+## Profiles: Use `default`
+
+A profile is a real Chrome user-data-dir of a few hundred MB, not a scratch
+namespace. Sessions, not profiles, are what you create per task — one profile
+holds many isolated tabs. So run everything on `default` unless the task needs
+its own logins or real isolation from an untrusted site.
+
+chromux will not create a profile for you: an unknown `--profile` /
+`CHROMUX_PROFILE` name aborts with a hint instead of silently making a
+directory. Creating one is the user's call — ask, then run `chromux profile
+new <name>` (or pass `--new-profile`) once they agree. `default` and `live`
+always work.
+
+```bash
+chromux profile list     # known profiles, last use, disk usage
+chromux profile prune    # idle profiles worth deleting (add --yes to delete)
+```
+
 ## Live Mode: The User's Real Chrome
 
 Two routes reach a browser: isolated profiles (the "agent's browser", default)

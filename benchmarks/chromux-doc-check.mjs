@@ -272,6 +272,24 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
   assertContains(checks, 'recovery topic secret store handoff', docs.recoveryTopic, '--secret <host>:password` first');
 }
 
+// New-profile gate: help, README, and both skills must keep telling agents that
+// `default` is the profile and that creating another one is the user's call.
+{
+  assertContains(checks, 'help profile list verb', docs.help, 'chromux profile list');
+  assertContains(checks, 'help profile new verb', docs.help, 'chromux profile new <name>');
+  assertContains(checks, 'help profile prune verb', docs.help, 'chromux profile prune');
+  assertContains(checks, 'help new-profile gate', docs.help, 'chromux never creates a');
+  assertContains(checks, 'help new-profile env', docs.help, 'CHROMUX_ALLOW_NEW_PROFILE=1');
+  assertContains(checks, 'readme new-profile gate', docs.readme, '**chromux never creates a profile on its own.**');
+  assertContains(checks, 'readme profile prune', docs.readme, 'chromux profile prune');
+  assertContains(checks, 'readme new-profile env', docs.readme, 'CHROMUX_ALLOW_NEW_PROFILE');
+  assertContains(checks, 'chromux skill default profile rule', docs.chromuxSkill, '## Profiles: Use `default`');
+  assertContains(checks, 'chromux skill profile new', docs.chromuxSkill, 'chromux profile\nnew <name>');
+  assertContains(checks, 'work skill default profile rule', docs.workSkill, '**`default` is the profile.');
+  assertContains(checks, 'work skill profile new approval', docs.workSkill, 'chromux profile new <name>');
+  assertContains(checks, 'work skill profile prune', docs.workSkill, 'chromux profile prune');
+}
+
 {
   const pkg = JSON.parse(read('package.json'));
   const ok = !pkg.dependencies;

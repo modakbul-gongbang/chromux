@@ -106,17 +106,123 @@ function parseGlobalFlag(flag) {
   const idx = process.argv.indexOf(flag);
   if (idx < 0) return null;
   const val = process.argv[idx + 1];
+  requireFlagValueNotAFlag(flag, val);
   process.argv.splice(idx, 2);
   return val;
 }
 
-const VALID_NAME = /^[a-zA-Z0-9._-]+$/;
+/**
+ * Reject `--profile --headless`-shaped mistakes. Without this a forgotten value
+ * makes the *next flag* the profile name, and chromux silently creates a real
+ * Chrome user-data-dir called "--headless".
+ */
+function requireFlagValueNotAFlag(flag, value) {
+  if (value == null || value === '') {
+    console.error(`${flag} requires a value.`);
+    process.exit(1);
+  }
+  if (value.startsWith('-')) {
+    console.error(`${flag} requires a value, but got the flag "${value}".`);
+    console.error(`Write it as: ${flag} <name> ${value}`);
+    process.exit(1);
+  }
+}
+
+// Names must start alphanumeric: a leading "-" would let a flag pass as a
+// profile name, and a leading "." would hide the directory.
+const VALID_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 function validateName(name) {
   if (!VALID_NAME.test(name)) {
-    console.error(`Invalid profile/session name "${name}". Use only [a-zA-Z0-9._-]`);
+    console.error(`Invalid profile/session name "${name}". Use [a-zA-Z0-9._-], starting with a letter or digit.`);
     process.exit(1);
   }
   return name;
+}
+
+// ---- New-profile creation gate ----
+//
+// Creating a profile is cheap to type and expensive to own: every one is a real
+// Chrome user-data-dir (hundreds of MB) that nothing ever cleans up. Agents
+// used to mint a fresh throwaway name per task, so chromux now refuses to
+// create an unknown profile unless the user says so. `default` and `live` are
+// always allowed — that is the point: `default` is the default.
+
+function profileDirExists(name) {
+  try { return fs.statSync(path.join(PROFILES_DIR, name)).isDirectory(); }
+  catch { return false; }
+}
+
+function newProfileApprovedByEnv() {
+  const raw = (process.env.CHROMUX_ALLOW_NEW_PROFILE || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+/** Read one echoed line from a real terminal. Rejects when there is no TTY. */
+function promptLine(promptText) {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) { reject(new Error('no-tty')); return; }
+    process.stdout.write(promptText);
+    const stdin = process.stdin;
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    let input = '';
+    let done = false;
+    function finish(value) {
+      if (done) return;
+      done = true;
+      stdin.removeListener('data', onData);
+      stdin.removeListener('end', onEnd);
+      stdin.removeListener('close', onEnd);
+      stdin.pause();
+      resolve(value);
+    }
+    function onData(chunk) {
+      input += chunk;
+      const nl = input.indexOf('\n');
+      if (nl < 0) return;
+      finish(input.slice(0, nl).trim());
+    }
+    // stdin can close without a trailing newline (EOF, a closed pipe). Treat
+    // whatever arrived as the answer instead of hanging the process forever.
+    function onEnd() { finish(input.trim()); }
+    stdin.on('data', onData);
+    stdin.on('end', onEnd);
+    stdin.on('close', onEnd);
+  });
+}
+
+/**
+ * Allow the command to proceed only if `name` is an existing profile, a
+ * reserved one, or the user explicitly approves creating it.
+ * Exits the process with a hint when creation is not approved.
+ */
+async function ensureProfileAllowed(name, { approved = false, intent = 'use' } = {}) {
+  if (!name) return;
+  validateName(name);
+  if (name === DEFAULT_PROFILE || isLiveProfile(name)) return;
+  if (profileDirExists(name)) return;
+  if (approved || newProfileApprovedByEnv()) return;
+
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    const answer = await promptLine(
+      `chromux: profile "${name}" does not exist yet.\n` +
+      `Creating it makes a new Chrome user-data-dir under ${displayChromuxPath(PROFILES_DIR)}/${name}.\n` +
+      `Create it? [y/N] `,
+    ).catch(() => '');
+    // Terminals can deliver stray control bytes (EOF echo, escape sequences)
+    // alongside the answer, so compare on the letters only.
+    const normalized = answer.toLowerCase().replace(/[^a-z]/g, '');
+    if (normalized === 'y' || normalized === 'yes') return;
+    console.error(`Aborted. Re-run without --profile to ${intent} the "${DEFAULT_PROFILE}" profile.`);
+    process.exit(1);
+  }
+
+  console.error(`Profile "${name}" does not exist, and chromux does not create profiles on its own.`);
+  console.error(`Use the "${DEFAULT_PROFILE}" profile (drop --profile / CHROMUX_PROFILE), or ask the user before creating a new one.`);
+  console.error('To create it once approved:');
+  console.error(`  chromux profile new ${name}`);
+  console.error(`Existing profiles: chromux profile list`);
+  process.exit(1);
 }
 
 const RUN_DIR = path.join(CHROMUX_HOME, 'run');
@@ -1210,6 +1316,7 @@ async function findFreePort(cfg) {
   const usedPorts = new Set();
   try {
     for (const name of fs.readdirSync(PROFILES_DIR)) {
+      if (!VALID_NAME.test(name)) continue;
       const st = readState(name);
       if (st && isProcessAlive(st.pid)) usedPorts.add(st.cdpPort || st.port);
     }
@@ -1239,6 +1346,7 @@ async function findFreeDaemonPort(cfg = loadConfig()) {
   const usedPorts = new Set();
   try {
     for (const name of fs.readdirSync(PROFILES_DIR)) {
+      if (!VALID_NAME.test(name)) continue;
       const st = readState(name);
       if (st?.daemonPort) usedPorts.add(Number(st.daemonPort));
     }
@@ -6486,12 +6594,9 @@ async function cmdLaunch(profileName, explicitPort, launchMode = 'headless') {
 
 async function cmdPs(args = []) {
   const json = args.includes('--json');
-  fs.mkdirSync(PROFILES_DIR, { recursive: true });
-  let profiles;
-  try { profiles = fs.readdirSync(PROFILES_DIR); }
-  catch { profiles = []; }
-  const discovered = listChromuxChromeProcesses().map(proc => proc.profile);
-  profiles = [...new Set([...profiles, ...discovered])];
+  // listKnownProfileNames drops non-profile entries (.DS_Store, legacy
+  // flag-shaped directories) that would otherwise fail name validation here.
+  const profiles = listKnownProfileNames();
 
   const rows = [];
   for (const name of profiles) {
@@ -6635,6 +6740,204 @@ function normalizeNoteHost(raw) {
   const host = fromUrl || String(raw || '').replace(/^www\./, '').trim().toLowerCase();
   if (!host || !host.includes('.') || !VALID_NAME.test(host.replace(/\./g, '_'))) return null;
   return host;
+}
+
+// ---- `chromux profile` CLI (list, new, prune) ----
+
+const PROFILE_PRUNE_DEFAULT_DAYS = 30;
+// A freshly created Chrome cookie DB is one empty SQLite page set; anything
+// larger means the profile actually stored cookies (likely a login worth
+// keeping). Advisory only — cookies can also live in the WAL sidecar.
+const EMPTY_COOKIE_DB_BYTES = 20480;
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let i = 0;
+  while (value >= 1024 && i < units.length - 1) { value /= 1024; i += 1; }
+  return `${value >= 10 || i === 0 ? Math.round(value) : value.toFixed(1)}${units[i]}`;
+}
+
+function profileHasCookieData(name) {
+  try { return fs.statSync(path.join(profileDir(name), 'Default', 'Cookies')).size > EMPTY_COOKIE_DB_BYTES; }
+  catch { return false; }
+}
+
+/** Last recorded CLI activity per profile, from the activity log. */
+function profileLastActivityMap() {
+  const map = new Map();
+  for (const event of readActivityEventsRaw()) {
+    if (!event?.profile || !event.timestamp) continue;
+    const prev = map.get(event.profile);
+    if (!prev || event.timestamp > prev) map.set(event.profile, event.timestamp);
+  }
+  return map;
+}
+
+/**
+ * Directories under profiles/ whose names chromux no longer accepts — almost
+ * always artifacts of the old `--profile --headless` parsing bug. They are
+ * invisible to every other command, so prune is the only thing that can
+ * report the disk they hold.
+ */
+function listLegacyProfileDirs() {
+  let entries = [];
+  try { entries = fs.readdirSync(PROFILES_DIR); } catch { return []; }
+  return entries
+    .filter(name => !VALID_NAME.test(name))
+    .filter(name => {
+      try { return fs.statSync(path.join(PROFILES_DIR, name)).isDirectory(); }
+      catch { return false; }
+    })
+    .map(name => ({ name, diskUsageBytes: directorySizeBytes(path.join(PROFILES_DIR, name)) }));
+}
+
+function removeLegacyProfileDir(name) {
+  const target = path.resolve(PROFILES_DIR, name);
+  // Never let a crafted name escape the profiles root.
+  if (path.dirname(target) !== path.resolve(PROFILES_DIR)) throw new Error(`refusing to remove ${name}`);
+  fs.rmSync(target, { recursive: true, force: true });
+}
+
+async function collectPruneCandidates({ days, includeLoggedIn }) {
+  const lastActivity = profileLastActivityMap();
+  const now = Date.now();
+  const rows = [];
+  for (const name of listKnownProfileNames()) {
+    if (name === DEFAULT_PROFILE || isLiveProfile(name)) continue;
+    const runtime = await resolveProfileRuntime(name, { adopt: false }).catch(() => null);
+    const running = runtime?.status === 'running';
+    const info = profileFileInfo(name);
+    const stamps = [lastActivity.get(name), info.modifiedAt].filter(Boolean).sort();
+    const lastUsedAt = stamps.length ? stamps[stamps.length - 1] : null;
+    const idleDays = lastUsedAt ? Math.floor((now - Date.parse(lastUsedAt)) / 86400000) : Infinity;
+    const hasCookies = profileHasCookieData(name);
+    let skipReason = null;
+    if (running) skipReason = 'running';
+    else if (idleDays < days) skipReason = `used ${idleDays}d ago`;
+    else if (hasCookies && !includeLoggedIn) skipReason = 'has cookie data';
+    rows.push({
+      name,
+      lastUsedAt,
+      idleDays: Number.isFinite(idleDays) ? idleDays : null,
+      diskUsageBytes: profileDiskUsageBytes(name),
+      hasCookies,
+      running,
+      prunable: !skipReason,
+      skipReason,
+    });
+  }
+  return rows.sort((a, b) => b.diskUsageBytes - a.diskUsageBytes);
+}
+
+async function cmdProfile(args) {
+  const usage = 'Usage: chromux profile [list | new <name> | prune [--days N] [--include-logged-in] [--yes]]';
+  const sub = args[0] || 'list';
+
+  if (sub === 'list') {
+    const lastActivity = profileLastActivityMap();
+    const rows = [];
+    for (const name of listKnownProfileNames()) {
+      const runtime = await resolveProfileRuntime(name, { adopt: false }).catch(() => null);
+      rows.push({
+        name,
+        status: runtime?.status || 'stopped',
+        reserved: name === DEFAULT_PROFILE || isLiveProfile(name),
+        lastUsedAt: lastActivity.get(name) || profileFileInfo(name).modifiedAt,
+        diskUsage: formatBytes(profileDiskUsageBytes(name)),
+      });
+    }
+    console.log(JSON.stringify({ profiles: rows, defaultProfile: DEFAULT_PROFILE }, null, 2));
+    return;
+  }
+
+  if (sub === 'new') {
+    const name = args[1];
+    if (!name) { console.error(usage); process.exit(1); }
+    validateName(name);
+    if (isLiveProfile(name)) {
+      console.error('The "live" profile is reserved for the user\'s own Chrome. Run "chromux pair" instead.');
+      process.exit(1);
+    }
+    if (profileDirExists(name)) {
+      console.log(JSON.stringify({ profile: name, created: false, note: 'already exists' }, null, 2));
+      return;
+    }
+    fs.mkdirSync(profileDir(name), { recursive: true });
+    console.log(JSON.stringify({
+      profile: name,
+      created: true,
+      userDataDir: displayChromuxPath(profileDir(name)),
+      next: `CHROMUX_PROFILE=${name} chromux open <session> <url>`,
+    }, null, 2));
+    return;
+  }
+
+  if (sub === 'prune') {
+    const rest = args.slice(1);
+    const yes = takeFlag(rest, '--yes');
+    const includeLoggedIn = takeFlag(rest, '--include-logged-in');
+    const daysRaw = takeFlagValue(rest, '--days');
+    const days = daysRaw == null ? PROFILE_PRUNE_DEFAULT_DAYS : parseInt(daysRaw, 10);
+    if (!Number.isFinite(days) || days < 0) { console.error('--days requires a non-negative number'); process.exit(1); }
+
+    const rows = await collectPruneCandidates({ days, includeLoggedIn });
+    const prunable = rows.filter(row => row.prunable);
+    const legacy = listLegacyProfileDirs();
+    const reclaimable = [...prunable, ...legacy].reduce((sum, row) => sum + row.diskUsageBytes, 0);
+
+    if (!yes) {
+      console.log(JSON.stringify({
+        dryRun: true,
+        idleDays: days,
+        includeLoggedIn,
+        prunable: prunable.map(row => ({
+          profile: row.name,
+          idleDays: row.idleDays,
+          lastUsedAt: row.lastUsedAt,
+          diskUsage: formatBytes(row.diskUsageBytes),
+          hasCookies: row.hasCookies,
+        })),
+        invalidNames: legacy.map(row => ({ profile: row.name, diskUsage: formatBytes(row.diskUsageBytes) })),
+        kept: rows.filter(row => !row.prunable).map(row => ({ profile: row.name, reason: row.skipReason })),
+        reclaimable: formatBytes(reclaimable),
+        next: prunable.length || legacy.length
+          ? `chromux profile prune --days ${days}${includeLoggedIn ? ' --include-logged-in' : ''} --yes`
+          : 'nothing to prune',
+      }, null, 2));
+      return;
+    }
+
+    const deleted = [];
+    for (const row of prunable) {
+      try {
+        await deleteProfile(row.name);
+        deleted.push({ profile: row.name, diskUsage: formatBytes(row.diskUsageBytes) });
+      } catch (err) {
+        deleted.push({ profile: row.name, error: err.message });
+      }
+    }
+    for (const row of legacy) {
+      try {
+        removeLegacyProfileDir(row.name);
+        deleted.push({ profile: row.name, diskUsage: formatBytes(row.diskUsageBytes), invalidName: true });
+      } catch (err) {
+        deleted.push({ profile: row.name, error: err.message, invalidName: true });
+      }
+    }
+    console.log(JSON.stringify({
+      dryRun: false,
+      idleDays: days,
+      deleted,
+      reclaimed: formatBytes(reclaimable),
+      secretHint: 'Bitwarden entries are never touched by prune — clean up with: chromux secret rm <host> --profile <name>',
+    }, null, 2));
+    return;
+  }
+
+  console.error(usage);
+  process.exit(1);
 }
 
 async function cmdNote(args) {
@@ -7450,11 +7753,20 @@ function cmdResume(profileName) {
 // ============================================================
 
 /** Remove `<flag> <value>` from args and return the value (null when absent). */
+/** Remove a boolean flag from args, returning whether it was present. */
+function takeFlag(args, flag) {
+  const idx = args.indexOf(flag);
+  if (idx < 0) return false;
+  args.splice(idx, 1);
+  return true;
+}
+
 function takeFlagValue(args, flag, { required = 'a value' } = {}) {
   const idx = args.indexOf(flag);
   if (idx < 0) return null;
   const value = args[idx + 1];
   if (value == null) { console.error(`${flag} requires ${required}`); process.exit(1); }
+  if (flag === '--profile') requireFlagValueNotAFlag(flag, value);
   args.splice(idx, 2);
   return value;
 }
@@ -8670,12 +8982,26 @@ function extractActivityPageInfo(cmd, result) {
   };
 }
 
+/**
+ * `note`/`script` carry no URL, so pull the host out of their arguments —
+ * otherwise site-knowledge writes are unattributable in the activity log.
+ */
+function siteKnowledgeHostFromArgs(cmd, args) {
+  if (cmd !== 'note' && cmd !== 'script') return null;
+  const subcommands = new Set(['show', 'save', 'rm', 'list']);
+  const positional = (args || []).filter(arg => !String(arg).startsWith('-'));
+  const candidate = positional.find(arg => !subcommands.has(String(arg)));
+  if (!candidate) return null;
+  const host = String(candidate).split('/')[0];
+  return normalizeNoteHost(host) || null;
+}
+
 function recordCliActivity({ cmd, args, profile, session, result, error, startedAt }) {
   try {
     if (cmd === 'app' || cmd === '--daemon') return;
     const pageInfo = extractActivityPageInfo(cmd, result);
     const url = pageInfo.url || null;
-    const host = hostFromUrl(url) || null;
+    const host = hostFromUrl(url) || siteKnowledgeHostFromArgs(cmd, args) || null;
     appendActivityEvent({
       timestamp: new Date().toISOString(),
       profile: profile || DEFAULT_PROFILE,
@@ -8712,13 +9038,19 @@ async function runLoggedProfileCommand(cmd, args, profile, fn) {
 }
 
 async function runCli(cmd, args) {
+  // `--new-profile` is the explicit "yes, create it" approval for the
+  // new-profile gate. Strip it before positional parsing.
+  const newProfileApproved = takeFlag(args, '--new-profile');
+
   // Live-mode setup commands (no daemon needed)
   if (cmd === 'pair') return cmdPair();
   if (cmd === 'tabs') return cmdLiveTabs(args);
+  if (cmd === 'profile') return cmdProfile(args);
 
   // Profile-level commands (no daemon needed)
   if (cmd === 'launch') {
     const name = args[0] || DEFAULT_PROFILE;
+    await ensureProfileAllowed(name, { approved: newProfileApproved, intent: 'launch' });
     if (isLiveProfile(name)) {
       console.error('The "live" profile is the user\'s own Chrome — it is not launched by chromux.');
       console.error('Run "chromux pair" once, then use CHROMUX_PROFILE=live with open/snapshot/... commands.');
@@ -8746,8 +9078,11 @@ async function runCli(cmd, args) {
     printFailureLearningReminder(args[0]);
     return r;
   }
-  if (cmd === 'note') return cmdNote(args);
-  if (cmd === 'script') return cmdScript(args);
+  // Site notes and replay scripts are the write side of chromux's site
+  // knowledge. Log them like any other command so the read/write ratio is
+  // measurable instead of guessed at.
+  if (cmd === 'note') return runLoggedProfileCommand(cmd, args, getProfile(), () => cmdNote(args));
+  if (cmd === 'script') return runLoggedProfileCommand(cmd, args, getProfile(), () => cmdScript(args));
   if (cmd === 'secret') return cmdSecret(args);
   if (cmd === 'skill') return cmdSkillTopic(args);
   if (cmd === 'pause') {
@@ -8769,6 +9104,10 @@ async function runCli(cmd, args) {
     'network', 'close', 'list', 'stop', 'record',
   ]);
   if (!tabCommands.has(cmd)) { console.error(`Unknown: ${cmd}. Run: chromux help`); process.exit(1); }
+
+  // Tab commands cold-start a profile through ensureDaemon, which is the other
+  // path that used to create user-data-dirs without anyone asking.
+  await ensureProfileAllowed(profile, { approved: newProfileApproved, intent: 'work in' });
 
   const live = isLiveProfile(profile);
   // Commands that chrome.debugger cannot support in the user's real browser.
@@ -9468,6 +9807,9 @@ Lifecycle:
   chromux pause [name]               Hard-stop new tab work for a profile
   chromux resume [name]              Allow tab work again for a paused profile
   chromux kill <name>                Stop profile (Chrome + daemon)
+  chromux profile list               List known profiles with last use and disk usage
+  chromux profile new <name>         Create a new profile (needs the user's go-ahead)
+  chromux profile prune              Show idle profiles safe to delete (add --yes to delete)
   chromux stop                       Stop daemon (keeps Chrome)
   chromux close <session>            Close tab
   chromux list                       List active sessions
@@ -9638,6 +9980,12 @@ Profile selection:
   CHROMUX_OPEN_BACKGROUND=0 chromux open ...    Create new tabs in foreground
   (default profile: "default")
 
+  Use "default" unless the task needs isolation. chromux never creates a
+  profile on its own: an unknown --profile name aborts with a hint, prompts
+  on a terminal, and is created only via "chromux profile new <name>",
+  the --new-profile flag, or CHROMUX_ALLOW_NEW_PROFILE=1. Agents should ask
+  the user before creating one. "default" and "live" are always allowed.
+
 Crawl mode:
   Caps expensive profile operations, blocks heavy media/font/analytics resources,
   uses shorter navigation waits, prunes idle sessions, and closes unresponsive
@@ -9665,12 +10013,14 @@ Paths:
 // Without this, `chromux --profile foo open ...` would treat `--profile` as the command.
 {
   const idx = process.argv.indexOf('--profile');
-  if (idx >= 2 && process.argv[idx + 1]) {
+  if (idx >= 2) {
+    requireFlagValueNotAFlag('--profile', process.argv[idx + 1]);
     process.env.CHROMUX_PROFILE = process.argv[idx + 1];
     process.argv.splice(idx, 2);
   }
   const modeIdx = process.argv.indexOf('--mode');
-  if (modeIdx >= 2 && process.argv[modeIdx + 1]) {
+  if (modeIdx >= 2) {
+    requireFlagValueNotAFlag('--mode', process.argv[modeIdx + 1]);
     process.env.CHROMUX_MODE = process.argv[modeIdx + 1];
     process.argv.splice(modeIdx, 2);
   }

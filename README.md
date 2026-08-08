@@ -316,6 +316,28 @@ CHROMUX_PROFILE=crawl-news chromux resume
 
 Each profile is an isolated Chrome instance with its own user-data-dir, logins, cookies, and extensions.
 
+`default` is the profile you should normally use. Parallelism comes from
+sessions (isolated tabs inside one profile), not from profiles — a profile is a
+real Chrome user-data-dir of a few hundred MB that nothing garbage-collects.
+Reach for a second profile only when a task needs separate logins or isolation
+from a site you would not point your cookies at.
+
+**chromux never creates a profile on its own.** An unknown `--profile` /
+`CHROMUX_PROFILE` name aborts with a hint, or prompts when you are on a
+terminal. This keeps an agent from minting a throwaway profile per task and
+turns creation into a decision you make:
+
+```bash
+chromux --profile work open t https://example.com   # → aborts: profile "work" does not exist
+chromux profile new work                            # explicit creation
+chromux --profile work --new-profile open t https://example.com   # create inline
+CHROMUX_ALLOW_NEW_PROFILE=1 chromux --profile work open t https://...  # for trusted scripts
+```
+
+`default` and `live` are always allowed. Profile names must start with a letter
+or digit, so a forgotten flag value (`--profile --headless`) is rejected instead
+of becoming a profile called `--headless`.
+
 ```bash
 # Launch named profiles
 chromux launch work
@@ -330,6 +352,13 @@ chromux ps
 # Machine-readable diagnosis for agents and dashboards
 chromux ps --json
 
+# Known profiles with last use and disk usage
+chromux profile list
+
+# Find idle profiles worth deleting (dry run; --yes actually deletes)
+chromux profile prune
+chromux profile prune --days 60 --yes
+
 # Use a specific profile for tab commands
 chromux --profile work open my-tab https://...
 CHROMUX_PROFILE=personal chromux open other-tab https://...
@@ -343,6 +372,11 @@ chromux open my-tab https://...  # → uses "default" profile (auto-launches if 
 # Stop a profile
 chromux kill work
 ```
+
+`profile prune` reports each candidate's idle days and disk usage and skips
+anything running, `default`, `live`, and profiles holding cookie data (use
+`--include-logged-in` to override). It also surfaces directories with names
+chromux no longer accepts, which are otherwise invisible to every command.
 
 On macOS, chromux may be invoked from agent runtimes that set `HOME` to a
 synthetic profile directory. Chrome's `--user-data-dir` still controls browser
@@ -921,6 +955,7 @@ chromux open --foreground tab https://example.com
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CHROMUX_PROFILE` | `default` | Active profile name |
+| `CHROMUX_ALLOW_NEW_PROFILE` | `0` | Set to `1` to let commands create an unknown profile without asking (same as `--new-profile`) |
 | `CHROMUX_MODE` | `default` | Browser policy mode: `default` for compatibility/QA, `crawl` for efficient crawling |
 | `CHROMUX_TASK` | empty | Optional Task label written to activity events and used by the status app timeline |
 | `CHROMUX_HOME` | `~/.chromux` | Override chromux state root for tests or isolated runs |
