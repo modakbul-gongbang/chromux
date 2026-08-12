@@ -3,6 +3,7 @@ set -e
 
 CT="$(cd "$(dirname "$0")" && pwd)/chromux.mjs"
 PROFILE="test-$$"
+EXTERNAL_PROFILE="external-owned-$$"
 COLD_PROFILE="$PROFILE-cold"
 LIVE_LOCK_PROFILE="$PROFILE-live-lock"
 STALE_LOCK_PROFILE="$PROFILE-stale-lock"
@@ -57,11 +58,12 @@ cleanup() {
   rm -f "$REACH_FIXTURE_INFO" "$REACH_FIXTURE_LOG"
   if [ -n "$RELATIVE_SHOT_DIR" ]; then rm -rf "$RELATIVE_SHOT_DIR"; fi
   node "$CT" kill "$PROFILE" 2>/dev/null || true
+  node "$CT" kill "$EXTERNAL_PROFILE" 2>/dev/null || true
   node "$CT" kill "$COLD_PROFILE" 2>/dev/null || true
   node "$CT" kill "$LIVE_LOCK_PROFILE" 2>/dev/null || true
   node "$CT" kill "$STALE_LOCK_PROFILE" 2>/dev/null || true
-  chmod -R u+rwX "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
-  rm -rf "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
+  chmod -R u+rwX "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$EXTERNAL_PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE" 2>/dev/null || true
+  rm -rf "$CHROMUX_HOME/profiles/$PROFILE" "$CHROMUX_HOME/profiles/$EXTERNAL_PROFILE" "$CHROMUX_HOME/profiles/$COLD_PROFILE" "$CHROMUX_HOME/profiles/$LIVE_LOCK_PROFILE" "$CHROMUX_HOME/profiles/$STALE_LOCK_PROFILE"
   if [ "$CHROMUX_TEST_OWNS_HOME" = "1" ]; then
     rm -rf "$CHROMUX_HOME"
   fi
@@ -219,6 +221,20 @@ check "background tab env opened" "example.org" "$R3D"
 
 R3E=$(CHROMUX_PROFILE=$PROFILE CHROMUX_OPEN_BACKGROUND=0 node "$CT" open tab-fg-env https://example.net 2>/dev/null)
 check "foreground tab env opened" "example.net" "$R3E"
+
+# --- Test 3a: External CDP close ownership ---
+echo ""
+echo "--- Test 3a: External CDP close detaches ---"
+EXTERNAL_LAUNCH=$(node "$CT" launch "$EXTERNAL_PROFILE" --headless 2>/dev/null)
+check "external fixture profile launched" "port" "$EXTERNAL_LAUNCH"
+EXTERNAL_CDP_PORT=$(printf '%s' "$EXTERNAL_LAUNCH" | node -e 'let raw="";process.stdin.on("data",chunk=>raw+=chunk);process.stdin.on("end",()=>process.stdout.write(String(JSON.parse(raw).port)))')
+EXTERNAL_TARGET=$(node -e 'const http=require("http");http.get(`http://127.0.0.1:${process.argv[1]}/json/list`,res=>{let raw="";res.on("data",chunk=>raw+=chunk);res.on("end",()=>{const page=JSON.parse(raw).find(target=>target.type==="page");if(!page)process.exit(1);process.stdout.write(page.id);});}).on("error",()=>process.exit(1));' "$EXTERNAL_CDP_PORT")
+EXTERNAL_OPEN=$(node "$CT" open external-close --cdp-url "http://127.0.0.1:$EXTERNAL_CDP_PORT" --tab "$EXTERNAL_TARGET" 2>/dev/null)
+check "external CDP target attached" '"session": "external-close"' "$EXTERNAL_OPEN"
+EXTERNAL_CLOSE=$(node "$CT" close external-close 2>/dev/null)
+check "external CDP close reports detach" '"detached": true' "$EXTERNAL_CLOSE"
+EXTERNAL_TARGET_ALIVE=$(node -e 'const http=require("http");const target=process.argv[2];http.get(`http://127.0.0.1:${process.argv[1]}/json/list`,res=>{let raw="";res.on("data",chunk=>raw+=chunk);res.on("end",()=>{const alive=JSON.parse(raw).some(page=>page.id===target);process.stdout.write(String(alive));});}).on("error",()=>process.stdout.write("false"));' "$EXTERNAL_CDP_PORT" "$EXTERNAL_TARGET")
+check "external CDP close leaves target open" '^true$' "$EXTERNAL_TARGET_ALIVE"
 
 echo ""
 echo "--- Test 3b: Activity logging ---"

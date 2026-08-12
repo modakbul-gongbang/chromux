@@ -54,6 +54,9 @@ chromux snapshot inbox --diff           # …verify what changed for ~47 tokens
 chromux pair                                          # one-time: the companion Chrome extension pairs itself
 CHROMUX_PROFILE=live chromux open helper --tab active # "do this on the page I'm looking at"
 
+# An external view: attach to the local CDP endpoint returned by Herdr connect
+chromux open herdr-view --cdp-url http://127.0.0.1:PORT --tab active
+
 # The fleet: point 10 worker tabs at a URL queue
 chromux batch --file urls.txt --workers 10 --out results.jsonl
 
@@ -63,6 +66,25 @@ chromux run inbox --script mail.example.com/triage
 ```
 
 ## One CLI, three browsers
+
+### External CDP view attachment
+
+When another local tool owns the browser, attach Chromux to that existing view instead of launching a profile.
+
+```bash
+# Herdr returns this endpoint as cdp_http_url from its connect command.
+chromux open herdr-view --cdp-url http://127.0.0.1:PORT --tab active
+chromux snapshot herdr-view --interactive
+chromux click herdr-view @1
+chromux fill herdr-view @2 "text"
+chromux run herdr-view 'return await js("document.title")'
+chromux screenshot herdr-view /tmp/herdr-view.png
+chromux close herdr-view
+```
+
+`--cdp-url` accepts only plain loopback `http://localhost`, `http://127.0.0.1`, or `http://[::1]` endpoints, with no credentials, query, or fragment.
+The external browser and tab remain owned by the caller: `close` detaches, idle cleanup only drops Chromux's CDP connection, and `kill` never terminates the external browser.
+Use `--tab active`, a CDP target id, or a URL/title substring when the endpoint exposes multiple page targets.
 
 Browser work for agents comes in three shapes, and until now each shape needed a different tool.
 chromux covers the whole spectrum with one zero-dependency CLI, and the commands are identical across all three - only the profile changes.

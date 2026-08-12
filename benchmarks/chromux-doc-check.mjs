@@ -236,6 +236,19 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
 }
 
 {
+  // External CDP attachment is intentionally a narrow, externally-owned
+  // transport. Help and both agent-facing docs must preserve its ownership and
+  // loopback boundary rather than making it look like a profile launch.
+  assertContains(checks, 'help external cdp open', docs.help, '--cdp-url http://127.0.0.1:PORT');
+  assertContains(checks, 'help external cdp detach', docs.help, 'close detaches and never closes its tab');
+  assertContains(checks, 'readme external cdp Herdr contract', docs.readme, 'cdp_http_url');
+  assertContains(checks, 'readme external cdp loopback boundary', docs.readme, 'only plain loopback');
+  assertContains(checks, 'readme external cdp ownership', docs.readme, 'idle cleanup only drops Chromux');
+  assertContains(checks, 'chromux skill external cdp', docs.chromuxSkill, '--cdp-url http://127.0.0.1:PORT');
+  assertContains(checks, 'work skill external cdp', docs.workSkill, 'externally-owned local browser view');
+}
+
+{
   // Screen recording (`chromux record`) surface must stay consistent across
   // help, README, install, and both skills — same discipline as live mode.
   assertContains(checks, 'help record verb', docs.help, 'chromux record <session> start');

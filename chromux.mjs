@@ -44,6 +44,7 @@ const LIVE_PROFILE = 'live';
 const LIVE_CONFIG_PATH = path.join(CHROMUX_HOME, 'live.json');
 const LIVE_DEFAULT_PORT = 47700;
 const LIVE_TARGET_PREFIX = 'live-tab-';
+const EXTERNAL_SESSION_DIR = path.join(CHROMUX_HOME, 'external-sessions');
 const EXTENSION_DIR = path.join(MODULE_DIR, 'extension');
 const DEFAULT_ACTIVITY_RETENTION_DAYS = 90;
 const ACTIVITY_RETENTION_OPTIONS = new Set([7, 30, 90, 365, 'unlimited']);
@@ -237,6 +238,62 @@ function sockPath(name) {
   validateName(name);
   fs.mkdirSync(RUN_DIR, { recursive: true, mode: 0o700 });
   return path.join(RUN_DIR, `${name}.sock`);
+}
+
+// An external CDP endpoint is a browser owned by another tool.  Keep the
+// daemon state under a deterministic synthetic profile, but never record a
+// browser pid there: process lifecycle code must have nothing to terminate.
+function normalizeExternalCdpUrl(raw) {
+  let url;
+  try { url = new URL(String(raw)); } catch {
+    throw new Error(`Invalid --cdp-url "${raw}". Use an http://127.0.0.1:<port> endpoint.`);
+  }
+  if (url.protocol !== 'http:' || url.username || url.password || url.search || url.hash) {
+    throw new Error('--cdp-url must be a plain http:// CDP endpoint without credentials, query, or fragment');
+  }
+  const host = url.hostname.toLowerCase();
+  const loopback = host === 'localhost' || host === '::1' || host === '[::1]' || /^127(?:\.\d{1,3}){3}$/.test(host);
+  if (!loopback) throw new Error(`Refusing non-loopback CDP endpoint "${url.origin}". Use localhost, 127.0.0.1, or ::1.`);
+  url.pathname = url.pathname.replace(/\/$/, '');
+  return url.toString().replace(/\/$/, '');
+}
+
+function externalProfileName(cdpUrl) {
+  return `external-${crypto.createHash('sha256').update(cdpUrl).digest('hex').slice(0, 16)}`;
+}
+
+function externalSessionPath(session) {
+  return path.join(EXTERNAL_SESSION_DIR, `${crypto.createHash('sha256').update(String(session)).digest('hex')}.json`);
+}
+
+function readExternalSession(session) {
+  try {
+    const value = JSON.parse(fs.readFileSync(externalSessionPath(session), 'utf8'));
+    return value?.session === session && value?.cdpUrl ? value : null;
+  } catch { return null; }
+}
+
+function writeExternalSession(session, cdpUrl, profile, { daemonEndpoint = null, targetId = null } = {}) {
+  fs.mkdirSync(EXTERNAL_SESSION_DIR, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(externalSessionPath(session), JSON.stringify({
+    session, cdpUrl, profile, daemonEndpoint, targetId,
+    createdAt: new Date().toISOString(),
+  }) + '\n', { mode: 0o600 });
+}
+
+function removeExternalSession(session) {
+  try { fs.unlinkSync(externalSessionPath(session)); } catch {}
+}
+
+function removeExternalSessionsForProfile(profileName) {
+  let files = [];
+  try { files = fs.readdirSync(EXTERNAL_SESSION_DIR).map(name => path.join(EXTERNAL_SESSION_DIR, name)); } catch { return; }
+  for (const filePath of files) {
+    try {
+      const record = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (record?.profile === profileName) fs.unlinkSync(filePath);
+    } catch {}
+  }
 }
 
 function daemonEndpointForPort(port) {
@@ -1342,9 +1399,27 @@ async function resolveProfileRuntime(profileName, { adopt = true } = {}) {
 }
 
 /** Check if a CDP endpoint is reachable. */
+function cdpHttpOptions(endpoint, urlPath, method = 'GET') {
+  if (typeof endpoint === 'number' || /^\d+$/.test(String(endpoint))) {
+    return { hostname: '127.0.0.1', port: Number(endpoint), path: urlPath, method };
+  }
+  const base = new URL(endpoint);
+  const suffix = String(urlPath).replace(/^\//, '');
+  const basePath = base.pathname.replace(/\/$/, '');
+  return {
+    protocol: base.protocol,
+    hostname: base.hostname,
+    port: base.port || undefined,
+    path: `${basePath}/${suffix}`.replace(/^$/, '/'),
+    method,
+  };
+}
+
 function checkCDP(port) {
   return new Promise((resolve) => {
-    const req = http.request({ hostname: '127.0.0.1', port, path: '/json/version', method: 'GET' }, (res) => {
+    let options;
+    try { options = cdpHttpOptions(port, '/json/version'); } catch { resolve(false); return; }
+    const req = http.request(options, (res) => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => resolve(true));
@@ -1698,7 +1773,9 @@ class CDPClient {
 
 function cdpFetch(port, urlPath, method = 'GET') {
   return new Promise((resolve, reject) => {
-    const req = http.request({ hostname: '127.0.0.1', port, path: urlPath, method }, (res) => {
+    let options;
+    try { options = cdpHttpOptions(port, urlPath, method); } catch (err) { reject(err); return; }
+    const req = http.request(options, (res) => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => {
@@ -3739,6 +3816,7 @@ async function adoptPopup(port, sessions, sessionName, s, since, browserState, s
       targetId: entry.targetId, cdp, createdAt: now, lastUsedAt: now,
       url: target.url || entry.url || '', title: target.title || '', navigations: 0,
       dialogPolicy: s.dialogPolicy || 'dismiss',
+      externallyOwned: s.externallyOwned === true,
     };
     attachDialogHandler(popupSession);
     cdp.onDisconnect = () => { sessions.delete(name); };
@@ -3753,7 +3831,7 @@ async function adoptPopup(port, sessions, sessionName, s, since, browserState, s
 // Daemon server (per-profile)
 // ============================================================
 
-async function startDaemon(profileName, port, daemonPort) {
+async function startDaemon(profileName, port, daemonPort, { external = false } = {}) {
   try { fs.unlinkSync(sockPath(profileName)); } catch {}
   daemonPort = Number(daemonPort);
   if (!Number.isInteger(daemonPort) || daemonPort <= 0 || daemonPort > 65535) {
@@ -3762,6 +3840,7 @@ async function startDaemon(profileName, port, daemonPort) {
   }
   const settings = modeSettings();
   settings.profileName = profileName;
+  settings.external = external;
   settings.stopFile = process.env.CHROMUX_STOP_FILE || profileStopPath(profileName);
 
   // Verify Chrome is reachable
@@ -3913,7 +3992,7 @@ async function startDaemon(profileName, port, daemonPort) {
       if (dead || tooOld || idle) {
         if (s._recording) await finalizeRecording(s).catch(() => {});
         s.cdp.close();
-        if (!dead) await closeTab(port, s.targetId).catch(() => {});
+        if (!dead && !s.externallyOwned) await closeTab(port, s.targetId).catch(() => {});
         sessions.delete(id);
       }
     }
@@ -4641,7 +4720,7 @@ function enforceResourceGuard(settings) {
 
 async function closeUnhealthySession(port, sessions, sessionId, session, reason) {
   session.cdp.close();
-  await closeTab(port, session.targetId).catch(() => {});
+  if (!session.externallyOwned) await closeTab(port, session.targetId).catch(() => {});
   sessions.delete(sessionId);
   const err = httpErr(503, `Session "${sessionId}" became unresponsive and was closed: ${reason}`);
   return err;
@@ -4665,7 +4744,7 @@ async function navigateSession(cdp, url, settings) {
   await cdp.send('Page.stopLoading', {}, 2000).catch(() => {});
 }
 
-async function cleanupFailedOpenSession(sessions, session, s, cdp, port, targetId) {
+async function cleanupFailedOpenSession(sessions, session, s, cdp, port, targetId, { detachOnly = false } = {}) {
   sessions.delete(session);
   if (s) disposeOopifRouting(s);
   const transport = s?.cdp || cdp;
@@ -4676,7 +4755,7 @@ async function cleanupFailedOpenSession(sessions, session, s, cdp, port, targetI
       try { transport.close(); } catch {}
     }
   }
-  if (targetId) await closeTab(port, targetId).catch(() => {});
+  if (targetId && !detachOnly && !s?.externallyOwned) await closeTab(port, targetId).catch(() => {});
 }
 
 async function prepareOpenSessionNavigation({
@@ -4979,7 +5058,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     let s = sessions.get(session);
     if (s && shouldRecycleSession(s, settings)) {
       s.cdp.close();
-      await closeTab(port, s.targetId).catch(() => {});
+      if (!s.externallyOwned) await closeTab(port, s.targetId).catch(() => {});
       sessions.delete(session);
       s = null;
     }
@@ -5044,12 +5123,12 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
           sessions.delete(session);
         };
         const now = Date.now();
-        s = { targetId: tab.id, cdp, createdAt: now, lastUsedAt: now, url: 'about:blank', title: '', navigations: 0 };
+        s = { targetId: tab.id, cdp, createdAt: now, lastUsedAt: now, url: 'about:blank', title: '', navigations: 0, externallyOwned: settings.external || !!attachTargetId };
         s.dialogPolicy = body.dialog === 'accept' ? 'accept' : 'dismiss';
         attachDialogHandler(s);
         sessions.set(session, s);
       } catch (err) {
-        await cleanupFailedOpenSession(sessions, session, s, cdp, port, tab.id);
+        await cleanupFailedOpenSession(sessions, session, s, cdp, port, tab.id, { detachOnly: settings.external || !!attachTargetId });
         throw err;
       }
     }
@@ -6178,6 +6257,7 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
     let knowledgeHint = null;
     let pageInfo = null;
     let cleanup = null;
+    let detached = false;
     if (s) {
       if (s._recording) await finalizeRecording(s).catch(() => {});
       try {
@@ -6188,10 +6268,15 @@ async function route(port, method, routePath, body, sessions, isHeadless = false
       const transport = await s.cdp.closeAndWait();
       const oopifAfter = disposeOopifRouting(s);
       if (oopifBefore) cleanup = { oopif: { before: oopifBefore, after: oopifAfter }, transport };
-      await closeTab(port, s.targetId).catch(() => {});
+      // A target attached through --cdp-url belongs to the external browser
+      // owner. Closing this Chromux session must only release our CDP
+      // connection, never invoke Chrome's /json/close endpoint for it.
+      detached = s.externallyOwned === true;
+      if (!detached) await closeTab(port, s.targetId).catch(() => {});
       sessions.delete(session);
     }
     const result = { closed: session };
+    if (detached) result.detached = true;
     if (pageInfo?.url) result.url = pageInfo.url;
     if (pageInfo?.title) result.title = pageInfo.title;
     if (knowledgeHint) result.knowledgeHint = knowledgeHint;
@@ -6483,6 +6568,7 @@ function parseOpenArgs(args) {
   let dialog = null;
   let oopif = false;
   let tab = null;
+  let cdpUrl = null;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--background' || arg === '--no-focus') {
@@ -6508,6 +6594,17 @@ function parseOpenArgs(args) {
       i++;
       continue;
     }
+    if (arg === '--cdp-url') {
+      const value = args[i + 1];
+      if (!value) {
+        console.error('Usage: chromux open <session> --cdp-url <http endpoint> [--tab active|<id>|<url-or-title-match>]');
+        process.exit(1);
+      }
+      try { cdpUrl = normalizeExternalCdpUrl(value); }
+      catch (err) { console.error(err.message); process.exit(1); }
+      i++;
+      continue;
+    }
     if (arg === '--dialog') {
       const value = args[i + 1];
       if (value !== 'accept' && value !== 'dismiss') {
@@ -6522,10 +6619,12 @@ function parseOpenArgs(args) {
   }
   // With --tab, url is optional (attach in place); default to about:blank so
   // the daemon's navigation step is a no-op re-read of the current page.
-  const parsed = { session: out[0], url: tab ? (out[1] || null) : out[1], background };
+  const attachInPlace = tab || cdpUrl;
+  const parsed = { session: out[0], url: attachInPlace ? (out[1] || null) : out[1], background };
   if (dialog) parsed.dialog = dialog;
   if (oopif) parsed.oopif = true;
   if (tab) parsed.tab = tab;
+  if (cdpUrl) parsed.cdpUrl = cdpUrl;
   return parsed;
 }
 
@@ -7229,6 +7328,13 @@ async function cmdKillIdle(rawMinutes) {
   for (const name of listKnownProfileNames()) {
     // Never sweep the user's own browser.
     if (isLiveProfile(name)) continue;
+    // An external CDP endpoint is owned by its caller. The daemon may be
+    // stopped through `close`, but an idle sweep must never attempt browser
+    // lifecycle cleanup for it.
+    if (readState(name)?.external === true) {
+      kept.push({ profile: name, external: true });
+      continue;
+    }
     const runtime = await resolveProfileRuntime(name, { adopt: false }).catch(() => null);
     if (runtime?.status !== 'running') continue;
     const seenAt = lastActivity.get(name);
@@ -7261,6 +7367,7 @@ async function cmdKillQuiet(profileName) {
     try { await cliReq('POST', '/stop', {}, legacySocketEndpoint(st.sock)); } catch {}
   }
   await retireAutoLaunchedBrowser(profileName);
+  removeExternalSessionsForProfile(profileName);
   try { fs.unlinkSync(sockPath(profileName)); } catch {}
 }
 
@@ -7317,6 +7424,7 @@ async function cmdKill(profileName) {
     }
   }
   clearState(profileName);
+  removeExternalSessionsForProfile(profileName);
   try { fs.unlinkSync(sockPath(profileName)); } catch {}
   const removedProfileFiles = clearStaleChromeSingletons(profileName);
   console.log(JSON.stringify({ profile: profileName, killed: true, pids: [...pids], removedProfileFiles }, null, 2));
@@ -7869,6 +7977,32 @@ async function resolveLiveTab(selector, facadePort) {
   const matches = attachable.filter(t =>
     (t.url || '').toLowerCase().includes(needle) || (t.title || '').toLowerCase().includes(needle));
   return pick(matches, `"${selector}"`);
+}
+
+// Resolve a target exposed by an externally-owned CDP endpoint. CDP's HTTP
+// target list has no portable "active tab" field, so active is accepted when
+// the endpoint represents one view (the Herdr connect contract) or explicitly
+// supplies an active marker; otherwise we fail rather than attach arbitrarily.
+async function resolveExternalTab(selector, cdpUrl) {
+  const targets = await cdpFetch(cdpUrl, '/json/list').catch(err => {
+    throw new Error(`Cannot reach external CDP endpoint ${cdpUrl}: ${err.message}`);
+  });
+  const pages = Array.isArray(targets) ? targets.filter(t => t.type === 'page' && t.webSocketDebuggerUrl) : [];
+  if (!pages.length) throw new Error(`External CDP endpoint ${cdpUrl} has no attachable page target`);
+  const pick = (list, label) => {
+    if (list.length === 1) return list[0].id;
+    if (!list.length) throw new Error(`No external CDP tab matches ${label}`);
+    const candidates = list.map(t => `  ${t.id}  ${t.title || '(untitled)'} - ${t.url || ''}`).join('\n');
+    throw new Error(`Multiple external CDP tabs match ${label}; pass --tab <id> or a URL/title match:\n${candidates}`);
+  };
+  if (!selector || selector === 'active') {
+    const active = pages.filter(t => t.active === true);
+    return pick(active.length ? active : pages, 'active');
+  }
+  const direct = pages.find(t => t.id === selector);
+  if (direct) return direct.id;
+  const needle = String(selector).toLowerCase();
+  return pick(pages.filter(t => (t.url || '').toLowerCase().includes(needle) || (t.title || '').toLowerCase().includes(needle)), `"${selector}"`);
 }
 
 async function cmdLiveTabs(args) {
@@ -9094,6 +9228,69 @@ async function ensureDaemon(profileName) {
   }
 }
 
+async function ensureExternalDaemon(cdpUrl) {
+  const normalized = normalizeExternalCdpUrl(cdpUrl);
+  const profileName = externalProfileName(normalized);
+  const desiredMode = getMode();
+  let endpoint = await reuseHealthyDaemon(profileName, desiredMode);
+  if (endpoint) return { endpoint, profileName, cdpUrl: normalized };
+
+  const lockFile = path.join(RUN_DIR, `${profileName}.lock`);
+  const lockFd = await acquireLock(lockFile);
+  try {
+    endpoint = await reuseHealthyDaemon(profileName, desiredMode);
+    if (endpoint) return { endpoint, profileName, cdpUrl: normalized };
+    if (!await checkCDP(normalized)) throw new Error(`Cannot reach external CDP endpoint ${normalized}. Ensure the Herdr view is still connected.`);
+    writeState(profileName, { external: true, cdpUrl: normalized });
+    const daemonPort = await findFreeDaemonPort(loadConfig());
+    if (!daemonPort) throw new Error(`No free daemon port in range ${DAEMON_PORT_RANGE_START}-${DAEMON_PORT_RANGE_END}`);
+    endpoint = daemonEndpointForPort(daemonPort);
+    process.stderr.write(`Starting external CDP daemon [${profileName}]...`);
+    const child = spawn(process.execPath, [process.argv[1], '--daemon', profileName, normalized, String(daemonPort), '--external'], {
+      detached: true, stdio: 'ignore',
+    });
+    child.unref();
+    for (let i = 0; i < 50; i++) {
+      await sleep(200);
+      try {
+        await cliReq('GET', '/health', null, endpoint, 3000);
+        process.stderr.write(' ready.\n');
+        return { endpoint, profileName, cdpUrl: normalized };
+      } catch {}
+    }
+    throw new Error('external CDP daemon failed to start');
+  } finally {
+    releaseLock(lockFd, lockFile);
+  }
+}
+
+async function externalSessionDaemon(attached) {
+  const savedEndpoint = attached?.daemonEndpoint;
+  if (savedEndpoint?.type === 'tcp') {
+    try {
+      const sessions = await cliReq('GET', '/list', null, savedEndpoint, 3000);
+      if (sessions && Object.hasOwn(sessions, attached.session)) return savedEndpoint;
+    } catch {}
+  }
+
+  // Compatibility recovery for session metadata written before daemonEndpoint
+  // was persisted. A short local scan finds the already-running daemon by its
+  // live session instead of starting an empty replacement daemon.
+  for (let port = DAEMON_PORT_RANGE_START; port <= DAEMON_PORT_RANGE_END; port++) {
+    const endpoint = daemonEndpointForPort(port);
+    try {
+      const sessions = await cliReq('GET', '/list', null, endpoint, 250);
+      if (sessions && Object.hasOwn(sessions, attached.session)) {
+        writeExternalSession(attached.session, attached.cdpUrl, attached.profile, {
+          daemonEndpoint: endpoint,
+        });
+        return endpoint;
+      }
+    } catch {}
+  }
+  return null;
+}
+
 async function waitForEndpointGone(endpoint, timeoutMs = 3000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -9307,8 +9504,46 @@ async function runCli(cmd, args) {
   const startedAt = Date.now();
   const session = inferActivitySession(cmd, args);
   let sock;
+  let commandProfile = profile;
+  let externalTargetId = null;
   try {
-    sock = await ensureDaemon(profile);
+    const initialOpen = cmd === 'open' ? parseOpenArgs([...args]) : null;
+    const external = initialOpen?.cdpUrl ? await ensureExternalDaemon(initialOpen.cdpUrl) : null;
+    if (external) {
+      sock = external.endpoint;
+      commandProfile = external.profileName;
+    } else if (cmd !== 'open' && session) {
+      const attached = readExternalSession(session);
+      if (attached) {
+        const existing = await externalSessionDaemon(attached);
+        if (!existing) {
+          // A previous daemon can legitimately be gone after a restart. In
+          // that case do not create an empty daemon and report a misleading
+          // "session not found": reconnect this named session to the saved
+          // external target, then continue the requested action.
+          const externalDaemon = await ensureExternalDaemon(attached.cdpUrl);
+          const targetId = attached.targetId || await resolveExternalTab('active', attached.cdpUrl);
+          const reopened = await cliReq('POST', '/open', {
+            session: attached.session,
+            attachTargetId: targetId,
+            background: false,
+          }, externalDaemon.endpoint, defaultCliTimeoutMs());
+          writeExternalSession(attached.session, attached.cdpUrl, externalDaemon.profileName, {
+            daemonEndpoint: externalDaemon.endpoint,
+            targetId: reopened?.targetId || targetId,
+          });
+          sock = externalDaemon.endpoint;
+          commandProfile = externalDaemon.profileName;
+        } else {
+          sock = existing;
+          commandProfile = attached.profile || externalProfileName(attached.cdpUrl);
+        }
+      } else {
+        sock = await ensureDaemon(profile);
+      }
+    } else {
+      sock = await ensureDaemon(profile);
+    }
 
     // Live cold start: ensure the extension relay is connected (launching the
     // user's Chrome if needed) before any command that touches the browser.
@@ -9331,6 +9566,13 @@ async function runCli(cmd, args) {
     const routes = {
       open:       async () => {
         const openArgs = parseOpenArgs(args);
+        if (openArgs.cdpUrl) {
+          openArgs.attachTargetId = await resolveExternalTab(openArgs.tab || 'active', openArgs.cdpUrl);
+          externalTargetId = openArgs.attachTargetId;
+          delete openArgs.tab;
+          delete openArgs.cdpUrl;
+          delete openArgs.url;
+        }
         // Live: --tab active|<id>|<url/title match> attaches an existing user
         // tab instead of creating a new one.
         if (live && openArgs.tab) {
@@ -9430,17 +9672,25 @@ async function runCli(cmd, args) {
       record:     () => cmdRecord(args, sock),
       console:    () => cliReq('POST', '/console', { session: args[0], off: args.includes('--off') }, sock),
       network:    () => cliReq('POST', '/network', { session: args[0], off: args.includes('--off'), all: args.includes('--all') }, sock),
-      close:      () => cliReq('DELETE', `/session/${args[0]}`, null, sock),
+      close:      async () => {
+        const result = await cliReq('DELETE', `/session/${args[0]}`, null, sock);
+        removeExternalSession(args[0]);
+        return result;
+      },
       list:       () => cliReq('GET', '/list', null, sock),
       stop:       () => cliReq('POST', '/stop', {}, sock),
     };
 
     const r = await routes[cmd]();
-    recordCliActivity({ cmd, args, profile, session, result: r, startedAt });
-    if (cmd === 'close') printFailureLearningReminder(profile, args[0]);
+    if (cmd === 'open' && initialOpen?.cdpUrl && r?.session) writeExternalSession(r.session, initialOpen.cdpUrl, commandProfile, {
+      daemonEndpoint: sock,
+      targetId: r.targetId || externalTargetId,
+    });
+    recordCliActivity({ cmd, args, profile: commandProfile, session, result: r, startedAt });
+    if (cmd === 'close') printFailureLearningReminder(commandProfile, args[0]);
     console.log(typeof r === 'string' ? r : JSON.stringify(r, null, 2));
   } catch (e) {
-    recordCliActivity({ cmd, args, profile, session, error: e, startedAt });
+    recordCliActivity({ cmd, args, profile: commandProfile, session, error: e, startedAt });
     console.error(`Error: ${e.message}`);
     process.exit(1);
   }
@@ -9971,6 +10221,9 @@ The core surface:
                                      (default: dismiss; beforeunload is always accepted;
                                      handled dialogs surface as "dialog" in action responses)
   chromux open <s> <u> --oopif     Opt in to cross-origin child target refs and routing
+  chromux open <s> --cdp-url http://127.0.0.1:PORT [--tab active|<id>|<match>]
+                                     Attach an externally owned CDP browser view in place.
+                                     Loopback endpoints only; close detaches and never closes its tab.
   chromux run <session> -            Multi-step async JS with cdp/js/page/waitFor/assertPage helpers
                                      (waitFor accepts [fallback, candidates] for selector/text waits)
   chromux run <session> --page-file F  Run a JS file directly in the page (no shell escaping)
@@ -9999,7 +10252,7 @@ Lifecycle:
   chromux profile new <name>         Create a new profile (needs the user's go-ahead)
   chromux profile prune              Show idle profiles safe to delete (add --yes to delete)
   chromux stop                       Stop daemon (keeps Chrome)
-  chromux close <session>            Close tab
+  chromux close <session>            Close tab (detach only for external CDP attachments)
   chromux list                       List active sessions
 
 Live mode (your real Chrome via the chromux extension):
@@ -10234,14 +10487,15 @@ const [,, cmd, ...args] = process.argv;
 
 if (cmd === '--daemon') {
   const profileName = args[0] || DEFAULT_PROFILE;
-  const port = parseInt(args[1]);
+  const external = args.includes('--external');
+  const port = external ? args[1] : parseInt(args[1]);
   const daemonPort = parseInt(args[2]);
-  if (!port || !daemonPort) { console.error('Usage: --daemon <profile> <chrome-cdp-port> <daemon-port>'); process.exit(1); }
+  if (!port || !daemonPort) { console.error('Usage: --daemon <profile> <chrome-cdp-port|http-endpoint> <daemon-port> [--external]'); process.exit(1); }
   // Live profile: the CDP endpoint is the in-process facade backed by the
   // extension relay, not a launched Chrome. Start it before the daemon so
   // the daemon's CDP reachability check passes.
   if (isLiveProfile(profileName)) await startLiveBridge(port, daemonPort);
-  await startDaemon(profileName, port, daemonPort);
+  await startDaemon(profileName, port, daemonPort, { external });
 } else if (cmd === '--secret-agent') {
   await startSecretAgent();
 } else if (!cmd || cmd === 'help' || cmd === '--help') {

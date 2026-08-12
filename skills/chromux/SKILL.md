@@ -97,6 +97,20 @@ snapshot. Navigation resets refs; in-page changes keep them stable.
 
 ## Core Workflow
 
+### External CDP view
+
+To control a browser view owned by another local tool, attach it in place:
+
+```bash
+chromux open herdr-view --cdp-url http://127.0.0.1:PORT --tab active
+```
+
+The endpoint returned as `cdp_http_url` by Herdr's `connect --view <view_id>` command is the expected input.
+Then use the normal `snapshot`, `click`, `fill`, `run`, and `screenshot` commands with `herdr-view`.
+The endpoint must be loopback-only (`localhost`, `127.0.0.1`, or `::1`) and plain `http` without credentials, query, or fragment.
+`close` detaches only - it never closes that external tab, and Chromux cleanup or `kill` never terminates the externally owned browser.
+If more than one page is exposed, choose `--tab active`, a target id, or a URL/title substring.
+
 1. `chromux open exp-ab12 <url>` — response includes an `interactive` count,
    and small pages inline their interactive elements (with `@ref` handles) in
    an `elements` field: when present, act on those refs directly instead of

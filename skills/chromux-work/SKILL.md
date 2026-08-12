@@ -148,6 +148,12 @@ live commands error with "extension not connected", tell the user to run
 `chromux pair` (the extension connects on its own, no token) instead of
 retrying.
 
+An externally-owned local browser view, such as a Herdr browser-plugin view,
+is a third route when the caller supplies `cdp_http_url`: use `chromux open
+<s> --cdp-url <endpoint> --tab active`. The normal session commands work
+afterward, but close only detaches and neither idle cleanup nor kill may
+terminate that browser. The endpoint must be a loopback HTTP URL.
+
 Launch or reuse the selected profile. Headed mode with background tab creation
 is the pragmatic default when login state and anti-bot behavior matter. New
 tabs are background by default so they should not steal focus:
