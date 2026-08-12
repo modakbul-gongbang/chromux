@@ -375,7 +375,12 @@ human-only by design and will refuse if you try to run them.
   above) when the add-on is set up; otherwise stop and ask the user to log
   in manually.
 - Always close sessions you open; `chromux ps` / `chromux kill <profile>` for
-  profile cleanup (also clears stale singleton locks).
+  profile cleanup (also clears stale singleton locks). chromux does back you
+  up — tabs idle 30 minutes are closed and an auto-launched browser shuts down
+  15 minutes after its last session — but until those timers fire every tab you
+  abandon holds a renderer. `chromux ps` shows `UPTIME`/`RENDER`, and
+  `chromux kill --idle <minutes>` sweeps a machine that has accumulated
+  leftovers.
 - Older aliases (`eval`, `scroll`, `wait`, `console`, `network`, `scroll-until`)
   exist for compatibility; prefer `run`, `cdp`, and `watch`.
 - Known reach limits (report these instead of retrying blindly): opaque cross-origin geometry is available by default, but reliable DOM/text action inside a site-isolated OOPIF requires an explicit `open ... --oopif` session.

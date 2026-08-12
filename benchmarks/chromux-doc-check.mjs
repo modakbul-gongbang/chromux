@@ -272,6 +272,22 @@ assertContains(checks, 'visual topic OOPIF crash cleanup', docs.visualTopic, '`l
   assertContains(checks, 'recovery topic secret store handoff', docs.recoveryTopic, '--secret <host>:password` first');
 }
 
+// Resource lifetime: the guarantee is that chromux retires what it launched,
+// so help, README, and both skills must keep stating the limits and the escape
+// hatches. Silent drift here means unattended machines pile up browsers again.
+{
+  assertContains(checks, 'help resource lifetime section', docs.help, 'Resource lifetime:');
+  assertContains(checks, 'help kill --idle sweep', docs.help, 'chromux kill --idle <minutes>');
+  assertContains(checks, 'help browser idle env', docs.help, 'CHROMUX_BROWSER_IDLE_SHUTDOWN_MS');
+  assertContains(checks, 'help ps uptime column', docs.help, 'UPTIME and RENDER');
+  assertContains(checks, 'readme resource lifetime section', docs.readme, '### Resource lifetime');
+  assertContains(checks, 'readme auto-launched only', docs.readme, 'Only auto-launched browsers are retired');
+  assertContains(checks, 'readme idle sweep', docs.readme, 'chromux kill --idle 60');
+  assertContains(checks, 'readme browser idle env', docs.readme, 'CHROMUX_BROWSER_IDLE_SHUTDOWN_MS');
+  assertContains(checks, 'chromux skill idle backstop', docs.chromuxSkill, 'chromux kill --idle <minutes>');
+  assertContains(checks, 'work skill idle backstop', docs.workSkill, 'backstop for crashes and interruptions');
+}
+
 // Note correction: the whole point is that agents fix wrong notes in place
 // instead of appending a rebuttal, so the docs must keep saying so.
 {

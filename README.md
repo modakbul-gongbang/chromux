@@ -378,6 +378,46 @@ anything running, `default`, `live`, and profiles holding cookie data (use
 `--include-logged-in` to override). It also surfaces directories with names
 chromux no longer accepts, which are otherwise invisible to every command.
 
+### Resource lifetime
+
+Browsers used to outlive the work that started them. `open` auto-launches
+Chrome, but nothing ever shut it down again, so an unattended machine
+accumulated browsers that ran for weeks — one observed instance had been up 42
+days with 140 renderers. Telling callers to "always close your sessions" does
+not fix this: cleanup is the last step, it is skipped whenever an agent crashes
+or is interrupted, and skipping it is invisible.
+
+So chromux cleans up after itself:
+
+- A session nobody has touched for **30 minutes** is closed (`CHROMUX_IDLE_TTL_MS`).
+- Once a profile has held **zero sessions for 15 minutes**, the browser chromux
+  auto-launched for it is shut down and its daemon exits
+  (`CHROMUX_BROWSER_IDLE_SHUTDOWN_MS`).
+
+Only auto-launched browsers are retired. A browser you started yourself with
+`chromux launch` stays up until you kill it, and the `live` profile is never
+touched — it is your own Chrome. Set either variable to `0` to opt out.
+
+`chromux ps` shows `UPTIME` and `RENDER`, so a browser quietly running for
+weeks is visible long before it becomes a problem:
+
+```
+PROFILE             PORT    PID       STATUS      DAEMON  TABS  UPTIME    RENDER
+default             9301    20382     running     ok      0     8h9m      0
+modakbul            9300    10088     running     ok      0     2d15h     0
+```
+
+For unattended machines, sweep whatever is left on a timer. This stops every
+running profile that no browser command has touched in the given window, and
+never touches `live`:
+
+```bash
+chromux kill --idle 60
+```
+
+Only browser commands count as use, so a monitoring cron that runs `chromux ps`
+cannot keep alive the very browsers it is meant to reap.
+
 On macOS, chromux may be invoked from agent runtimes that set `HOME` to a
 synthetic profile directory. Chrome's `--user-data-dir` still controls browser
 profile isolation, but the Chrome child process is launched with the real macOS
@@ -956,6 +996,7 @@ chromux open --foreground tab https://example.com
 |----------|---------|-------------|
 | `CHROMUX_PROFILE` | `default` | Active profile name |
 | `CHROMUX_ALLOW_NEW_PROFILE` | `0` | Set to `1` to let commands create an unknown profile without asking (same as `--new-profile`) |
+| `CHROMUX_BROWSER_IDLE_SHUTDOWN_MS` | `900000` (15m) | Shut down an auto-launched browser after this long with zero sessions; `0` disables |
 | `CHROMUX_MODE` | `default` | Browser policy mode: `default` for compatibility/QA, `crawl` for efficient crawling |
 | `CHROMUX_TASK` | empty | Optional Task label written to activity events and used by the status app timeline |
 | `CHROMUX_HOME` | `~/.chromux` | Override chromux state root for tests or isolated runs |
@@ -964,7 +1005,7 @@ chromux open --foreground tab https://example.com
 | `CHROMUX_MAX_CONCURRENT_OPS_PER_PROFILE` | `4` in crawl, unlimited in default | Maximum expensive daemon operations running at once |
 | `CHROMUX_MAX_QUEUED_OPS_PER_PROFILE` | `16` in crawl, unlimited in default | Maximum queued expensive operations before new requests are rejected |
 | `CHROMUX_MAX_SESSIONS_PER_PROFILE` | `12` in crawl, unlimited in default | Maximum active sessions before new sessions are rejected |
-| `CHROMUX_IDLE_TTL_MS` | `20000` in crawl, disabled in default | Idle session age before the daemon closes the tab |
+| `CHROMUX_IDLE_TTL_MS` | `20000` in crawl, `1800000` (30m) in default | Idle session age before the daemon closes the tab; `0` disables |
 | `CHROMUX_SESSION_TTL_MS` | `300000` in crawl, disabled in default | Maximum session age before the daemon closes the tab |
 | `CHROMUX_NAVIGATION_WAIT_MS` | `5000` in crawl, `30000` in default | Navigation wait budget for `open` |
 | `CHROMUX_MAX_CHROME_PROCESSES_PER_PROFILE` | `60` in crawl, disabled in default | Reject new opens when profile Chrome process count reaches this value |

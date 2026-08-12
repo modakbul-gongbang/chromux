@@ -462,6 +462,14 @@ function siteKnowledgeHintForUrl(rawUrl) {
 // Durable knowledge for a host goes stale: a note or replay script written
 // months ago may describe a page that has since changed. Past this age we
 // nudge the agent to refresh it rather than trust it silently.
+// A chromux-launched Chrome used to outlive the work that started it: nothing
+// ever exited the daemon except a dead CDP endpoint, so `open` auto-launched a
+// browser that then ran until the machine rebooted. Once a profile has held
+// zero sessions this long, the browser it auto-launched is shut down with it.
+// Only applies to browsers chromux started on its own — an explicit
+// `chromux launch` and the reserved `live` profile are never touched.
+const BROWSER_IDLE_SHUTDOWN_DEFAULT_MS = 15 * 60_000;
+
 const KNOWLEDGE_STALE_DAYS = 30;
 
 // The newest mtime across every note (skills/<host>/*.md) and replay script
@@ -1151,6 +1159,26 @@ function commandUsesProfileDir(command, profileName) {
   const userDataDir = getCommandArgValue(command, '--user-data-dir') || getArgValue(splitCommand(command), '--user-data-dir');
   if (!userDataDir) return false;
   return path.resolve(userDataDir) === path.resolve(profileDir(profileName));
+}
+
+/**
+ * Elapsed run time of a process, as a compact `3d4h` / `2h15m` / `45m` label.
+ * Parses `ps -o etime=`, whose format is `[[dd-]hh:]mm:ss` on both macOS and
+ * Linux. Returns null when the process is gone or ps is unavailable.
+ */
+function processUptimeLabel(pid) {
+  if (!pid || process.platform === 'win32') return null;
+  const res = spawnSync('ps', ['-o', 'etime=', '-p', String(pid)], { encoding: 'utf8' });
+  if (res.error || res.status !== 0) return null;
+  const raw = (res.stdout || '').trim();
+  const m = raw.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+  if (!m) return null;
+  const days = Number(m[1] || 0);
+  const hours = Number(m[2] || 0);
+  const minutes = Number(m[3] || 0);
+  if (days) return `${days}d${hours}h`;
+  if (hours) return `${hours}h${minutes}m`;
+  return `${minutes}m`;
 }
 
 function profileResourceSnapshot(profileName) {
@@ -3865,7 +3893,16 @@ async function startDaemon(profileName, port, daemonPort) {
     console.log(`chromux daemon [${profileName}] mode=${settings.mode} on http://${DAEMON_HOST}:${daemonPort} -> CDP ${port}`);
   });
 
-  // Watchdog: prune dead, stale, or idle sessions. Crawl mode uses a shorter
+  // A browser is only eligible for automatic shutdown if chromux launched it
+  // itself. `live` is the user's own Chrome and an explicit `chromux launch`
+  // is a deliberate request to keep it up — neither is ours to close.
+  const browserIdleShutdownMs = isLiveProfile(profileName)
+    ? 0
+    : (readState(profileName)?.autoLaunched ? settings.browserIdleShutdownMs : 0);
+  let sessionsLastSeenAt = Date.now();
+
+  // Watchdog: prune dead, stale, or idle sessions, then retire the browser
+  // once it has had nothing to do for a while. Crawl mode uses a shorter
   // interval so candidate-list tabs do not sit around while detail workers run.
   setInterval(async () => {
     const now = Date.now();
@@ -3879,6 +3916,17 @@ async function startDaemon(profileName, port, daemonPort) {
         if (!dead) await closeTab(port, s.targetId).catch(() => {});
         sessions.delete(id);
       }
+    }
+    if (sessions.size > 0) {
+      sessionsLastSeenAt = now;
+      return;
+    }
+    if (browserIdleShutdownMs > 0 && now - sessionsLastSeenAt > browserIdleShutdownMs) {
+      const idleMin = Math.round((now - sessionsLastSeenAt) / 60_000);
+      process.stderr.write(`chromux daemon [${profileName}]: no sessions for ~${idleMin}m, shutting down the browser it launched.\n`);
+      await retireAutoLaunchedBrowser(profileName);
+      cleanup();
+      process.exit(0);
     }
   }, settings.mode === 'crawl' ? 5000 : 30000);
 
@@ -6393,13 +6441,19 @@ function modeSettings(mode = getMode()) {
       maxChromeProcesses: envNumber('CHROMUX_MAX_CHROME_PROCESSES_PER_PROFILE', 60),
       maxRenderers: envNumber('CHROMUX_MAX_RENDERERS_PER_PROFILE', 40),
       maxRssMb: envNumber('CHROMUX_MAX_RSS_MB_PER_PROFILE', 12_000),
+      browserIdleShutdownMs: envNumber('CHROMUX_BROWSER_IDLE_SHUTDOWN_MS', BROWSER_IDLE_SHUTDOWN_DEFAULT_MS),
     };
   }
   return {
     mode,
     maxSessions: envNumber('CHROMUX_MAX_SESSIONS_PER_PROFILE', 0),
     maxConcurrentOps: envNumber('CHROMUX_MAX_CONCURRENT_OPS_PER_PROFILE', 0),
-    idleTtlMs: envNumber('CHROMUX_IDLE_TTL_MS', 0),
+    // Default mode used to disable every lifetime guard, so an abandoned tab
+    // lived as long as the machine did. A tab nobody has touched in 30 minutes
+    // is abandoned, not in use — long enough that a human reading a page is
+    // never interrupted, short enough that unattended automation cannot pile
+    // up renderers for weeks.
+    idleTtlMs: envNumber('CHROMUX_IDLE_TTL_MS', 30 * 60_000),
     sessionTtlMs: envNumber('CHROMUX_SESSION_TTL_MS', 0),
     navigationWaitMs: envNumber('CHROMUX_NAVIGATION_WAIT_MS', 30_000),
     resourceBlocking: false,
@@ -6410,6 +6464,7 @@ function modeSettings(mode = getMode()) {
     maxChromeProcesses: envNumber('CHROMUX_MAX_CHROME_PROCESSES_PER_PROFILE', 0),
     maxRenderers: envNumber('CHROMUX_MAX_RENDERERS_PER_PROFILE', 0),
     maxRssMb: envNumber('CHROMUX_MAX_RSS_MB_PER_PROFILE', 0),
+    browserIdleShutdownMs: envNumber('CHROMUX_BROWSER_IDLE_SHUTDOWN_MS', BROWSER_IDLE_SHUTDOWN_DEFAULT_MS),
   };
 }
 
@@ -6507,7 +6562,7 @@ function openExternal(url) {
   return spawn(opener.command, opener.args, { detached: true, stdio: 'ignore' }).unref();
 }
 
-async function cmdLaunch(profileName, explicitPort, launchMode = 'headless') {
+async function cmdLaunch(profileName, explicitPort, launchMode = 'headless', { auto = false } = {}) {
   launchMode = normalizeLaunchMode(launchMode);
   const headless = launchMode === 'headless';
   const settings = modeSettings();
@@ -6589,6 +6644,10 @@ async function cmdLaunch(profileName, explicitPort, launchMode = 'headless') {
         headless,
         launchMode,
         mode: settings.mode,
+        // Only a browser chromux started on its own is a browser chromux may
+        // shut down on its own. An explicit `chromux launch` is the user
+        // saying they want it up.
+        autoLaunched: auto,
       });
       process.stderr.write(' ready.\n');
       console.log(JSON.stringify({
@@ -6656,6 +6715,8 @@ async function cmdPs(args = []) {
       daemon,
       paused,
       launchMode: runtime.launchMode || null,
+      uptime: cdpOk ? processUptimeLabel(runtime.pid) : null,
+      autoLaunched: readState(name)?.autoLaunched ?? null,
       resources,
     });
   }
@@ -6719,8 +6780,14 @@ async function cmdPs(args = []) {
   if (rows.length === 0) {
     console.log('No running profiles.');
   } else {
-    // Table output
-    console.log('PROFILE'.padEnd(20) + 'PORT'.padEnd(8) + 'PID'.padEnd(10) + 'STATUS'.padEnd(12) + 'DAEMON'.padEnd(8) + 'TABS');
+    // Table output. UPTIME and RENDER are here because a browser quietly
+    // running for weeks with a growing renderer count is the failure mode that
+    // brings a machine down, and PID/STATUS alone never showed it.
+    console.log(
+      'PROFILE'.padEnd(20) + 'PORT'.padEnd(8) + 'PID'.padEnd(10) +
+      'STATUS'.padEnd(12) + 'DAEMON'.padEnd(8) + 'TABS'.padEnd(6) +
+      'UPTIME'.padEnd(10) + 'RENDER'
+    );
     for (const r of rows) {
       console.log(
         r.profile.padEnd(20) +
@@ -6728,7 +6795,9 @@ async function cmdPs(args = []) {
         String(r.pid ?? '-').padEnd(10) +
         r.status.padEnd(12) +
         r.daemon.padEnd(8) +
-        r.tabs +
+        String(r.tabs).padEnd(6) +
+        String(r.uptime || '-').padEnd(10) +
+        String(r.resources?.renderers ?? '-') +
         (r.extension ? `  (extension: ${r.extension})` : '')
       );
     }
@@ -6783,11 +6852,26 @@ function profileHasCookieData(name) {
   catch { return false; }
 }
 
-/** Last recorded CLI activity per profile, from the activity log. */
-function profileLastActivityMap() {
+// Commands that mean a browser is actually in use. `ps`, `profile`, `note`
+// and friends are logged against the ambient profile without touching it, so
+// counting them would let a monitoring cron keep the very browsers it is
+// supposed to be reaping alive forever.
+const BROWSER_TOUCHING_COMMANDS = new Set([
+  'open', 'snapshot', 'cdp', 'run', 'batch', 'click', 'hover', 'drag', 'fill',
+  'type', 'press', 'download', 'wait-for-text', 'wait-for-selector', 'eval',
+  'scroll-until', 'screenshot', 'scroll', 'wait', 'watch', 'console',
+  'network', 'close', 'list', 'record', 'show', 'launch',
+]);
+
+/**
+ * Last recorded CLI activity per profile, from the activity log.
+ * Pass a command allowlist to count only certain commands as activity.
+ */
+function profileLastActivityMap(commands = null) {
   const map = new Map();
   for (const event of readActivityEventsRaw()) {
     if (!event?.profile || !event.timestamp) continue;
+    if (commands && !commands.has(event.command)) continue;
     const prev = map.get(event.profile);
     if (!prev || event.timestamp > prev) map.set(event.profile, event.timestamp);
   }
@@ -7122,6 +7206,88 @@ function printFailureLearningReminder(profile, session = null) {
     const scope = session ? `session "${session}"` : `profile "${profile}"`;
     console.error(`note: ${failures.length} failed command${failures.length === 1 ? '' : 's'} in recent ${scope} on ${noteless.join(', ')} — if you learned durable site behavior, save it: chromux note ${noteless[0]} --add "..."`);
   } catch {}
+}
+
+/**
+ * Stop every running profile that no chromux command has touched recently.
+ * The daemon retires the browsers it launched itself, but a machine running
+ * unattended automation also accumulates browsers from explicit launches and
+ * from daemons that died before they could clean up. This is the sweep you can
+ * put on a cron/launchd timer to catch those.
+ */
+async function cmdKillIdle(rawMinutes) {
+  const minutes = Number(rawMinutes);
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    console.error('--idle requires a non-negative number of minutes');
+    process.exit(1);
+  }
+  const cutoffMs = minutes * 60_000;
+  const lastActivity = profileLastActivityMap(BROWSER_TOUCHING_COMMANDS);
+  const now = Date.now();
+  const killed = [];
+  const kept = [];
+  for (const name of listKnownProfileNames()) {
+    // Never sweep the user's own browser.
+    if (isLiveProfile(name)) continue;
+    const runtime = await resolveProfileRuntime(name, { adopt: false }).catch(() => null);
+    if (runtime?.status !== 'running') continue;
+    const seenAt = lastActivity.get(name);
+    // A profile with no recorded activity at all is treated as idle: the log
+    // is the only evidence chromux has that anyone is still using it.
+    const idleMs = seenAt ? now - Date.parse(seenAt) : Infinity;
+    if (idleMs < cutoffMs) {
+      kept.push({ profile: name, idleMinutes: Math.round(idleMs / 60_000) });
+      continue;
+    }
+    const resources = profileResourceSnapshot(name);
+    await cmdKillQuiet(name);
+    killed.push({
+      profile: name,
+      idleMinutes: Number.isFinite(idleMs) ? Math.round(idleMs / 60_000) : null,
+      lastUsedAt: seenAt || null,
+      renderers: resources.renderers,
+      chromeProcesses: resources.chromeProcesses,
+    });
+  }
+  console.log(JSON.stringify({ idleMinutes: minutes, killed, kept }, null, 2));
+}
+
+/** `cmdKill` without the per-profile JSON output, for batch sweeps. */
+async function cmdKillQuiet(profileName) {
+  const st = readState(profileName);
+  const endpoint = daemonEndpointFromState(st);
+  try { await cliReq('POST', '/stop', {}, endpoint); } catch {}
+  if (st?.sock) {
+    try { await cliReq('POST', '/stop', {}, legacySocketEndpoint(st.sock)); } catch {}
+  }
+  await retireAutoLaunchedBrowser(profileName);
+  try { fs.unlinkSync(sockPath(profileName)); } catch {}
+}
+
+/**
+ * Stop the Chrome processes belonging to a profile and clear its state. Used
+ * by the daemon's idle shutdown; `cmdKill` is the interactive equivalent and
+ * additionally stops the daemon (here the daemon is the caller and exits
+ * immediately afterwards).
+ */
+async function retireAutoLaunchedBrowser(profileName) {
+  const pids = new Set();
+  const st = readState(profileName);
+  if (st && isProcessAlive(st.pid)) pids.add(st.pid);
+  for (const proc of findProfileProcesses(profileName)) {
+    if (isProcessAlive(proc.pid)) pids.add(proc.pid);
+  }
+  for (const pid of pids) terminateProcess(pid, false);
+  const deadline = Date.now() + 3000;
+  while ([...pids].some(pid => isProcessAlive(pid)) && Date.now() < deadline) {
+    await sleep(100);
+  }
+  for (const pid of pids) {
+    if (isProcessAlive(pid)) terminateProcess(pid, true);
+  }
+  clearState(profileName);
+  clearStaleChromeSingletons(profileName);
+  return [...pids];
 }
 
 async function cmdKill(profileName) {
@@ -8894,7 +9060,7 @@ async function ensureDaemon(profileName) {
       port = await resolveProfilePort(profileName);
       if (!port) {
         process.stderr.write(`Auto-launching profile [${profileName}]...\n`);
-        await cmdLaunch(profileName, null, autoLaunchMode());
+        await cmdLaunch(profileName, null, autoLaunchMode(), { auto: true });
         port = await resolveProfilePort(profileName);
         if (!port) {
           console.error(`Failed to launch profile "${profileName}".`);
@@ -9088,7 +9254,9 @@ async function runCli(cmd, args) {
   }
   if (cmd === 'ps') return runLoggedProfileCommand(cmd, args, getProfile(), () => cmdPs(args));
   if (cmd === 'kill') {
-    if (!args[0]) { console.error('Usage: chromux kill <profile>'); process.exit(1); }
+    const idleMinutes = takeFlagValue(args, '--idle');
+    if (idleMinutes != null) return cmdKillIdle(idleMinutes);
+    if (!args[0]) { console.error('Usage: chromux kill <profile> | chromux kill --idle <minutes>'); process.exit(1); }
     if (isLiveProfile(args[0])) {
       const r = await runLoggedProfileCommand(cmd, args, args[0], () => cmdKillLive());
       return r;
@@ -9826,6 +9994,7 @@ Lifecycle:
   chromux pause [name]               Hard-stop new tab work for a profile
   chromux resume [name]              Allow tab work again for a paused profile
   chromux kill <name>                Stop profile (Chrome + daemon)
+  chromux kill --idle <minutes>      Stop every profile unused for that long (cron sweep)
   chromux profile list               List known profiles with last use and disk usage
   chromux profile new <name>         Create a new profile (needs the user's go-ahead)
   chromux profile prune              Show idle profiles safe to delete (add --yes to delete)
@@ -10004,6 +10173,22 @@ Profile selection:
   on a terminal, and is created only via "chromux profile new <name>",
   the --new-profile flag, or CHROMUX_ALLOW_NEW_PROFILE=1. Agents should ask
   the user before creating one. "default" and "live" are always allowed.
+
+Resource lifetime:
+  chromux cleans up after itself so unattended automation cannot pile up
+  browsers. A tab nobody has touched for 30 minutes is closed, and once a
+  profile has held zero sessions for 15 minutes the browser chromux launched
+  for it is shut down along with its daemon.
+
+  Only auto-launched browsers are retired this way. A browser you started with
+  chromux launch stays up until you kill it, and the live profile (your own
+  Chrome) is never touched. Tune with CHROMUX_IDLE_TTL_MS and
+  CHROMUX_BROWSER_IDLE_SHUTDOWN_MS; 0 disables either.
+
+  chromux ps shows UPTIME and RENDER so a browser quietly running for weeks is
+  visible before it becomes a problem. For unattended machines, sweep leftovers
+  on a timer:
+      chromux kill --idle 60
 
 Crawl mode:
   Caps expensive profile operations, blocks heavy media/font/analytics resources,

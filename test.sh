@@ -1667,6 +1667,76 @@ else
 fi
 CHROMUX_PROFILE=$PROFILE node "$CT" close tab-record 2>/dev/null > /dev/null
 
+# --- Test 7e: Resource lifetime ---
+echo ""
+echo "--- Test 7e: Resource lifetime ---"
+# Idle shutdown is what stops unattended machines from accumulating browsers,
+# so verify both halves: an auto-launched browser retires itself, and one the
+# user launched explicitly never does.
+LIFE_HOME="$(mktemp -d /tmp/chromux-life-XXXXXX)"
+(
+  export CHROMUX_HOME="$LIFE_HOME"
+  export CHROMUX_ALLOW_NEW_PROFILE=1
+  export CHROMUX_IDLE_TTL_MS=2000
+  export CHROMUX_BROWSER_IDLE_SHUTDOWN_MS=2000
+  node "$CT" open life-auto https://example.com >/dev/null 2>&1
+) || true
+AUTO_STATE="$LIFE_HOME/profiles/default/.state"
+if [ -f "$AUTO_STATE" ] && grep -q '"autoLaunched": true' "$AUTO_STATE"; then
+  echo "  ✓ auto-launched browser is marked autoLaunched"
+else
+  echo "  ✗ auto-launched browser missing autoLaunched flag"
+  FAIL=$((FAIL+1))
+fi
+(
+  export CHROMUX_HOME="$LIFE_HOME"
+  export CHROMUX_ALLOW_NEW_PROFILE=1
+  node "$CT" launch life-kept --headless >/dev/null 2>&1
+) || true
+KEPT_STATE="$LIFE_HOME/profiles/life-kept/.state"
+if [ -f "$KEPT_STATE" ] && grep -q '"autoLaunched": false' "$KEPT_STATE"; then
+  echo "  ✓ explicit launch is not marked autoLaunched"
+else
+  echo "  ✗ explicit launch was marked auto-launched (it would be killed)"
+  FAIL=$((FAIL+1))
+fi
+# Give the auto-launched daemon time to see zero sessions and retire itself.
+LIFE_DEADLINE=$((SECONDS + 60))
+LIFE_GONE=0
+while [ $SECONDS -lt $LIFE_DEADLINE ]; do
+  if ! CHROMUX_HOME="$LIFE_HOME" node "$CT" ps 2>/dev/null | grep -q '^default '; then
+    LIFE_GONE=1
+    break
+  fi
+  sleep 3
+done
+if [ "$LIFE_GONE" = "1" ]; then
+  echo "  ✓ auto-launched browser retires itself once idle"
+else
+  echo "  ✗ auto-launched browser was still running after 60s idle"
+  FAIL=$((FAIL+1))
+fi
+if CHROMUX_HOME="$LIFE_HOME" node "$CT" ps 2>/dev/null | grep -q '^life-kept '; then
+  echo "  ✓ explicitly launched browser survives idle shutdown"
+else
+  echo "  ✗ explicitly launched browser was retired"
+  FAIL=$((FAIL+1))
+fi
+PS_HEADER=$(CHROMUX_HOME="$LIFE_HOME" node "$CT" ps 2>/dev/null | head -1)
+check "ps reports uptime" "UPTIME" "$PS_HEADER"
+check "ps reports renderer count" "RENDER" "$PS_HEADER"
+# --idle 0 sweeps everything still running; live is never a candidate.
+SWEEP=$(CHROMUX_HOME="$LIFE_HOME" node "$CT" kill --idle 0 2>/dev/null)
+check "kill --idle reports what it stopped" '"killed"' "$SWEEP"
+check "kill --idle stopped the kept profile too" "life-kept" "$SWEEP"
+if CHROMUX_HOME="$LIFE_HOME" node "$CT" ps 2>/dev/null | grep -q '^life-kept '; then
+  echo "  ✗ kill --idle left a running profile behind"
+  FAIL=$((FAIL+1))
+else
+  echo "  ✓ kill --idle leaves no running profiles"
+fi
+rm -rf "$LIFE_HOME"
+
 # --- Test 7f: Site knowledge freshness is per file ---
 echo ""
 echo "--- Test 7f: Site knowledge freshness ---"

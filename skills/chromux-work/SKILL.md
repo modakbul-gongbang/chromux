@@ -63,7 +63,11 @@ uses the same `chromux` command surface.
   browser work, then `chromux resume <profile>` before the next wave.
 - Keep work read-only unless the user explicitly asked to mutate state.
 - Close every session you open. Do not suppress `chromux close` output unless
-  the user explicitly asked for silence.
+  the user explicitly asked for silence. chromux closes tabs idle for 30
+  minutes and shuts down an auto-launched browser 15 minutes after its last
+  session ends, but that is a backstop for crashes and interruptions, not a
+  reason to leave tabs open — everything you leave behind keeps a renderer
+  alive until the timer fires.
 - After close, review any `knowledgeHint`. Update
   `~/.chromux/skills/<host>/*.md` when this run revealed durable public site
   behavior or stale/wrong notes.
